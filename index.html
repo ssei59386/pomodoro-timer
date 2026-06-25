@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ポモドーロタイマー</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <h1>🍅 ポモドーロタイマー</h1>
+
+    <div class="modes">
+      <button class="mode-btn active" data-mode="work" data-minutes="25">作業 25分</button>
+      <button class="mode-btn" data-mode="short" data-minutes="5">短い休憩 5分</button>
+      <button class="mode-btn" data-mode="long" data-minutes="15">長い休憩 15分</button>
+    </div>
+
+    <div class="timer-circle">
+      <svg viewBox="0 0 200 200">
+        <circle class="bg" cx="100" cy="100" r="90"></circle>
+        <circle class="progress" cx="100" cy="100" r="90"></circle>
+      </svg>
+      <div class="time-display" id="timeDisplay">25:00</div>
+    </div>
+
+    <div class="controls">
+      <button id="startBtn">開始</button>
+      <button id="resetBtn">リセット</button>
+    </div>
+
+    <div class="session-count">完了したポモドーロ: <span id="sessionCount">0</span> 🍅</div>
+
+    <div class="tasks">
+      <h2>タスク</h2>
+      <form id="taskForm">
+        <input type="text" id="taskInput" placeholder="新しいタスクを追加..." required>
+        <button type="submit">追加</button>
+      </form>
+      <ul id="taskList"></ul>
+    </div>
+  </div>
+
+  <audio id="alarmSound" src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" preload="auto"></audio>
+
+  <script src="script.js"></script>
+</body>
+</html>

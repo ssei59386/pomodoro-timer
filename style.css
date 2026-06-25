@@ -1,0 +1,196 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+  font-family: "Hiragino Sans", "Segoe UI", sans-serif;
+}
+
+.app {
+  background: #fff;
+  border-radius: 24px;
+  padding: 32px 40px;
+  width: 380px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
+  text-align: center;
+}
+
+h1 {
+  margin: 0 0 20px;
+  font-size: 24px;
+  color: #333;
+}
+
+.modes {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 8px 4px;
+  border: none;
+  border-radius: 12px;
+  background: #f1f1f1;
+  color: #555;
+  font-size: 12px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.mode-btn.active {
+  background: #ff7e5f;
+  color: #fff;
+}
+
+.timer-circle {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  margin: 0 auto 20px;
+}
+
+.timer-circle svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.timer-circle circle {
+  fill: none;
+  stroke-width: 12;
+}
+
+.timer-circle .bg {
+  stroke: #f1f1f1;
+}
+
+.timer-circle .progress {
+  stroke: #ff7e5f;
+  stroke-linecap: round;
+  stroke-dasharray: 565.48;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 1s linear;
+}
+
+.time-display {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 42px;
+  font-weight: bold;
+  color: #333;
+}
+
+.controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.controls button {
+  padding: 12px 28px;
+  border: none;
+  border-radius: 14px;
+  font-size: 15px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+#startBtn {
+  background: #ff7e5f;
+  color: #fff;
+}
+
+#resetBtn {
+  background: #eee;
+  color: #555;
+}
+
+.session-count {
+  margin-bottom: 24px;
+  color: #777;
+  font-size: 14px;
+}
+
+.tasks {
+  text-align: left;
+  border-top: 1px solid #eee;
+  padding-top: 16px;
+}
+
+.tasks h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+  color: #333;
+}
+
+#taskForm {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+#taskInput {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+#taskForm button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 10px;
+  background: #333;
+  color: #fff;
+  cursor: pointer;
+}
+
+#taskList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+#taskList li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f5f5f5;
+  font-size: 14px;
+}
+
+#taskList li.done span {
+  text-decoration: line-through;
+  color: #aaa;
+}
+
+#taskList li span {
+  flex: 1;
+}
+
+#taskList li button {
+  border: none;
+  background: none;
+  color: #ccc;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+#taskList li button:hover {
+  color: #ff4d4d;
+}
