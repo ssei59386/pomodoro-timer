@@ -3,6 +3,7 @@ import {
   computeObserved,
   updateUnderstanding,
   selfReportToInitialUnderstanding,
+  computeInitialUnderstanding,
   daysLeft,
   proximity,
   priority,
@@ -46,6 +47,21 @@ describe("§6.1 理解度の更新", () => {
   it("自己申告（5段階）を初期理解度にマップする", () => {
     expect(selfReportToInitialUnderstanding(3)).toBeCloseTo(0.6);
     expect(selfReportToInitialUnderstanding(5)).toBeCloseTo(1);
+  });
+
+  it("computeInitialUnderstanding: 正答率が無ければ自己申告のみと同じ結果", () => {
+    expect(computeInitialUnderstanding(3)).toBeCloseTo(selfReportToInitialUnderstanding(3));
+    expect(computeInitialUnderstanding(5)).toBeCloseTo(selfReportToInitialUnderstanding(5));
+  });
+
+  it("computeInitialUnderstanding: 正答率があれば 0.7×正答率 + 0.3×(自己申告/5) で合成する", () => {
+    // 0.7*0.8 + 0.3*(4/5) = 0.56 + 0.24 = 0.8
+    expect(computeInitialUnderstanding(4, 0.8)).toBeCloseTo(0.8);
+  });
+
+  it("computeInitialUnderstanding は 0〜1 にクランプされる", () => {
+    expect(computeInitialUnderstanding(5, 1)).toBeLessThanOrEqual(1);
+    expect(computeInitialUnderstanding(1, 0)).toBeGreaterThanOrEqual(0);
   });
 });
 

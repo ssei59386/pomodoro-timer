@@ -1,12 +1,14 @@
 // 5段階の自己申告（手応え）を選ぶ共通 UI。
-const LABELS = ["全然", "あまり", "ふつう", "できる", "完璧"];
+export const DEFAULT_LABELS = ["全然", "あまり", "ふつう", "できる", "完璧"];
 
 export function SelfReportPicker({
   value,
   onChange,
+  labels = DEFAULT_LABELS,
 }: {
   value: number;
   onChange: (value: number) => void;
+  labels?: string[];
 }) {
   return (
     <div className="self-report-picker" role="radiogroup">
@@ -20,7 +22,7 @@ export function SelfReportPicker({
           onClick={() => onChange(n)}
         >
           <span className="sr-num">{n}</span>
-          <span className="sr-text">{LABELS[n - 1]}</span>
+          <span className="sr-text">{labels[n - 1]}</span>
         </button>
       ))}
     </div>
