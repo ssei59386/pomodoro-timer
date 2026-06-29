@@ -2,8 +2,13 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
+// GitHub Pages はプロジェクトサイトとして /pomodoro-timer/ 配下で配信されるため、
+// ビルド時だけ base を切り替える（ローカル開発時は "/" のまま）。
+const BASE_PATH = "/pomodoro-timer/";
+
 // 仕様書 §4: モバイル向け PWA。ホーム画面に追加して使える。
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  base: command === "build" ? BASE_PATH : "/",
   plugins: [
     react(),
     VitePWA({
@@ -17,7 +22,8 @@ export default defineConfig({
         background_color: "#f8fafc",
         display: "standalone",
         orientation: "portrait",
-        start_url: "/",
+        start_url: BASE_PATH,
+        scope: BASE_PATH,
         icons: [
           {
             src: "favicon.svg",
@@ -29,4 +35,4 @@ export default defineConfig({
       },
     }),
   ],
-});
+}));
