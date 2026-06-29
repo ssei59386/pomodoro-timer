@@ -7,7 +7,7 @@ export const initialData: AppData = {
   subjects: [],
   chapters: [],
   sessions: [],
-  availability: { weeklySchedule: {} },
+  availability: { weeklySchedule: {}, dateOverrides: {} },
   onboarded: false,
 };
 

@@ -122,12 +122,33 @@ describe("曜日ごとの空き時間", () => {
           { start: "19:00", end: "20:30" },
         ],
       },
+      dateOverrides: {},
     };
     expect(availableMinutesForDate(availability, today)).toBe(150);
   });
 
   it("予定が無い曜日は0分", () => {
-    const availability: AvailabilitySettings = { weeklySchedule: {} };
+    const availability: AvailabilitySettings = { weeklySchedule: {}, dateOverrides: {} };
+    expect(availableMinutesForDate(availability, today)).toBe(0);
+  });
+
+  it("dateOverrides がある日は曜日設定より優先される", () => {
+    const dow = today.getDay();
+    const iso = "2026-06-29";
+    const availability: AvailabilitySettings = {
+      weeklySchedule: { [dow]: [{ start: "16:00", end: "17:00" }] },
+      dateOverrides: { [iso]: [{ start: "09:00", end: "12:00" }] },
+    };
+    expect(availableMinutesForDate(availability, today)).toBe(180);
+  });
+
+  it("dateOverrides が空配列なら、その日は曜日設定があっても0分", () => {
+    const dow = today.getDay();
+    const iso = "2026-06-29";
+    const availability: AvailabilitySettings = {
+      weeklySchedule: { [dow]: [{ start: "16:00", end: "17:00" }] },
+      dateOverrides: { [iso]: [] },
+    };
     expect(availableMinutesForDate(availability, today)).toBe(0);
   });
 });

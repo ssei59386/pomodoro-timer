@@ -96,7 +96,7 @@ export function Onboarding() {
     completeOnboarding({
       subjects,
       chapters: builtChapters,
-      availability: { weeklySchedule },
+      availability: { weeklySchedule, dateOverrides: {} },
     });
   };
 

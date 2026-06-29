@@ -81,11 +81,12 @@ export function slotMinutes(slot: TimeSlot): number {
 
 /**
  * 指定した日に勉強できる時間（分）。
- * 手動入力の曜日スケジュールから算出するが、将来カレンダー連携に差し替える際も
- * 「日付 → 利用可能分数」という同じ形を返せばよいよう、関数として分離してある。
+ * その日付の特別設定（dateOverrides）があればそれを優先し、無ければ曜日の既定スケジュールを使う。
+ * 将来カレンダー連携に差し替える際も「日付 → 利用可能分数」という同じ形を返せばよいよう、
+ * 関数として分離してある。
  */
 export function availableMinutesForDate(availability: AvailabilitySettings, date: Date): number {
-  const slots = availability.weeklySchedule[date.getDay()] ?? [];
+  const slots = availability.dateOverrides[toISODate(date)] ?? availability.weeklySchedule[date.getDay()] ?? [];
   return slots.reduce((sum, slot) => sum + slotMinutes(slot), 0);
 }
 

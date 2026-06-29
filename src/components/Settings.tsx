@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useStore } from "../store";
 import { DEFAULT_TARGET_UNDERSTANDING } from "../logic";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
+import { CalendarOverrides } from "./CalendarOverrides";
 
 // 仕様書 §7.5 設定
 // テスト日・勉強可能時間・章/配点の編集、データのリセット。
@@ -29,7 +30,22 @@ export function Settings() {
         <p className="muted">曜日ごとに勉強できる時間帯を編集できます。</p>
         <WeeklyScheduleEditor
           value={data.availability.weeklySchedule}
-          onChange={(weeklySchedule) => setAvailability({ weeklySchedule })}
+          onChange={(weeklySchedule) =>
+            setAvailability({ ...data.availability, weeklySchedule })
+          }
+        />
+      </section>
+
+      <section className="card">
+        <h3>特別な予定（カレンダー）</h3>
+        <p className="muted">
+          旅行や用事などで曜日の設定と違う日だけ、日付を選んで個別に空き時間を変更できます。
+        </p>
+        <CalendarOverrides
+          availability={data.availability}
+          onChange={(dateOverrides) =>
+            setAvailability({ ...data.availability, dateOverrides })
+          }
         />
       </section>
 

@@ -55,6 +55,8 @@ export interface TimeSlot {
  */
 export interface AvailabilitySettings {
   weeklySchedule: Partial<Record<number, TimeSlot[]>>;
+  /** 特定の日だけ曜日設定と異なる空き時間にしたい場合の上書き（ISO日付文字列 → 時間帯） */
+  dateOverrides: Record<string, TimeSlot[]>;
 }
 
 /** アプリ全体の永続化データ */
