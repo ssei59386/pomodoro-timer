@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useStore } from "../store";
-import { daysLeft } from "../logic";
+import { daysLeft, decayedUnderstanding } from "../logic";
 import type { Chapter } from "../types";
 
 // 仕様書 §7.4 理解度ダッシュボード
@@ -37,7 +37,7 @@ export function Dashboard() {
           ) : (
             <ul className="understanding-list">
               {chapters.map((c) => (
-                <UnderstandingRow key={c.id} chapter={c} />
+                <UnderstandingRow key={c.id} chapter={c} today={today} />
               ))}
             </ul>
           )}
@@ -47,10 +47,10 @@ export function Dashboard() {
   );
 }
 
-function UnderstandingRow({ chapter }: { chapter: Chapter }) {
-  const pct = Math.round(chapter.understanding * 100);
+function UnderstandingRow({ chapter, today }: { chapter: Chapter; today: Date }) {
+  const pct = Math.round(decayedUnderstanding(chapter, today) * 100);
   const targetPct = Math.round(chapter.targetUnderstanding * 100);
-  const reached = chapter.understanding >= chapter.targetUnderstanding;
+  const reached = decayedUnderstanding(chapter, today) >= chapter.targetUnderstanding;
 
   return (
     <li className="understanding-row">

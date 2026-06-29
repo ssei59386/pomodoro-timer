@@ -11,6 +11,7 @@ import {
   applySessionToChapter,
   slotMinutes,
   availableMinutesForDate,
+  decayedUnderstanding,
 } from "./logic";
 import type { AvailabilitySettings, Chapter, StudySession, Subject } from "./types";
 
@@ -62,6 +63,29 @@ describe("§6.1 理解度の更新", () => {
   it("computeInitialUnderstanding は 0〜1 にクランプされる", () => {
     expect(computeInitialUnderstanding(5, 1)).toBeLessThanOrEqual(1);
     expect(computeInitialUnderstanding(1, 0)).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("忘却曲線（decayedUnderstanding）", () => {
+  it("未学習（lastStudiedDate: null）なら understanding をそのまま返す", () => {
+    const c = chapter({ understanding: 0.6, lastStudiedDate: null });
+    expect(decayedUnderstanding(c, today)).toBeCloseTo(0.6);
+    expect(decayedUnderstanding(c, new Date(2030, 0, 1))).toBeCloseTo(0.6);
+  });
+
+  it("ちょうど半減期（21日）経過で理解度が半分になる", () => {
+    const c = chapter({ understanding: 0.8, lastStudiedDate: "2026-06-08" }); // today から21日前
+    expect(decayedUnderstanding(c, today)).toBeCloseTo(0.4);
+  });
+
+  it("学習当日（経過0日）は減衰しない", () => {
+    const c = chapter({ understanding: 0.8, lastStudiedDate: "2026-06-29" });
+    expect(decayedUnderstanding(c, today)).toBeCloseTo(0.8);
+  });
+
+  it("半減期2回分（42日）経過で理解度が1/4になる", () => {
+    const c = chapter({ understanding: 0.8, lastStudiedDate: "2026-05-18" }); // today から42日前
+    expect(decayedUnderstanding(c, today)).toBeCloseTo(0.2);
   });
 });
 
