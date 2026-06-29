@@ -296,6 +296,11 @@ input[type="range"] {
   margin-top: 8px;
 }
 
+.self-report-block .field {
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
 .self-report-label {
   display: block;
   font-size: 13px;
@@ -469,6 +474,8 @@ input[type="range"] {
 
 .sr-text {
   font-size: 10px;
+  text-align: center;
+  line-height: 1.2;
 }
 
 /* ---- ホーム（今日やること） ---- */

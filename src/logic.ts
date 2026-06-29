@@ -43,6 +43,15 @@ export function selfReportToInitialUnderstanding(selfReport: number): number {
   return clamp01(selfReport / 5);
 }
 
+/**
+ * 初期理解度を算出する。直近の正答率（任意）があれば §6.1 と同じ重みで自己申告と合成し、
+ * 無ければ自己申告のみで決める。
+ */
+export function computeInitialUnderstanding(selfReport: number, correctRate?: number): number {
+  if (correctRate === undefined) return selfReportToInitialUnderstanding(selfReport);
+  return clamp01(computeObserved(correctRate, selfReport));
+}
+
 // ---- §6.2 優先度スコア -------------------------------------------------
 
 /** テストまでの残り日数（最低 1 日） */

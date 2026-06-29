@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Chapter, Subject, TimeSlot } from "../types";
 import {
   DEFAULT_TARGET_UNDERSTANDING,
-  selfReportToInitialUnderstanding,
+  computeInitialUnderstanding,
 } from "../logic";
 import { useStore, uid } from "../store";
 import { SelfReportPicker } from "./SelfReportPicker";
@@ -10,6 +10,15 @@ import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 
 // 仕様書 §7.1 初期設定 / オンボーディング
 // 数学・理科の2教科（Phase 0）と各教科のテスト日、章（名前・配点・自己申告）、勉強可能時間を登録。
+
+// 初期理解度確認用は曖昧な手応えラベルではなく、行動レベルの具体的な指標にする
+const INITIAL_UNDERSTANDING_LABELS = [
+  "解いたことがない",
+  "解説を読めば分かる",
+  "ヒントがあれば解ける",
+  "自力でほぼ解ける",
+  "人に教えられる",
+];
 
 type SubjectKey = "math" | "science";
 
@@ -19,6 +28,7 @@ interface DraftChapter {
   name: string;
   pointWeight: number;
   selfReport: number; // 1〜5
+  correctRate: number | null; // 直近の正答率（%表記、未入力なら null）
 }
 
 const SUBJECT_LABELS: Record<SubjectKey, string> = {
@@ -33,14 +43,14 @@ export function Onboarding() {
   const [scienceDate, setScienceDate] = useState("");
   const [weeklySchedule, setWeeklySchedule] = useState<Partial<Record<number, TimeSlot[]>>>({});
   const [chapters, setChapters] = useState<DraftChapter[]>([
-    { key: uid(), subjectKey: "math", name: "", pointWeight: 20, selfReport: 3 },
+    { key: uid(), subjectKey: "math", name: "", pointWeight: 20, selfReport: 3, correctRate: null },
   ]);
   const [error, setError] = useState<string | null>(null);
 
   const addChapter = (subjectKey: SubjectKey) => {
     setChapters((prev) => [
       ...prev,
-      { key: uid(), subjectKey, name: "", pointWeight: 20, selfReport: 3 },
+      { key: uid(), subjectKey, name: "", pointWeight: 20, selfReport: 3, correctRate: null },
     ]);
   };
 
@@ -87,8 +97,11 @@ export function Onboarding() {
       subjectId: subjectIdByKey[c.subjectKey]!,
       name: c.name.trim(),
       pointWeight: c.pointWeight,
-      // 初回はセッションが無いので、自己申告をそのまま初期理解度にする（§6.1）
-      understanding: selfReportToInitialUnderstanding(c.selfReport),
+      // 初回はセッションが無いので、自己申告（＋わかれば直近の正答率）から初期理解度を決める（§6.1）
+      understanding: computeInitialUnderstanding(
+        c.selfReport,
+        c.correctRate !== null ? clampPercent(c.correctRate) / 100 : undefined,
+      ),
       targetUnderstanding: DEFAULT_TARGET_UNDERSTANDING,
       lastStudiedDate: null,
     }));
@@ -188,7 +201,22 @@ export function Onboarding() {
               <SelfReportPicker
                 value={c.selfReport}
                 onChange={(v) => updateChapter(c.key, { selfReport: v })}
+                labels={INITIAL_UNDERSTANDING_LABELS}
               />
+              <label className="field">
+                <span className="muted small">直近の正答率（任意・%、わかれば）</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={c.correctRate ?? ""}
+                  onChange={(e) =>
+                    updateChapter(c.key, {
+                      correctRate: e.target.value === "" ? null : clampPercent(Number(e.target.value)),
+                    })
+                  }
+                />
+              </label>
             </div>
           </div>
         ))}
@@ -210,4 +238,10 @@ export function Onboarding() {
       </button>
     </div>
   );
+}
+
+/** ユーザー入力の正答率（%）を 0〜100 にクランプする */
+function clampPercent(value: number): number {
+  if (Number.isNaN(value)) return 0;
+  return Math.min(100, Math.max(0, value));
 }
