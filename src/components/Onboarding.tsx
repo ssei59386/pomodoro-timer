@@ -1,11 +1,12 @@
 import { useState } from "react";
-import type { Chapter, Subject } from "../types";
+import type { Chapter, Subject, TimeSlot } from "../types";
 import {
   DEFAULT_TARGET_UNDERSTANDING,
   selfReportToInitialUnderstanding,
 } from "../logic";
 import { useStore, uid } from "../store";
 import { SelfReportPicker } from "./SelfReportPicker";
+import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 
 // 仕様書 §7.1 初期設定 / オンボーディング
 // 数学・理科の2教科（Phase 0）と各教科のテスト日、章（名前・配点・自己申告）、勉強可能時間を登録。
@@ -30,7 +31,7 @@ export function Onboarding() {
 
   const [mathDate, setMathDate] = useState("");
   const [scienceDate, setScienceDate] = useState("");
-  const [dailyMinutes, setDailyMinutes] = useState(120);
+  const [weeklySchedule, setWeeklySchedule] = useState<Partial<Record<number, TimeSlot[]>>>({});
   const [chapters, setChapters] = useState<DraftChapter[]>([
     { key: uid(), subjectKey: "math", name: "", pointWeight: 20, selfReport: 3 },
   ]);
@@ -95,7 +96,7 @@ export function Onboarding() {
     completeOnboarding({
       subjects,
       chapters: builtChapters,
-      availability: { dailyMinutes },
+      availability: { weeklySchedule },
     });
   };
 
@@ -130,16 +131,10 @@ export function Onboarding() {
 
       <section className="card">
         <h2>勉強できる時間</h2>
-        <label className="field">
-          <span>1日あたり（分）</span>
-          <input
-            type="number"
-            min={15}
-            step={15}
-            value={dailyMinutes}
-            onChange={(e) => setDailyMinutes(Math.max(0, Number(e.target.value)))}
-          />
-        </label>
+        <p className="muted">
+          曜日ごとに勉強できる時間帯を入れてください。予定が無い曜日は空のままで大丈夫です。
+        </p>
+        <WeeklyScheduleEditor value={weeklySchedule} onChange={setWeeklySchedule} />
       </section>
 
       <section className="card">

@@ -7,7 +7,7 @@ export const initialData: AppData = {
   subjects: [],
   chapters: [],
   sessions: [],
-  availability: { dailyMinutes: 120 },
+  availability: { weeklySchedule: {} },
   onboarded: false,
 };
 
@@ -17,7 +17,11 @@ export function loadData(): AppData {
     if (!raw) return initialData;
     const parsed = JSON.parse(raw) as Partial<AppData>;
     // 欠損フィールドは初期値で補完しておく（前方互換のため）
-    return { ...initialData, ...parsed };
+    return {
+      ...initialData,
+      ...parsed,
+      availability: { ...initialData.availability, ...parsed.availability },
+    };
   } catch {
     return initialData;
   }
