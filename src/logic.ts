@@ -16,6 +16,9 @@ export const DEFAULT_TARGET_UNDERSTANDING = 0.8;
 /** 1セッションあたりの目安時間（分）。1章集中（§6.3） */
 export const SESSION_MINUTES = 45;
 
+/** 忘却曲線の半減期（日）。最後に学習した日からこの日数経つと理解度が半分に減衰する */
+export const FORGETTING_HALF_LIFE_DAYS = 21;
+
 // ---- §6.1 理解度の更新 -------------------------------------------------
 
 /**
@@ -75,8 +78,21 @@ export function proximity(testDate: string, today: Date): number {
  * priority = pointWeight × max(target − understanding, 0) × proximity
  */
 export function priority(chapter: Chapter, subject: Subject, today: Date): number {
-  const gap = Math.max(chapter.targetUnderstanding - chapter.understanding, 0);
+  const currentUnderstanding = decayedUnderstanding(chapter, today);
+  const gap = Math.max(chapter.targetUnderstanding - currentUnderstanding, 0);
   return chapter.pointWeight * gap * proximity(subject.testDate, today);
+}
+
+/**
+ * 忘却曲線を適用した「現在の」推定理解度。最後に学習した日からの経過日数に応じて
+ * 指数的に減衰させる（read-time のみの計算。chapter.understanding 自体は変更しない）。
+ */
+export function decayedUnderstanding(chapter: Chapter, today: Date): number {
+  if (!chapter.lastStudiedDate) return chapter.understanding;
+  const days = daysSince(chapter.lastStudiedDate, today);
+  if (days <= 0) return chapter.understanding;
+  const decayFactor = Math.pow(0.5, days / FORGETTING_HALF_LIFE_DAYS);
+  return clamp01(chapter.understanding * decayFactor);
 }
 
 // ---- 勉強できる時間（曜日ごとの空き時間帯から算出） ---------------------
@@ -172,7 +188,8 @@ function buildReasons(
     reasons.push("配点が高め");
   }
 
-  if (chapter.understanding < chapter.targetUnderstanding * 0.75) {
+  const currentUnderstanding = decayedUnderstanding(chapter, today);
+  if (currentUnderstanding < chapter.targetUnderstanding * 0.75) {
     reasons.push("理解度が低め");
   }
 
@@ -222,6 +239,13 @@ function parseDate(isoDate: string): Date {
   // "YYYY-MM-DD" をローカル日付の 0:00 として解釈する
   const [y, m, d] = isoDate.split("-").map(Number);
   return new Date(y, (m ?? 1) - 1, d ?? 1);
+}
+
+/** 指定日からの経過日数（today が指定日より前なら負の値） */
+function daysSince(isoDate: string, today: Date): number {
+  const date = parseDate(isoDate);
+  const diffMs = startOfDay(today).getTime() - date.getTime();
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
 }
 
 /** Date を "YYYY-MM-DD" 文字列に変換する */
