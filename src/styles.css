@@ -303,6 +303,56 @@ input[type="range"] {
   margin-bottom: 6px;
 }
 
+/* ---- 曜日ごとの空き時間エディタ ---- */
+.weekly-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.weekly-schedule-day {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fbfdff;
+}
+
+.weekly-schedule-day-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.day-label {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.muted.small {
+  font-size: 12px;
+}
+
+.time-slot-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.time-slot-row input[type="time"] {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.secondary.small {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
 /* ---- 自己申告ピッカー ---- */
 .self-report-picker {
   display: flex;

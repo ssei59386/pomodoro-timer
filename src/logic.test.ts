@@ -8,8 +8,10 @@ import {
   priority,
   generateTodayPlan,
   applySessionToChapter,
+  slotMinutes,
+  availableMinutesForDate,
 } from "./logic";
-import type { Chapter, StudySession, Subject } from "./types";
+import type { AvailabilitySettings, Chapter, StudySession, Subject } from "./types";
 
 const today = new Date(2026, 5, 29); // 2026-06-29
 
@@ -99,6 +101,34 @@ describe("§6.3 計画生成（貪欲法・1章集中）", () => {
     const allDone = chapters.map((c) => ({ ...c, understanding: 0.9 }));
     const plan = generateTodayPlan(allDone, subjects, 120, today);
     expect(plan).toHaveLength(0);
+  });
+});
+
+describe("曜日ごとの空き時間", () => {
+  it("slotMinutes は時間帯の長さ（分）を返す", () => {
+    expect(slotMinutes({ start: "16:00", end: "17:30" })).toBe(90);
+  });
+
+  it("逆転した時間帯（終了が開始より前）は0分", () => {
+    expect(slotMinutes({ start: "17:00", end: "16:00" })).toBe(0);
+  });
+
+  it("availableMinutesForDate は今日の曜日の時間帯を合計する", () => {
+    const dow = today.getDay();
+    const availability: AvailabilitySettings = {
+      weeklySchedule: {
+        [dow]: [
+          { start: "16:00", end: "17:00" },
+          { start: "19:00", end: "20:30" },
+        ],
+      },
+    };
+    expect(availableMinutesForDate(availability, today)).toBe(150);
+  });
+
+  it("予定が無い曜日は0分", () => {
+    const availability: AvailabilitySettings = { weeklySchedule: {} };
+    expect(availableMinutesForDate(availability, today)).toBe(0);
   });
 });
 

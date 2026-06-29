@@ -41,10 +41,20 @@ export interface StudySession {
   selfReport: number;
 }
 
-/** 勉強できる時間の設定 */
+/** 空き時間帯（"HH:mm" 形式） */
+export interface TimeSlot {
+  start: string;
+  end: string;
+}
+
+/**
+ * 勉強できる時間の設定。
+ * 曜日（0=日, 1=月, ... 6=土）ごとに空き時間帯を持ち、毎週繰り返す前提で計算する。
+ * 将来 Google カレンダー等から自動取得する場合も、日付ごとの空き時間帯という
+ * 同じ形に変換して渡せるよう、入力元（手動 / カレンダー）と計算ロジックを分けてある。
+ */
 export interface AvailabilitySettings {
-  /** 1日に勉強に使える時間（分）。最小版は一律 */
-  dailyMinutes: number;
+  weeklySchedule: Partial<Record<number, TimeSlot[]>>;
 }
 
 /** アプリ全体の永続化データ */

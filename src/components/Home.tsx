@@ -1,21 +1,20 @@
 import { useMemo } from "react";
 import { useStore } from "../store";
-import { generateTodayPlan, daysLeft } from "../logic";
+import { generateTodayPlan, daysLeft, availableMinutesForDate } from "../logic";
 
 // 仕様書 §7.2 ホーム（今日やること）
 export function Home({ onRecord }: { onRecord: (chapterId?: string) => void }) {
   const { data } = useStore();
   const today = useMemo(() => new Date(), []);
 
+  const todayMinutes = useMemo(
+    () => availableMinutesForDate(data.availability, today),
+    [data.availability, today],
+  );
+
   const plan = useMemo(
-    () =>
-      generateTodayPlan(
-        data.chapters,
-        data.subjects,
-        data.availability.dailyMinutes,
-        today,
-      ),
-    [data.chapters, data.subjects, data.availability.dailyMinutes, today],
+    () => generateTodayPlan(data.chapters, data.subjects, todayMinutes, today),
+    [data.chapters, data.subjects, todayMinutes, today],
   );
 
   const totalMinutes = plan.reduce((sum, p) => sum + p.allocatedMinutes, 0);
@@ -33,13 +32,13 @@ export function Home({ onRecord }: { onRecord: (chapterId?: string) => void }) {
         <div className="empty">
           <p>今日割り当てる章がありません。</p>
           <p className="muted">
-            すべての章が目標理解度に届いているか、勉強時間が 0 分です。
+            すべての章が目標理解度に届いているか、今日の空き時間が 0 分です。
           </p>
         </div>
       ) : (
         <>
           <div className="summary-pill">
-            合計 {totalMinutes} 分 / {data.availability.dailyMinutes} 分・{plan.length} 章
+            合計 {totalMinutes} 分 / {todayMinutes} 分・{plan.length} 章
           </div>
           <ul className="plan-list">
             {plan.map((item) => (

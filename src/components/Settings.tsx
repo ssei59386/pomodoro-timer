@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useStore } from "../store";
 import { DEFAULT_TARGET_UNDERSTANDING } from "../logic";
+import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 
 // 仕様書 §7.5 設定
 // テスト日・勉強可能時間・章/配点の編集、データのリセット。
@@ -25,18 +26,11 @@ export function Settings() {
 
       <section className="card">
         <h3>勉強できる時間</h3>
-        <label className="field">
-          <span>1日あたり（分）</span>
-          <input
-            type="number"
-            min={0}
-            step={15}
-            value={data.availability.dailyMinutes}
-            onChange={(e) =>
-              setAvailability({ dailyMinutes: Math.max(0, Number(e.target.value)) })
-            }
-          />
-        </label>
+        <p className="muted">曜日ごとに勉強できる時間帯を編集できます。</p>
+        <WeeklyScheduleEditor
+          value={data.availability.weeklySchedule}
+          onChange={(weeklySchedule) => setAvailability({ weeklySchedule })}
+        />
       </section>
 
       {data.subjects.map((subject) => {

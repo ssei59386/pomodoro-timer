@@ -1,5 +1,5 @@
 // 仕様書 §6 コアロジック（最小版）。すべて純粋関数として実装する。
-import type { Chapter, StudySession, Subject } from "./types";
+import type { AvailabilitySettings, Chapter, StudySession, Subject, TimeSlot } from "./types";
 
 // ---- 調整可能な定数 ----------------------------------------------------
 
@@ -68,6 +68,25 @@ export function proximity(testDate: string, today: Date): number {
 export function priority(chapter: Chapter, subject: Subject, today: Date): number {
   const gap = Math.max(chapter.targetUnderstanding - chapter.understanding, 0);
   return chapter.pointWeight * gap * proximity(subject.testDate, today);
+}
+
+// ---- 勉強できる時間（曜日ごとの空き時間帯から算出） ---------------------
+
+/** 時間帯の長さ（分）。終了が開始より前の場合は 0 とする */
+export function slotMinutes(slot: TimeSlot): number {
+  const [sh, sm] = slot.start.split(":").map(Number);
+  const [eh, em] = slot.end.split(":").map(Number);
+  return Math.max(0, eh * 60 + em - (sh * 60 + sm));
+}
+
+/**
+ * 指定した日に勉強できる時間（分）。
+ * 手動入力の曜日スケジュールから算出するが、将来カレンダー連携に差し替える際も
+ * 「日付 → 利用可能分数」という同じ形を返せばよいよう、関数として分離してある。
+ */
+export function availableMinutesForDate(availability: AvailabilitySettings, date: Date): number {
+  const slots = availability.weeklySchedule[date.getDay()] ?? [];
+  return slots.reduce((sum, slot) => sum + slotMinutes(slot), 0);
 }
 
 // ---- §6.3 計画生成（貪欲法・1章集中） --------------------------------
