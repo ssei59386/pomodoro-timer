@@ -353,6 +353,90 @@ input[type="range"] {
   font-size: 13px;
 }
 
+/* ---- 特別な予定（日ごとのカレンダー上書き） ---- */
+.calendar-overrides {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.calendar-month-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.calendar-month-label {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.calendar-weekday {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  padding-bottom: 2px;
+}
+
+.calendar-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px 2px;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.calendar-cell.empty {
+  visibility: hidden;
+  border: none;
+}
+
+.calendar-cell.overridden {
+  border-color: var(--primary);
+  background: #eff6ff;
+}
+
+.calendar-cell.selected {
+  box-shadow: 0 0 0 2px var(--primary-dark) inset;
+}
+
+.calendar-date {
+  font-weight: 700;
+}
+
+.calendar-minutes {
+  color: var(--muted);
+}
+
+.calendar-day-editor {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fbfdff;
+}
+
+.calendar-day-editor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.calendar-day-editor-head h4 {
+  font-size: 14px;
+}
+
 /* ---- 自己申告ピッカー ---- */
 .self-report-picker {
   display: flex;
