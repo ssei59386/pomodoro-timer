@@ -4,6 +4,7 @@ import {
   updateUnderstanding,
   selfReportToInitialUnderstanding,
   computeInitialUnderstanding,
+  averageInitialUnderstanding,
   daysLeft,
   proximity,
   priority,
@@ -63,6 +64,22 @@ describe("§6.1 理解度の更新", () => {
   it("computeInitialUnderstanding は 0〜1 にクランプされる", () => {
     expect(computeInitialUnderstanding(5, 1)).toBeLessThanOrEqual(1);
     expect(computeInitialUnderstanding(1, 0)).toBeGreaterThanOrEqual(0);
+  });
+
+  it("averageInitialUnderstanding: 1個だけなら selfReportToInitialUnderstanding と同じ結果", () => {
+    expect(averageInitialUnderstanding([5])).toBeCloseTo(selfReportToInitialUnderstanding(5));
+    expect(averageInitialUnderstanding([1])).toBeCloseTo(selfReportToInitialUnderstanding(1));
+  });
+
+  it("averageInitialUnderstanding: 複数の自己申告を平均する", () => {
+    const expected =
+      (selfReportToInitialUnderstanding(1) + selfReportToInitialUnderstanding(5)) / 2;
+    expect(averageInitialUnderstanding([1, 5])).toBeCloseTo(expected);
+  });
+
+  it("averageInitialUnderstanding は 0〜1 にクランプされる", () => {
+    expect(averageInitialUnderstanding([5, 5, 5])).toBeLessThanOrEqual(1);
+    expect(averageInitialUnderstanding([1, 1, 1])).toBeGreaterThanOrEqual(0);
   });
 });
 

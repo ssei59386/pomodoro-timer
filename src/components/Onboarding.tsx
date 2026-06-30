@@ -3,6 +3,7 @@ import type { Chapter, Subject, TimeSlot } from "../types";
 import {
   DEFAULT_TARGET_UNDERSTANDING,
   computeInitialUnderstanding,
+  averageInitialUnderstanding,
 } from "../logic";
 import { useStore, uid } from "../store";
 import { SelfReportPicker } from "./SelfReportPicker";
@@ -29,6 +30,13 @@ interface DraftChapter {
   pointWeight: number;
   selfReport: number; // 1〜5
   correctRate: number | null; // 直近の正答率（%表記、未入力なら null）
+  subtopics: DraftSubtopic[]; // 空配列なら従来通り chapter 全体の self-report/correctRate を使う
+}
+
+interface DraftSubtopic {
+  key: string; // uid()
+  name: string;
+  selfReport: number; // 1〜5, デフォルト 3
 }
 
 const SUBJECT_LABELS: Record<SubjectKey, string> = {
@@ -43,14 +51,14 @@ export function Onboarding() {
   const [scienceDate, setScienceDate] = useState("");
   const [weeklySchedule, setWeeklySchedule] = useState<Partial<Record<number, TimeSlot[]>>>({});
   const [chapters, setChapters] = useState<DraftChapter[]>([
-    { key: uid(), subjectKey: "math", name: "", pointWeight: 20, selfReport: 3, correctRate: null },
+    { key: uid(), subjectKey: "math", name: "", pointWeight: 20, selfReport: 3, correctRate: null, subtopics: [] },
   ]);
   const [error, setError] = useState<string | null>(null);
 
   const addChapter = (subjectKey: SubjectKey) => {
     setChapters((prev) => [
       ...prev,
-      { key: uid(), subjectKey, name: "", pointWeight: 20, selfReport: 3, correctRate: null },
+      { key: uid(), subjectKey, name: "", pointWeight: 20, selfReport: 3, correctRate: null, subtopics: [] },
     ]);
   };
 
@@ -60,6 +68,39 @@ export function Onboarding() {
 
   const removeChapter = (key: string) => {
     setChapters((prev) => prev.filter((c) => c.key !== key));
+  };
+
+  const addSubtopic = (chapterKey: string) => {
+    setChapters((prev) =>
+      prev.map((c) =>
+        c.key === chapterKey
+          ? { ...c, subtopics: [...c.subtopics, { key: uid(), name: "", selfReport: 3 }] }
+          : c,
+      ),
+    );
+  };
+
+  const updateSubtopic = (chapterKey: string, subtopicKey: string, patch: Partial<DraftSubtopic>) => {
+    setChapters((prev) =>
+      prev.map((c) =>
+        c.key === chapterKey
+          ? {
+              ...c,
+              subtopics: c.subtopics.map((st) => (st.key === subtopicKey ? { ...st, ...patch } : st)),
+            }
+          : c,
+      ),
+    );
+  };
+
+  const removeSubtopic = (chapterKey: string, subtopicKey: string) => {
+    setChapters((prev) =>
+      prev.map((c) =>
+        c.key === chapterKey
+          ? { ...c, subtopics: c.subtopics.filter((st) => st.key !== subtopicKey) }
+          : c,
+      ),
+    );
   };
 
   const handleSubmit = () => {
@@ -92,19 +133,27 @@ export function Onboarding() {
       subjects.push({ id, name: SUBJECT_LABELS.science, testDate: scienceDate });
     }
 
-    const builtChapters: Chapter[] = named.map((c) => ({
-      id: uid(),
-      subjectId: subjectIdByKey[c.subjectKey]!,
-      name: c.name.trim(),
-      pointWeight: c.pointWeight,
-      // 初回はセッションが無いので、自己申告（＋わかれば直近の正答率）から初期理解度を決める（§6.1）
-      understanding: computeInitialUnderstanding(
-        c.selfReport,
-        c.correctRate !== null ? clampPercent(c.correctRate) / 100 : undefined,
-      ),
-      targetUnderstanding: DEFAULT_TARGET_UNDERSTANDING,
-      lastStudiedDate: null,
-    }));
+    const builtChapters: Chapter[] = named.map((c) => {
+      const namedSubtopics = c.subtopics.filter((st) => st.name.trim() !== "");
+      // 初回はセッションが無いので、自己申告（＋わかれば直近の正答率）から初期理解度を決める（§6.1）。
+      // 小項目に分けて自己申告していれば、その平均を使う（より精緻な初期値）。
+      const understanding =
+        namedSubtopics.length > 0
+          ? averageInitialUnderstanding(namedSubtopics.map((st) => st.selfReport))
+          : computeInitialUnderstanding(
+              c.selfReport,
+              c.correctRate !== null ? clampPercent(c.correctRate) / 100 : undefined,
+            );
+      return {
+        id: uid(),
+        subjectId: subjectIdByKey[c.subjectKey]!,
+        name: c.name.trim(),
+        pointWeight: c.pointWeight,
+        understanding,
+        targetUnderstanding: DEFAULT_TARGET_UNDERSTANDING,
+        lastStudiedDate: null,
+      };
+    });
 
     completeOnboarding({
       subjects,
@@ -196,28 +245,62 @@ export function Onboarding() {
                 />
               </label>
             </div>
-            <div className="self-report-block">
-              <span className="self-report-label">今の理解度（自己申告）</span>
-              <SelfReportPicker
-                value={c.selfReport}
-                onChange={(v) => updateChapter(c.key, { selfReport: v })}
-                labels={INITIAL_UNDERSTANDING_LABELS}
-              />
-              <label className="field">
-                <span className="muted small">直近の正答率（任意・%、わかれば）</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={c.correctRate ?? ""}
-                  onChange={(e) =>
-                    updateChapter(c.key, {
-                      correctRate: e.target.value === "" ? null : clampPercent(Number(e.target.value)),
-                    })
-                  }
-                />
-              </label>
+            <div className="subtopic-block">
+              <div className="subtopic-block-head">
+                <span className="muted small">小項目（任意・プリントの見出しなど2〜4個）</span>
+                <button type="button" className="link-btn" onClick={() => addSubtopic(c.key)}>
+                  ＋ 小項目を追加
+                </button>
+              </div>
+              {c.subtopics.map((st) => (
+                <div key={st.key} className="subtopic-row">
+                  <input
+                    type="text"
+                    className="grow"
+                    placeholder="小項目名（例：頂点）"
+                    value={st.name}
+                    onChange={(e) => updateSubtopic(c.key, st.key, { name: e.target.value })}
+                  />
+                  <SelfReportPicker
+                    value={st.selfReport}
+                    onChange={(v) => updateSubtopic(c.key, st.key, { selfReport: v })}
+                    labels={INITIAL_UNDERSTANDING_LABELS}
+                  />
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label="小項目を削除"
+                    onClick={() => removeSubtopic(c.key, st.key)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
             </div>
+            {c.subtopics.length === 0 && (
+              <div className="self-report-block">
+                <span className="self-report-label">今の理解度（自己申告）</span>
+                <SelfReportPicker
+                  value={c.selfReport}
+                  onChange={(v) => updateChapter(c.key, { selfReport: v })}
+                  labels={INITIAL_UNDERSTANDING_LABELS}
+                />
+                <label className="field">
+                  <span className="muted small">直近の正答率（任意・%、わかれば）</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={c.correctRate ?? ""}
+                    onChange={(e) =>
+                      updateChapter(c.key, {
+                        correctRate: e.target.value === "" ? null : clampPercent(Number(e.target.value)),
+                      })
+                    }
+                  />
+                </label>
+              </div>
+            )}
           </div>
         ))}
 
