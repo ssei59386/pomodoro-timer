@@ -308,6 +308,57 @@ input[type="range"] {
   margin-bottom: 6px;
 }
 
+.subtopic-block {
+  margin-top: 8px;
+}
+
+.subtopic-block-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.subtopic-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  margin-bottom: 8px;
+}
+
+.subtopic-row input[type="text"] {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.subtopic-row .self-report-picker {
+  flex: 1;
+}
+
+.subtopic-row .icon-btn {
+  align-self: flex-end;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 0;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
 /* ---- 曜日ごとの空き時間エディタ ---- */
 .weekly-schedule {
   display: flex;

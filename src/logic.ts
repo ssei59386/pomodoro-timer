@@ -55,6 +55,14 @@ export function computeInitialUnderstanding(selfReport: number, correctRate?: nu
   return clamp01(computeObserved(correctRate, selfReport));
 }
 
+/**
+ * 章を小項目（任意・2〜4個程度）に分けて自己申告した場合、その平均から章の初期理解度を算出する。
+ */
+export function averageInitialUnderstanding(selfReports: number[]): number {
+  const sum = selfReports.reduce((acc, v) => acc + selfReportToInitialUnderstanding(v), 0);
+  return clamp01(sum / selfReports.length);
+}
+
 // ---- §6.2 優先度スコア -------------------------------------------------
 
 /** テストまでの残り日数（最低 1 日） */
