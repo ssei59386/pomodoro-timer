@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Chapter, Subject, TimeSlot } from "../types";
+import type { Chapter, ChapterMetadata, Subject, TimeSlot } from "../types";
 import {
   DEFAULT_TARGET_UNDERSTANDING,
   computeInitialUnderstanding,
@@ -31,6 +31,11 @@ interface DraftChapter {
   selfReport: number; // 1〜5
   correctRate: number | null; // 直近の正答率（%表記、未入力なら null）
   subtopics: DraftSubtopic[]; // 空配列なら従来通り chapter 全体の self-report/correctRate を使う
+  metadata: {
+    exerciseCount: number | null;
+    learningScope: string;
+    difficultyLevel: number; // 1: 簡単, 2: 中程度, 3: 難しい
+  };
 }
 
 interface DraftSubtopic {
@@ -51,14 +56,32 @@ export function Onboarding() {
   const [scienceDate, setScienceDate] = useState("");
   const [weeklySchedule, setWeeklySchedule] = useState<Partial<Record<number, TimeSlot[]>>>({});
   const [chapters, setChapters] = useState<DraftChapter[]>([
-    { key: uid(), subjectKey: "math", name: "", pointWeight: 20, selfReport: 3, correctRate: null, subtopics: [] },
+    {
+      key: uid(),
+      subjectKey: "math",
+      name: "",
+      pointWeight: 20,
+      selfReport: 3,
+      correctRate: null,
+      subtopics: [],
+      metadata: { exerciseCount: null, learningScope: "", difficultyLevel: 2 },
+    },
   ]);
   const [error, setError] = useState<string | null>(null);
 
   const addChapter = (subjectKey: SubjectKey) => {
     setChapters((prev) => [
       ...prev,
-      { key: uid(), subjectKey, name: "", pointWeight: 20, selfReport: 3, correctRate: null, subtopics: [] },
+      {
+        key: uid(),
+        subjectKey,
+        name: "",
+        pointWeight: 20,
+        selfReport: 3,
+        correctRate: null,
+        subtopics: [],
+        metadata: { exerciseCount: null, learningScope: "", difficultyLevel: 2 },
+      },
     ]);
   };
 
@@ -144,6 +167,16 @@ export function Onboarding() {
               c.selfReport,
               c.correctRate !== null ? clampPercent(c.correctRate) / 100 : undefined,
             );
+      const metadata: ChapterMetadata = {};
+      if (c.metadata.exerciseCount !== null) {
+        metadata.exerciseCount = c.metadata.exerciseCount;
+      }
+      if (c.metadata.learningScope.trim() !== "") {
+        metadata.learningScope = c.metadata.learningScope.trim();
+      }
+      if (c.metadata.difficultyLevel > 0) {
+        metadata.difficultyLevel = c.metadata.difficultyLevel;
+      }
       return {
         id: uid(),
         subjectId: subjectIdByKey[c.subjectKey]!,
@@ -152,6 +185,7 @@ export function Onboarding() {
         understanding,
         targetUnderstanding: DEFAULT_TARGET_UNDERSTANDING,
         lastStudiedDate: null,
+        metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       };
     });
 
@@ -244,6 +278,63 @@ export function Onboarding() {
                   }
                 />
               </label>
+            </div>
+            <div className="metadata-block">
+              <div className="metadata-block-head">
+                <span className="muted small">学習メタデータ（任意・AI問題生成などで活用）</span>
+              </div>
+              <div className="metadata-row">
+                <label className="field inline">
+                  <span>演習問題数</span>
+                  <input
+                    type="number"
+                    min={0}
+                    placeholder="例：25"
+                    value={c.metadata.exerciseCount ?? ""}
+                    onChange={(e) =>
+                      updateChapter(c.key, {
+                        metadata: {
+                          ...c.metadata,
+                          exerciseCount:
+                            e.target.value === "" ? null : Math.max(0, Number(e.target.value)),
+                        },
+                      })
+                    }
+                  />
+                </label>
+              </div>
+              <div className="metadata-row">
+                <label className="field">
+                  <span className="muted small">学習範囲</span>
+                  <input
+                    type="text"
+                    placeholder="例：第3章1節〜2節 / 教科書pp.45-62"
+                    value={c.metadata.learningScope}
+                    onChange={(e) =>
+                      updateChapter(c.key, {
+                        metadata: { ...c.metadata, learningScope: e.target.value },
+                      })
+                    }
+                  />
+                </label>
+              </div>
+              <div className="metadata-row">
+                <label className="field inline">
+                  <span>難易度</span>
+                  <select
+                    value={c.metadata.difficultyLevel}
+                    onChange={(e) =>
+                      updateChapter(c.key, {
+                        metadata: { ...c.metadata, difficultyLevel: Number(e.target.value) },
+                      })
+                    }
+                  >
+                    <option value={1}>簡単</option>
+                    <option value={2}>中程度</option>
+                    <option value={3}>難しい</option>
+                  </select>
+                </label>
+              </div>
             </div>
             <div className="subtopic-block">
               <div className="subtopic-block-head">

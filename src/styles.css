@@ -359,6 +359,42 @@ input[type="range"] {
   text-decoration: underline;
 }
 
+.metadata-block {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fafbfc;
+}
+
+.metadata-block-head {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.metadata-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.metadata-row .field {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.metadata-row .field.inline {
+  flex-direction: row;
+  align-items: center;
+}
+
+.metadata-row .field.inline input,
+.metadata-row .field.inline select {
+  width: auto;
+  flex: 0 0 auto;
+}
+
 /* ---- 曜日ごとの空き時間エディタ ---- */
 .weekly-schedule {
   display: flex;

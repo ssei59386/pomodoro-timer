@@ -9,6 +9,16 @@ export interface Subject {
   testDate: string;
 }
 
+/** 章の学習メタデータ（演習問題数、学習範囲、難易度など） */
+export interface ChapterMetadata {
+  /** 教科書・ワークの演習問題数 */
+  exerciseCount?: number;
+  /** 学習範囲の説明（例：「第3章1節〜2節」） */
+  learningScope?: string;
+  /** 難易度レベル（1: 簡単, 2: 中程度, 3: 難しい） */
+  difficultyLevel?: number;
+}
+
 /** 章 ＝ 理解度管理の最小単位 */
 export interface Chapter {
   id: string;
@@ -25,6 +35,8 @@ export interface Chapter {
   lastStudiedDate: string | null;
   /** 2階層構造の余地（Phase 0 では未使用） */
   skills?: string[];
+  /** 学習メタデータ（演習問題数、学習範囲、難易度など） */
+  metadata?: ChapterMetadata;
 }
 
 /** 学習セッションの記録ログ */
