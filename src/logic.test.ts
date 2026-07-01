@@ -13,6 +13,8 @@ import {
   slotMinutes,
   availableMinutesForDate,
   decayedUnderstanding,
+  isValidTimeSlot,
+  isPastDate,
 } from "./logic";
 import type { AvailabilitySettings, Chapter, StudySession, Subject } from "./types";
 
@@ -207,6 +209,32 @@ describe("曜日ごとの空き時間", () => {
       dateOverrides: { [iso]: [] },
     };
     expect(availableMinutesForDate(availability, today)).toBe(0);
+  });
+
+  it("isValidTimeSlot は正しい時間幅なら true", () => {
+    expect(isValidTimeSlot({ start: "16:00", end: "17:00" })).toBe(true);
+  });
+
+  it("isValidTimeSlot は逆転した時間帯で false", () => {
+    expect(isValidTimeSlot({ start: "17:00", end: "16:00" })).toBe(false);
+  });
+
+  it("isValidTimeSlot は開始と終了が同じで false（0分）", () => {
+    expect(isValidTimeSlot({ start: "16:00", end: "16:00" })).toBe(false);
+  });
+});
+
+describe("isPastDate", () => {
+  it("今日より前の日付は true", () => {
+    expect(isPastDate("2026-06-28", today)).toBe(true);
+  });
+
+  it("今日と同じ日付は false", () => {
+    expect(isPastDate("2026-06-29", today)).toBe(false);
+  });
+
+  it("未来の日付は false", () => {
+    expect(isPastDate("2026-06-30", today)).toBe(false);
   });
 });
 

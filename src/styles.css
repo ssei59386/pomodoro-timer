@@ -58,6 +58,16 @@ select {
   margin: 4px 0;
 }
 
+.error-inline {
+  color: var(--danger);
+  font-size: 12px;
+  margin: -2px 0 6px;
+}
+
+.time-slot-row.invalid input[type="time"] {
+  border-color: var(--danger);
+}
+
 /* ---- アプリ全体のレイアウト（モバイルファースト） ---- */
 .app-shell {
   max-width: 480px;
@@ -527,6 +537,55 @@ input[type="range"] {
 
 .calendar-day-editor-head h4 {
   font-size: 14px;
+}
+
+/* ---- 特別な予定（オンボーディングのリスト形式） ---- */
+.section-head-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.section-head-row h2 {
+  margin-bottom: 0;
+}
+
+.optional-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  background: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.date-overrides-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.date-override-entry {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fbfdff;
+}
+
+.date-override-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.date-override-entry-head input[type="date"] {
+  flex: 1;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
 }
 
 /* ---- 自己申告ピッカー ---- */

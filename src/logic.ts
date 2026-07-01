@@ -65,6 +65,11 @@ export function averageInitialUnderstanding(selfReports: number[]): number {
 
 // ---- §6.2 優先度スコア -------------------------------------------------
 
+/** テスト日が今日より前（過去）かどうか。日付入力のバリデーションに使う */
+export function isPastDate(isoDate: string, today: Date): boolean {
+  return parseDate(isoDate).getTime() < startOfDay(today).getTime();
+}
+
 /** テストまでの残り日数（最低 1 日） */
 export function daysLeft(testDate: string, today: Date): number {
   const test = parseDate(testDate);
@@ -110,6 +115,11 @@ export function slotMinutes(slot: TimeSlot): number {
   const [sh, sm] = slot.start.split(":").map(Number);
   const [eh, em] = slot.end.split(":").map(Number);
   return Math.max(0, eh * 60 + em - (sh * 60 + sm));
+}
+
+/** 時間帯が有効か（終了が開始より後で、実際に時間幅があるか）。UI 側の入力検証に使う */
+export function isValidTimeSlot(slot: TimeSlot): boolean {
+  return slotMinutes(slot) > 0;
 }
 
 /**

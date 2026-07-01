@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore } from "../store";
-import { DEFAULT_TARGET_UNDERSTANDING } from "../logic";
+import { DEFAULT_TARGET_UNDERSTANDING, isPastDate } from "../logic";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 import { CalendarOverrides } from "./CalendarOverrides";
 
@@ -62,6 +62,9 @@ export function Settings() {
                 onChange={(e) => updateSubject({ ...subject, testDate: e.target.value })}
               />
             </label>
+            {subject.testDate && isPastDate(subject.testDate, new Date()) && (
+              <p className="error-inline">テスト日が過去の日付になっています。</p>
+            )}
 
             <h4 className="sub-head">章 / 配点</h4>
             {chapters.map((c) => (

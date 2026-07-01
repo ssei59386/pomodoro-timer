@@ -5,3 +5,4 @@ dist-ssr
 .DS_Store
 .vite
 tsconfig.tsbuildinfo
+scripts/nightly-meeting.log

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { AvailabilitySettings, TimeSlot } from "../types";
-import { availableMinutesForDate, toISODate } from "../logic";
+import { availableMinutesForDate, isValidTimeSlot, toISODate } from "../logic";
 
 // 曜日ごとの既定スケジュールとは別に、特定の日だけ空き時間を変更したい場合の
 // カレンダー画面。旅行・用事などで「この日だけ違う」を表現する。
@@ -118,29 +118,35 @@ export function CalendarOverrides({ availability, onChange }: Props) {
               曜日の設定に戻す
             </button>
           </div>
-          {selectedSlots.map((slot, i) => (
-            <div key={i} className="time-slot-row">
-              <input
-                type="time"
-                value={slot.start}
-                onChange={(e) => updateSlot(selected, i, { start: e.target.value })}
-              />
-              <span className="muted">〜</span>
-              <input
-                type="time"
-                value={slot.end}
-                onChange={(e) => updateSlot(selected, i, { end: e.target.value })}
-              />
-              <button
-                type="button"
-                className="icon-btn"
-                aria-label="この時間帯を削除"
-                onClick={() => removeSlot(selected, i)}
-              >
-                ✕
-              </button>
-            </div>
-          ))}
+          {selectedSlots.map((slot, i) => {
+            const invalid = !isValidTimeSlot(slot);
+            return (
+              <div key={i}>
+                <div className={invalid ? "time-slot-row invalid" : "time-slot-row"}>
+                  <input
+                    type="time"
+                    value={slot.start}
+                    onChange={(e) => updateSlot(selected, i, { start: e.target.value })}
+                  />
+                  <span className="muted">〜</span>
+                  <input
+                    type="time"
+                    value={slot.end}
+                    onChange={(e) => updateSlot(selected, i, { end: e.target.value })}
+                  />
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label="この時間帯を削除"
+                    onClick={() => removeSlot(selected, i)}
+                  >
+                    ✕
+                  </button>
+                </div>
+                {invalid && <p className="error-inline">終了は開始より後にしてください</p>}
+              </div>
+            );
+          })}
           {selectedSlots.length === 0 && <p className="muted small">この日は予定なし（0分）です。</p>}
           <button type="button" className="secondary small" onClick={() => addSlot(selected)}>
             ＋ 時間帯を追加

@@ -4,10 +4,13 @@ import {
   DEFAULT_TARGET_UNDERSTANDING,
   computeInitialUnderstanding,
   averageInitialUnderstanding,
+  isPastDate,
+  isValidTimeSlot,
 } from "../logic";
 import { useStore, uid } from "../store";
 import { SelfReportPicker } from "./SelfReportPicker";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
+import { DateOverridesList } from "./DateOverridesList";
 
 // 仕様書 §7.1 初期設定 / オンボーディング
 // 数学・理科の2教科（Phase 0）と各教科のテスト日、章（名前・配点・自己申告）、勉強可能時間を登録。
@@ -55,6 +58,8 @@ export function Onboarding() {
   const [mathDate, setMathDate] = useState("");
   const [scienceDate, setScienceDate] = useState("");
   const [weeklySchedule, setWeeklySchedule] = useState<Partial<Record<number, TimeSlot[]>>>({});
+  const [dateOverrides, setDateOverrides] = useState<Record<string, TimeSlot[]>>({});
+  const [showDateOverrides, setShowDateOverrides] = useState(false);
   const [chapters, setChapters] = useState<DraftChapter[]>([
     {
       key: uid(),
@@ -142,6 +147,31 @@ export function Onboarding() {
       setError("理科のテスト日を入力してください。");
       return;
     }
+    const today = new Date();
+    if (usedMath && isPastDate(mathDate, today)) {
+      setError("数学のテスト日は今日以降の日付にしてください。");
+      return;
+    }
+    if (usedScience && isPastDate(scienceDate, today)) {
+      setError("理科のテスト日は今日以降の日付にしてください。");
+      return;
+    }
+    const hasInvalidSlot = Object.values(weeklySchedule).some((slots) =>
+      (slots ?? []).some((slot) => !isValidTimeSlot(slot)),
+    );
+    if (hasInvalidSlot) {
+      setError(
+        "「勉強できる時間」に終了時刻が開始時刻より前の入力があります。修正してください。",
+      );
+      return;
+    }
+    const hasInvalidOverrideSlot = Object.values(dateOverrides).some((slots) =>
+      (slots ?? []).some((slot) => !isValidTimeSlot(slot)),
+    );
+    if (hasInvalidOverrideSlot) {
+      setError("「特別な予定」に終了時刻が開始時刻より前の入力があります。修正してください。");
+      return;
+    }
 
     const subjects: Subject[] = [];
     const subjectIdByKey: Partial<Record<SubjectKey, string>> = {};
@@ -192,7 +222,7 @@ export function Onboarding() {
     completeOnboarding({
       subjects,
       chapters: builtChapters,
-      availability: { weeklySchedule, dateOverrides: {} },
+      availability: { weeklySchedule, dateOverrides },
     });
   };
 
@@ -228,9 +258,26 @@ export function Onboarding() {
       <section className="card">
         <h2>勉強できる時間</h2>
         <p className="muted">
-          曜日ごとに勉強できる時間帯を入れてください。予定が無い曜日は空のままで大丈夫です。
+          曜日ごとに「何時から何時まで」勉強できるかを入力してください。勉強しない曜日は空のままで大丈夫です。複数の時間帯がある場合は「＋ 時間帯を追加」で追加できます。
         </p>
-        <WeeklyScheduleEditor value={weeklySchedule} onChange={setWeeklySchedule} />
+        <WeeklyScheduleEditor value={weeklySchedule} onChange={setWeeklySchedule} showInitialSlots />
+      </section>
+
+      <section className="card">
+        <div className="section-head-row">
+          <h2>特別な予定</h2>
+          <span className="optional-badge">任意</span>
+        </div>
+        <p className="muted">
+          旅行・部活など、曜日の設定と違う日があればあとから追加できます。スキップしてもかまいません。あとで設定画面からも変更できます。
+        </p>
+        {showDateOverrides ? (
+          <DateOverridesList value={dateOverrides} onChange={setDateOverrides} />
+        ) : (
+          <button type="button" className="secondary" onClick={() => setShowDateOverrides(true)}>
+            特別な予定を設定する
+          </button>
+        )}
       </section>
 
       <section className="card">

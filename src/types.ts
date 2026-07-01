@@ -31,7 +31,7 @@ export interface Chapter {
   understanding: number;
   /** 目標理解度（既定 0.8） */
   targetUnderstanding: number;
-  /** 最後に学習した日（最小版では表示用。減衰は Phase 2） */
+  /** 最後に学習した日（忘却曲線の減衰計算にも使用。logic.ts の decayedUnderstanding を参照） */
   lastStudiedDate: string | null;
   /** 2階層構造の余地（Phase 0 では未使用） */
   skills?: string[];

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 定期テスト学習進捗管理アプリ（Phase 0 最小版）— a mobile-first PWA that helps students maximize exam scores by managing per-chapter understanding levels: self-report/measure understanding → allocate study time to chapters that will move the score most → re-measure and re-plan. Target subjects in Phase 0 are 数学 (math) and 理科 (science) only. No backend, no login — all data lives in the browser's `localStorage`.
 
-Forgetting-curve decay, AI features, all 5 subjects, and rote-memorization mode are explicitly out of scope for this phase (see README.md).
+AI features, all 5 subjects, and rote-memorization mode are explicitly out of scope for this phase (see README.md). Forgetting-curve decay was originally listed as out of scope but has since been implemented — see `decayedUnderstanding` below.
 
 ## Commands
 
@@ -50,3 +50,43 @@ There is no lint script configured.
 **PWA/deploy specifics** (`vite.config.ts`): `base` is `/` in dev but switches to `/pomodoro-timer/` on build, because the GitHub Pages workflow (`.github/workflows/deploy-pages.yml`) serves this as a project site. That workflow deploys on push to `master` or `claude/app-dev-per-plan-qur753`.
 
 **Forward-compat note in storage:** `loadData()` spreads `initialData` under any parsed/stored data so newly added fields get sane defaults for users with older persisted state — preserve this pattern when adding fields to `AppData`/`Chapter`.
+
+## Product direction (CEO judgment lens)
+
+This project is moving from "Phase 0 prototype" toward "real product someone other than the developer will use." Product calls (what to build next, what to cut, how much polish before adding scope) should default to this prioritization:
+
+1. **Ship-quality polish on the existing user journey beats new features.** A user who can't get through onboarding never sees the priority algorithm. Before adding a feature, ask whether the *existing* flow (onboarding → first plan → first session record) is solid.
+2. **Cut before you add.** If a flow needs three options to explain itself, it needs fewer options, not better copy. Resist scope creep even when it's easy to add.
+3. **The first few minutes are the highest-leverage place to invest.** Silent failures, no-escape-hatch flows, and unvalidated input in onboarding are P0s, not nice-to-haves — most users who'd churn, churn there.
+4. **Don't expose Phase 1+ ambitions (AI, 5 subjects, rote-memorization mode) as partial UI or toggles in Phase 0.** They don't exist yet; half-built scope confuses users more than missing scope.
+
+Apply this as a standing judgment lens, not literal role-play: when a request is ambiguous between "add a feature" and "fix the experience," default to the latter unless the user says otherwise.
+
+**Subagents** (`.claude/agents/`):
+- `ceo.md` — プロダクト優先順位・UX判断。何を作るか/削るかを決める。
+- `cto.md` — 技術的実現可能性・実装コスト検証。CEOとペアで議論させる。
+- `engineer.md` — **実装専担**。コード変更はすべてこのエージェントに委譲する。型チェック通過を完了条件とする。
+- `ux-reviewer.md` — **UI/UX専門レビュアー**。実装後にコードを読んで中高生向けモバイルPWAとして問題ないか確認。ちょくちょく呼ぶ。
+
+**ワークフロー：** ユーザーから実装タスクを受けたら、engineer エージェントに詳細仕様を渡して委譲する。実装が終わったら ux-reviewer エージェントを呼んで品質確認する。CEO/CTO は夜間会議および製品方向性の判断に使う。
+
+**計画立案時の相談方針：** 実装計画を立てる段階で、UI設計の選択肢（例：カレンダーUI vs. シンプルな日付入力）や優先順位判断など、答えが自明でない論点が出たら、コードを書き始める前に該当する専門サブエージェント（ux-reviewer / ceo / cto）に具体的な質問を投げて意見を仰ぐ。ユーザーに都度判断を仰ぐ前に、まずサブエージェントの見解を集めてから選択肢を絞り込む。
+
+**Nightly meeting (local)**: `scripts/nightly-meeting.bat` runs via Windows Task Scheduler. It calls `claude --dangerously-skip-permissions -p "..."` to start a local Claude Code session, which invokes the ceo/cto subagents for ~8 rounds of debate, then saves the result as a Gmail draft to ssei59386@gmail.com. Check Gmail drafts folder each morning for results. Execution log is appended to `scripts/nightly-meeting.log`. Everything runs locally — no cloud triggers, no remote sessions.
+
+**Known gaps** (fix before adding new scope):
+- ~~Input validation~~ — **RESOLVED**: `isValidTimeSlot` / `isPastDate` added to `logic.ts`; validation wired into `Onboarding.tsx`, `WeeklyScheduleEditor.tsx`, `CalendarOverrides.tsx`, `Settings.tsx`.
+- Sub-topics entered during onboarding (`averageInitialUnderstanding` path) cannot be edited or removed afterward — no UI for it post-onboarding.
+- Onboarding has no skip/save-and-continue-later escape hatch; it's a single linear form ending in one "始める" button.
+- `storage.ts` swallows `localStorage` write failures silently with no user-facing feedback.
+- No tests for `store.tsx`, `storage.ts`, or any component — only `logic.ts` is unit-tested.
+
+**Recent changes (2026-07-01 session)**:
+- `WeeklyScheduleEditor`: added `showInitialSlots` prop — when true, each day row shows an empty time input by default (no need to click "＋ add" first). Used in Onboarding.
+- `Onboarding`: added "特別な予定" section so irregular days can be set at setup time, not just in Settings later. `dateOverrides` is now passed to `completeOnboarding` (was hardcoded `{}`). After a ux-reviewer audit flagged the initial version (full `CalendarOverrides` calendar-grid UI embedded directly in the required onboarding flow) as a regression against the "cut before you add" principle, it was reworked: the section is now collapsed by default (`showDateOverrides` state, starts `false`, revealed by a "特別な予定を設定する" button) with an "任意" badge, and uses a new onboarding-only component `src/components/DateOverridesList.tsx` — a simple stacked list of `<input type="date">` + time-slot rows, rather than the calendar-grid UI. `CalendarOverrides` itself is unchanged and still used by `Settings.tsx`.
+- `.claude/agents/`: added `engineer.md` (implementation-only agent) and `ux-reviewer.md` (UI/UX review agent). Workflow: delegate code changes to `engineer`, then call `ux-reviewer` to verify.
+
+**Next tasks (carry into next chat)**:
+1. Add `grade` field to `Subject` (e.g. "中3" / "高1") — needed for AI-generated comprehension tests to pick the right difficulty.
+2. Commit all uncommitted changes on branch `claude/app-dev-per-plan-qur753` (this session's onboarding rework + the grade field, once done).
+3. ux-reviewer flagged remaining medium-severity onboarding issues not yet addressed: calendar cell tap targets in `CalendarOverrides.tsx` are likely under 44px (Settings screen only, now out of onboarding's critical path); Onboarding's top-level validation error (`error` state) only renders near the submit button, so a mistake near the top of the form (test date) isn't visible without scrolling down.
