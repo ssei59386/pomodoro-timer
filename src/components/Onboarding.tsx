@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Chapter, ChapterMetadata, Subject, TimeSlot } from "../types";
 import {
   DEFAULT_TARGET_UNDERSTANDING,
@@ -74,6 +74,15 @@ export function Onboarding() {
   ]);
   const [error, setError] = useState<string | null>(null);
 
+  const testDateSectionRef = useRef<HTMLElement | null>(null);
+  const weeklyScheduleSectionRef = useRef<HTMLElement | null>(null);
+  const dateOverridesSectionRef = useRef<HTMLElement | null>(null);
+  const chaptersSectionRef = useRef<HTMLElement | null>(null);
+
+  const scrollToSection = (ref: React.RefObject<HTMLElement | null>) => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const addChapter = (subjectKey: SubjectKey) => {
     setChapters((prev) => [
       ...prev,
@@ -135,25 +144,30 @@ export function Onboarding() {
     const named = chapters.filter((c) => c.name.trim() !== "");
     if (named.length === 0) {
       setError("章を1つ以上登録してください。");
+      scrollToSection(chaptersSectionRef);
       return;
     }
     const usedMath = named.some((c) => c.subjectKey === "math");
     const usedScience = named.some((c) => c.subjectKey === "science");
     if (usedMath && !mathDate) {
       setError("数学のテスト日を入力してください。");
+      scrollToSection(testDateSectionRef);
       return;
     }
     if (usedScience && !scienceDate) {
       setError("理科のテスト日を入力してください。");
+      scrollToSection(testDateSectionRef);
       return;
     }
     const today = new Date();
     if (usedMath && isPastDate(mathDate, today)) {
       setError("数学のテスト日は今日以降の日付にしてください。");
+      scrollToSection(testDateSectionRef);
       return;
     }
     if (usedScience && isPastDate(scienceDate, today)) {
       setError("理科のテスト日は今日以降の日付にしてください。");
+      scrollToSection(testDateSectionRef);
       return;
     }
     const hasInvalidSlot = Object.values(weeklySchedule).some((slots) =>
@@ -163,6 +177,7 @@ export function Onboarding() {
       setError(
         "「勉強できる時間」に終了時刻が開始時刻より前の入力があります。修正してください。",
       );
+      scrollToSection(weeklyScheduleSectionRef);
       return;
     }
     const hasAnyValidSlot = Object.values(weeklySchedule).some((slots) =>
@@ -170,6 +185,7 @@ export function Onboarding() {
     );
     if (!hasAnyValidSlot) {
       setError("勉強できる時間を少なくとも1つ設定してください。");
+      scrollToSection(weeklyScheduleSectionRef);
       return;
     }
     const hasInvalidOverrideSlot = Object.values(dateOverrides).some((slots) =>
@@ -177,6 +193,7 @@ export function Onboarding() {
     );
     if (hasInvalidOverrideSlot) {
       setError("「特別な予定」に終了時刻が開始時刻より前の入力があります。修正してください。");
+      scrollToSection(dateOverridesSectionRef);
       return;
     }
 
@@ -242,7 +259,7 @@ export function Onboarding() {
         </p>
       </header>
 
-      <section className="card">
+      <section className="card" ref={testDateSectionRef}>
         <h2>テスト日</h2>
         <label className="field">
           <span>数学のテスト日</span>
@@ -262,7 +279,7 @@ export function Onboarding() {
         </label>
       </section>
 
-      <section className="card">
+      <section className="card" ref={weeklyScheduleSectionRef}>
         <h2>勉強できる時間</h2>
         <p className="muted">
           曜日ごとに「何時から何時まで」勉強できるかを入力してください。勉強しない曜日は空のままで大丈夫です。複数の時間帯がある場合は「＋ 時間帯を追加」で追加できます。
@@ -270,7 +287,7 @@ export function Onboarding() {
         <WeeklyScheduleEditor value={weeklySchedule} onChange={setWeeklySchedule} showInitialSlots />
       </section>
 
-      <section className="card">
+      <section className="card" ref={dateOverridesSectionRef}>
         <div className="section-head-row">
           <h2>特別な予定</h2>
           <span className="optional-badge">任意</span>
@@ -287,7 +304,7 @@ export function Onboarding() {
         )}
       </section>
 
-      <section className="card">
+      <section className="card" ref={chaptersSectionRef}>
         <h2>章の登録</h2>
         <p className="muted">
           章ごとに「名前・配点・今の理解度（自己申告）」を入れてください。
