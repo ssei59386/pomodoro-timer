@@ -27,11 +27,12 @@ export function loadData(): AppData {
   }
 }
 
-export function saveData(data: AppData): void {
+export function saveData(data: AppData): boolean {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    return true;
   } catch {
-    // 保存に失敗しても致命的ではないので握りつぶす
+    return false;
   }
 }
 

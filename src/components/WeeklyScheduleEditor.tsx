@@ -26,6 +26,10 @@ export function WeeklyScheduleEditor({ value, onChange, showInitialSlots }: Prop
     onChange({ ...value, [day]: slots });
   };
 
+  const hasAnyValidSlot = Object.values(value).some((slots) =>
+    (slots ?? []).some((slot) => isValidTimeSlot(slot)),
+  );
+
   const addSlot = (day: number) => {
     const slots = value[day] ?? [];
     updateDay(day, [...slots, { start: "16:00", end: "17:00" }]);
@@ -43,6 +47,9 @@ export function WeeklyScheduleEditor({ value, onChange, showInitialSlots }: Prop
 
   return (
     <div className="weekly-schedule">
+      {!hasAnyValidSlot && (
+        <p className="muted small">毎日の勉強できる時間はまだ入力されていません。</p>
+      )}
       {DAY_ORDER.map((day) => {
         // showInitialSlots モードでは、まだ入力が無い曜日に空のスロットを1行表示する
         const storedSlots = value[day] ?? [];

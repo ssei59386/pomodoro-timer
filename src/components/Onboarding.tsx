@@ -165,6 +165,13 @@ export function Onboarding() {
       );
       return;
     }
+    const hasAnyValidSlot = Object.values(weeklySchedule).some((slots) =>
+      (slots ?? []).some((slot) => isValidTimeSlot(slot)),
+    );
+    if (!hasAnyValidSlot) {
+      setError("勉強できる時間を少なくとも1つ設定してください。");
+      return;
+    }
     const hasInvalidOverrideSlot = Object.values(dateOverrides).some((slots) =>
       (slots ?? []).some((slot) => !isValidTimeSlot(slot)),
     );

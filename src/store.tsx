@@ -19,6 +19,8 @@ import { clearData, initialData, loadData, saveData, uid } from "./storage";
 
 interface StoreValue {
   data: AppData;
+  /** 直近の localStorage 保存に失敗したか（容量超過やプライベートブラウジング制限など） */
+  saveError: boolean;
   /** オンボーディングを確定する（教科・章・勉強時間をまとめて保存） */
   completeOnboarding: (input: {
     subjects: Subject[];
@@ -39,15 +41,18 @@ const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<AppData>(() => loadData());
+  const [saveError, setSaveError] = useState(false);
 
-  // データが変わるたびに端末ローカルへ保存
+  // データが変わるたびに端末ローカルへ保存。失敗時はバナー表示のためフラグを立てる。
+  // 一度失敗しても次回の保存が成功すればバナーを消したいので、成功時は false に戻す。
   useEffect(() => {
-    saveData(data);
+    setSaveError(!saveData(data));
   }, [data]);
 
   const value = useMemo<StoreValue>(() => {
     return {
       data,
+      saveError,
 
       completeOnboarding: ({ subjects, chapters, availability }) => {
         setData((prev) => ({
@@ -108,7 +113,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setData(initialData);
       },
     };
-  }, [data]);
+  }, [data, saveError]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

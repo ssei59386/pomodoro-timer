@@ -99,6 +99,19 @@ select {
   padding-bottom: 88px; /* タブバー分の余白 */
 }
 
+.save-error-banner {
+  background: #fef2f2;
+  color: var(--danger);
+  border-bottom: 1px solid #fecaca;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  position: sticky;
+  top: 0;
+  z-index: 9;
+}
+
 /* ---- タブバー ---- */
 .tab-bar {
   position: fixed;

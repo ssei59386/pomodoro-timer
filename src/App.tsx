@@ -17,7 +17,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 ];
 
 export function App() {
-  const { data } = useStore();
+  const { data, saveError } = useStore();
   const [tab, setTab] = useState<Tab>("home");
   // 「記録する」ボタンから記録画面へ来たときに章を事前選択するための受け渡し
   const [preselectChapterId, setPreselectChapterId] = useState<string | null>(null);
@@ -37,6 +37,12 @@ export function App() {
       <header className="app-header">
         <h1>定期テスト学習進捗管理</h1>
       </header>
+
+      {saveError && (
+        <div className="save-error-banner" role="alert">
+          変更を保存できませんでした。ブラウザの空き容量を確認するか、プライベートブラウジングを解除してください。
+        </div>
+      )}
 
       <main className="app-main">
         {tab === "home" && <Home onRecord={goRecord} />}
