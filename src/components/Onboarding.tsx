@@ -73,6 +73,7 @@ export function Onboarding() {
     },
   ]);
   const [error, setError] = useState<string | null>(null);
+  const [weeklyScheduleError, setWeeklyScheduleError] = useState(false);
 
   const testDateSectionRef = useRef<HTMLElement | null>(null);
   const weeklyScheduleSectionRef = useRef<HTMLElement | null>(null);
@@ -141,6 +142,7 @@ export function Onboarding() {
   };
 
   const handleSubmit = () => {
+    setWeeklyScheduleError(false);
     const named = chapters.filter((c) => c.name.trim() !== "");
     if (named.length === 0) {
       setError("章を1つ以上登録してください。");
@@ -177,6 +179,7 @@ export function Onboarding() {
       setError(
         "「勉強できる時間」に終了時刻が開始時刻より前の入力があります。修正してください。",
       );
+      setWeeklyScheduleError(true);
       scrollToSection(weeklyScheduleSectionRef);
       return;
     }
@@ -185,6 +188,7 @@ export function Onboarding() {
     );
     if (!hasAnyValidSlot) {
       setError("勉強できる時間を少なくとも1つ設定してください。");
+      setWeeklyScheduleError(true);
       scrollToSection(weeklyScheduleSectionRef);
       return;
     }
@@ -288,7 +292,12 @@ export function Onboarding() {
         <p className="muted">
           曜日ごとに「何時から何時まで」勉強できるかを入力してください。勉強しない曜日は空のままで大丈夫です。複数の時間帯がある場合は「＋ 時間帯を追加」で追加できます。
         </p>
-        <WeeklyScheduleEditor value={weeklySchedule} onChange={setWeeklySchedule} showInitialSlots />
+        <WeeklyScheduleEditor
+          value={weeklySchedule}
+          onChange={setWeeklySchedule}
+          showInitialSlots
+          hasError={weeklyScheduleError}
+        />
       </section>
 
       <section className="card" ref={dateOverridesSectionRef}>

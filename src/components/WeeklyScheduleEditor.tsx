@@ -19,9 +19,11 @@ interface Props {
   onChange: (value: Partial<Record<number, TimeSlot[]>>) => void;
   /** true のとき各曜日に初期スロットを1行表示（オンボーディング向け） */
   showInitialSlots?: boolean;
+  /** 有効な時間帯が1件も無いなど、エディタ全体としてのエラーを枠線で示す */
+  hasError?: boolean;
 }
 
-export function WeeklyScheduleEditor({ value, onChange, showInitialSlots }: Props) {
+export function WeeklyScheduleEditor({ value, onChange, showInitialSlots, hasError }: Props) {
   const updateDay = (day: number, slots: TimeSlot[]) => {
     onChange({ ...value, [day]: slots });
   };
@@ -46,7 +48,7 @@ export function WeeklyScheduleEditor({ value, onChange, showInitialSlots }: Prop
   };
 
   return (
-    <div className="weekly-schedule">
+    <div className={hasError ? "weekly-schedule weekly-schedule-error" : "weekly-schedule"}>
       {!hasAnyValidSlot && !showInitialSlots && (
         <p className="muted small">毎日の勉強できる時間はまだ入力されていません。</p>
       )}

@@ -425,6 +425,13 @@ input[type="range"] {
   gap: 10px;
 }
 
+.weekly-schedule-error {
+  border: 1px solid var(--danger);
+  border-radius: 12px;
+  padding: 8px;
+  background: #fef2f2;
+}
+
 .weekly-schedule-day {
   border: 1px solid var(--border);
   border-radius: 12px;
