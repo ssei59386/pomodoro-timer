@@ -240,6 +240,10 @@ export function Onboarding() {
         targetUnderstanding: DEFAULT_TARGET_UNDERSTANDING,
         lastStudiedDate: null,
         metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+        subtopics:
+          namedSubtopics.length > 0
+            ? namedSubtopics.map((st) => ({ id: uid(), name: st.name.trim() }))
+            : undefined,
       };
     });
 

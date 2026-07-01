@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { useStore } from "../store";
+import { useStore, uid } from "../store";
 import { DEFAULT_TARGET_UNDERSTANDING, isPastDate } from "../logic";
+import type { Chapter } from "../types";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 import { CalendarOverrides } from "./CalendarOverrides";
 
@@ -18,6 +19,29 @@ export function Settings() {
   } = useStore();
 
   const [confirmingReset, setConfirmingReset] = useState(false);
+
+  const addSubtopic = (chapter: Chapter) => {
+    updateChapter({
+      ...chapter,
+      subtopics: [...(chapter.subtopics ?? []), { id: uid(), name: "" }],
+    });
+  };
+
+  const updateSubtopicName = (chapter: Chapter, subtopicId: string, name: string) => {
+    updateChapter({
+      ...chapter,
+      subtopics: (chapter.subtopics ?? []).map((st) =>
+        st.id === subtopicId ? { ...st, name } : st,
+      ),
+    });
+  };
+
+  const removeSubtopic = (chapter: Chapter, subtopicId: string) => {
+    updateChapter({
+      ...chapter,
+      subtopics: (chapter.subtopics ?? []).filter((st) => st.id !== subtopicId),
+    });
+  };
 
   return (
     <div className="screen">
@@ -68,31 +92,62 @@ export function Settings() {
 
             <h4 className="sub-head">章 / 配点</h4>
             {chapters.map((c) => (
-              <div key={c.id} className="settings-chapter-row">
-                <input
-                  type="text"
-                  className="grow"
-                  value={c.name}
-                  onChange={(e) => updateChapter({ ...c, name: e.target.value })}
-                />
-                <input
-                  type="number"
-                  className="narrow"
-                  min={0}
-                  value={c.pointWeight}
-                  onChange={(e) =>
-                    updateChapter({ ...c, pointWeight: Math.max(0, Number(e.target.value)) })
-                  }
-                  aria-label="配点"
-                />
-                <button
-                  type="button"
-                  className="icon-btn"
-                  aria-label="章を削除"
-                  onClick={() => removeChapter(c.id)}
-                >
-                  ✕
-                </button>
+              <div key={c.id}>
+                <div className="settings-chapter-row">
+                  <input
+                    type="text"
+                    className="grow"
+                    value={c.name}
+                    onChange={(e) => updateChapter({ ...c, name: e.target.value })}
+                  />
+                  <input
+                    type="number"
+                    className="narrow"
+                    min={0}
+                    value={c.pointWeight}
+                    onChange={(e) =>
+                      updateChapter({ ...c, pointWeight: Math.max(0, Number(e.target.value)) })
+                    }
+                    aria-label="配点"
+                  />
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label="章を削除"
+                    onClick={() => removeChapter(c.id)}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="subtopic-block">
+                  <div className="subtopic-block-head">
+                    <span className="muted small">
+                      小項目（任意）— 学習範囲を細かく分けて管理したい場合に使えます
+                    </span>
+                    <button type="button" className="link-btn" onClick={() => addSubtopic(c)}>
+                      ＋ 小項目を追加
+                    </button>
+                  </div>
+                  {(c.subtopics ?? []).map((st) => (
+                    <div key={st.id} className="subtopic-row">
+                      <input
+                        type="text"
+                        className="grow"
+                        placeholder="小項目名（例：頂点）"
+                        value={st.name}
+                        onChange={(e) => updateSubtopicName(c, st.id, e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        aria-label="小項目を削除"
+                        onClick={() => removeSubtopic(c, st.id)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
             <button

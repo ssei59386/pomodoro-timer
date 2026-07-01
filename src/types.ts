@@ -19,6 +19,16 @@ export interface ChapterMetadata {
   difficultyLevel?: number;
 }
 
+/**
+ * 章内の小項目（名前のみの情報管理）。
+ * オンボーディング時の自己申告は初期理解度の計算に使われて役目を終えるため、
+ * ここでは再入力・スコアリング連動はせず、学習範囲を見返すための名前一覧として保持する。
+ */
+export interface ChapterSubtopic {
+  id: string;
+  name: string;
+}
+
 /** 章 ＝ 理解度管理の最小単位 */
 export interface Chapter {
   id: string;
@@ -37,6 +47,8 @@ export interface Chapter {
   skills?: string[];
   /** 学習メタデータ（演習問題数、学習範囲、難易度など） */
   metadata?: ChapterMetadata;
+  /** 小項目（名前のみ。理解度追跡やセッション記録とは連動しない情報管理用） */
+  subtopics?: ChapterSubtopic[];
 }
 
 /** 学習セッションの記録ログ */
