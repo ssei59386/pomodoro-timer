@@ -47,7 +47,7 @@ export function WeeklyScheduleEditor({ value, onChange, showInitialSlots }: Prop
 
   return (
     <div className="weekly-schedule">
-      {!hasAnyValidSlot && (
+      {!hasAnyValidSlot && !showInitialSlots && (
         <p className="muted small">毎日の勉強できる時間はまだ入力されていません。</p>
       )}
       {DAY_ORDER.map((day) => {

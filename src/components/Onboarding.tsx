@@ -356,7 +356,7 @@ export function Onboarding() {
             </div>
             <div className="metadata-block">
               <div className="metadata-block-head">
-                <span className="muted small">学習メタデータ（任意・AI問題生成などで活用）</span>
+                <span className="muted small">学習メタデータ（任意・あとで使う項目です）</span>
               </div>
               <div className="metadata-row">
                 <label className="field inline">
