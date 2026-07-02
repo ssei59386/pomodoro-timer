@@ -10,6 +10,7 @@ import {
   priority,
   generateTodayPlan,
   applySessionToChapter,
+  applySessionToSubtopic,
   slotMinutes,
   availableMinutesForDate,
   decayedUnderstanding,
@@ -269,6 +270,70 @@ describe("applySessionToChapter", () => {
     // observed=0.8, new=0.5*0.8+0.5*0.4=0.6
     expect(updated.understanding).toBeCloseTo(0.6);
     expect(updated.lastStudiedDate).toBe("2026-06-29");
+  });
+});
+
+describe("applySessionToSubtopic", () => {
+  const session: StudySession = {
+    id: "x",
+    chapterId: "c1",
+    subtopicId: "st-a",
+    date: "2026-06-29",
+    minutes: 45,
+    correctRate: 0.8,
+    selfReport: 4,
+  };
+
+  it("対象の小項目の understanding が更新され、lastStudiedDate がセッションの日付になる", () => {
+    const subtopics = [
+      subtopic({ id: "st-a", understanding: 0.4, lastStudiedDate: null }),
+      subtopic({ id: "st-b", understanding: 0.5, lastStudiedDate: null }),
+    ];
+    const c = chapter({ subtopics });
+    const updated = applySessionToSubtopic(c, "st-a", session);
+    const updatedA = updated.subtopics?.find((s) => s.id === "st-a");
+    // observed=0.8, new=0.5*0.8+0.5*0.4=0.6
+    expect(updatedA?.understanding).toBeCloseTo(0.6);
+    expect(updatedA?.lastStudiedDate).toBe("2026-06-29");
+  });
+
+  it("対象外の小項目・章本体のフィールドは変更されない", () => {
+    const subtopics = [
+      subtopic({ id: "st-a", understanding: 0.4, lastStudiedDate: null }),
+      subtopic({ id: "st-b", understanding: 0.5, lastStudiedDate: "2026-01-01" }),
+    ];
+    const c = chapter({ understanding: 0.3, lastStudiedDate: "2025-12-01", subtopics });
+    const updated = applySessionToSubtopic(c, "st-a", session);
+
+    const updatedB = updated.subtopics?.find((s) => s.id === "st-b");
+    expect(updatedB?.understanding).toBeCloseTo(0.5);
+    expect(updatedB?.lastStudiedDate).toBe("2026-01-01");
+
+    // 章本体のフィールドは小項目単位の更新では変更しない
+    expect(updated.understanding).toBeCloseTo(0.3);
+    expect(updated.lastStudiedDate).toBe("2025-12-01");
+  });
+
+  it("該当する subtopicId が見つからない場合、章がそのまま返る", () => {
+    const subtopics = [subtopic({ id: "st-a", understanding: 0.4 })];
+    const c = chapter({ subtopics });
+    const updated = applySessionToSubtopic(c, "does-not-exist", session);
+    expect(updated).toEqual(c);
+  });
+
+  it("subtopics が未設定の章では、章がそのまま返る", () => {
+    const c = chapter({ subtopics: undefined });
+    const updated = applySessionToSubtopic(c, "st-a", session);
+    expect(updated).toEqual(c);
+  });
+
+  it("小項目の understanding が未設定（初回）の場合、0 から更新が始まる", () => {
+    const subtopics = [subtopic({ id: "st-a", understanding: undefined })];
+    const c = chapter({ subtopics });
+    const updated = applySessionToSubtopic(c, "st-a", session);
+    const updatedA = updated.subtopics?.find((s) => s.id === "st-a");
+    // observed=0.8, new=0.5*0.8+0.5*0=0.4
+    expect(updatedA?.understanding).toBeCloseTo(0.4);
   });
 });
 

@@ -236,6 +236,34 @@ export function applySessionToChapter(chapter: Chapter, session: StudySession): 
   };
 }
 
+/**
+ * セッション記録を小項目に適用し、更新後の章を返す（純粋関数）。フェーズ2。
+ * 小項目単位の理解度はあくまで subtopic.understanding が正、という設計方針を踏襲し、
+ * 章本体の understanding / lastStudiedDate はここでは変更しない。
+ * 対象の subtopicId が見つからない場合（subtopics 未設定・該当IDなし）は章をそのまま返す。
+ */
+export function applySessionToSubtopic(chapter: Chapter, subtopicId: string, session: StudySession): Chapter {
+  const subtopics = chapter.subtopics ?? [];
+  const index = subtopics.findIndex((s) => s.id === subtopicId);
+  if (index === -1) return chapter;
+
+  const observed = computeObserved(session.correctRate, session.selfReport);
+  const target = subtopics[index];
+  const updatedSubtopic: ChapterSubtopic = {
+    ...target,
+    understanding: updateUnderstanding(target.understanding ?? 0, observed),
+    lastStudiedDate: session.date,
+  };
+
+  const updatedSubtopics = [...subtopics];
+  updatedSubtopics[index] = updatedSubtopic;
+
+  return {
+    ...chapter,
+    subtopics: updatedSubtopics,
+  };
+}
+
 // ---- 「見通し」機能フェーズ1：小項目単位の優先度スコア・所要時間見積もり ----
 // 既存の priority / generateTodayPlan / applySessionToChapter / buildReasons は一切変更しない
 // （章単位のロジックは今回のフェーズでは無関係、回帰リスクをゼロに保つ設計方針）。

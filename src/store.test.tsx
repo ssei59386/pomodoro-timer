@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import { StoreProvider, useStore } from "./store";
 import { initialData } from "./storage";
-import type { AvailabilitySettings, Chapter, Subject } from "./types";
+import type { AvailabilitySettings, Chapter, ChapterSubtopic, Subject } from "./types";
 
 // StoreContext を直接テストするための小さなプローブコンポーネント。
 // 専用の renderHook ユーティリティは導入していないため、useStore() の値を
@@ -105,6 +105,47 @@ describe("StoreProvider / useStore", () => {
     // observed = 0.7*0.8 + 0.3*(4/5) = 0.8, updated = 0.5*0.4 + 0.5*0.8 = 0.6
     expect(updated?.understanding).toBeCloseTo(0.6);
     expect(updated?.lastStudiedDate).toBe("2026-07-01");
+  });
+
+  it("recordSession に subtopicId を指定すると、対象の小項目の理解度が更新され章レベルの understanding は変わらない", () => {
+    const subtopics: ChapterSubtopic[] = [
+      { id: "st-a", name: "因数分解", understanding: 0.3 },
+      { id: "st-b", name: "平方完成", understanding: 0.5 },
+    ];
+    renderStore();
+    act(() => {
+      getStore().completeOnboarding({
+        subjects: [subject],
+        chapters: [chapter({ subtopics })],
+        availability,
+      });
+    });
+
+    act(() => {
+      getStore().recordSession({
+        chapterId: "c1",
+        subtopicId: "st-a",
+        date: "2026-07-01",
+        minutes: 45,
+        correctRate: 0.8,
+        selfReport: 4,
+      });
+    });
+
+    const updated = getStore().data.chapters.find((c) => c.id === "c1");
+    const updatedA = updated?.subtopics?.find((s) => s.id === "st-a");
+    const updatedB = updated?.subtopics?.find((s) => s.id === "st-b");
+
+    // observed = 0.7*0.8 + 0.3*(4/5) = 0.8, updated = 0.5*0.3 + 0.5*0.8 = 0.55
+    expect(updatedA?.understanding).toBeCloseTo(0.55);
+    expect(updatedA?.lastStudiedDate).toBe("2026-07-01");
+
+    // 対象外の小項目は変更されない
+    expect(updatedB?.understanding).toBeCloseTo(0.5);
+
+    // 章レベルの understanding は subtopicId 指定時には変更されない
+    expect(updated?.understanding).toBeCloseTo(0.4);
+    expect(updated?.lastStudiedDate).toBe(null);
   });
 
   it("updateChapter / addChapter / removeChapter が chapters を正しく更新する", () => {

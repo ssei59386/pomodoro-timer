@@ -14,7 +14,7 @@ import type {
   StudySession,
   Subject,
 } from "./types";
-import { applySessionToChapter } from "./logic";
+import { applySessionToChapter, applySessionToSubtopic } from "./logic";
 import { clearData, initialData, loadData, saveData, uid } from "./storage";
 
 interface StoreValue {
@@ -69,9 +69,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setData((prev) => ({
           ...prev,
           sessions: [...prev.sessions, session],
-          chapters: prev.chapters.map((c) =>
-            c.id === session.chapterId ? applySessionToChapter(c, session) : c,
-          ),
+          chapters: prev.chapters.map((c) => {
+            if (c.id !== session.chapterId) return c;
+            return session.subtopicId
+              ? applySessionToSubtopic(c, session.subtopicId, session)
+              : applySessionToChapter(c, session);
+          }),
         }));
       },
 
