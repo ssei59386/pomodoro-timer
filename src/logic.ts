@@ -664,6 +664,223 @@ export function worstProgressTier(tiers: (ProgressTier | null)[]): ProgressTier 
   return present.reduce((worst, t) => (severity[t] > severity[worst] ? t : worst));
 }
 
+// ---- 「見通し」機能フェーズ5：前向きシミュレーション・トリアージ ----
+// 小項目を持たない章は対象外（残り所要分という概念が無いため。generateTodayPlan は
+// そういう章を固定45分/日の繰り返しとしてモデル化しており、代用値を作ると
+// デュアルパス設計が壊れ「一生終わらない章」が常にトリアージ最下位に居座るノイズになる）。
+// 内部状態は各小項目の「残り所要分（分）」というスカラーのみ。today 時点で一度だけ
+// estimateSubtopicRemainingMinutes を評価してスナップショットし、以降は日ごとに
+// 割り当てた分を引くだけ。未来日で decayedSubtopicUnderstanding を再計算・再見積もりは
+// 絶対にしない（勉強しない日ほど decay で残り所要分が増える、という負のフィードバックループを
+// 避けるため）。これは generateTodayPlan が未来日の decay を一切見ないことと一貫している。
+
+export interface SubtopicForecast {
+  chapterId: string;
+  subtopicId: string;
+  subjectId: string;
+  /** day 0（today）時点で見積もった、この小項目を終えるのに必要な総分数 */
+  totalMinutesNeeded: number;
+  /** テスト日までに終わる見込みの日付（ISO 8601）。間に合わない場合は null */
+  projectedCompletionDate: string | null;
+  /** テスト日までに割り当てきれなかった分数（間に合う場合は 0） */
+  shortfallMinutes: number;
+  onTrack: boolean;
+}
+
+export interface SubjectForecastSummary {
+  subjectId: string;
+  totalShortfallMinutes: number;
+  atRiskSubtopicIds: string[];
+}
+
+export interface ForwardSimulationResult {
+  subtopics: SubtopicForecast[];
+  subjects: SubjectForecastSummary[];
+}
+
+/** シミュレーション内部だけで使う可変ワーキングオブジェクト（外部には公開しない） */
+interface ForecastTrackedItem {
+  chapter: Chapter;
+  subtopic: ChapterSubtopic;
+  subject: Subject;
+  totalMinutesNeeded: number;
+  remainingMinutes: number;
+  completionDate: string | null;
+}
+
+/**
+ * 今日から最も遅いテスト日まで、日ごとに貪欲割当をシミュレートし、
+ * 各小項目（小項目を持つ章のみ対象）がいつ終わるか／テスト日に間に合うかを予測する。
+ * 本質的には generateTodayPlan の貪欲ループを、もう1段の日ループで包んだだけ
+ * （汎用シミュレーションエンジンの抽象化は作らない）。
+ * 教科をまたいで1つの候補集合として優先度順に割り当てるが、ある教科は自分の
+ * テスト日を過ぎた時点でその集合から脱落する（教科ごとの締切が共有の日々を奪い合う）。
+ */
+export function simulateForward(
+  chapters: Chapter[],
+  subjects: Subject[],
+  availability: AvailabilitySettings,
+  today: Date,
+  sessions: StudySession[] = [],
+): ForwardSimulationResult {
+  const subjectById = new Map(subjects.map((s) => [s.id, s]));
+  const ratesCache = new Map<string, LearnedProblemRates>();
+
+  const items: ForecastTrackedItem[] = [];
+  for (const chapter of chapters) {
+    const subject = subjectById.get(chapter.subjectId);
+    if (!subject) continue;
+    const subtopics = chapter.subtopics ?? [];
+    if (subtopics.length === 0) continue; // 小項目を持たない章は対象外
+
+    if (!ratesCache.has(subject.id)) {
+      ratesCache.set(subject.id, learnedProblemRates(sessions, chapters, subject.id));
+    }
+    const rates = ratesCache.get(subject.id)!;
+
+    for (const subtopic of subtopics) {
+      const totalMinutesNeeded = estimateSubtopicRemainingMinutes(subtopic, today, rates).totalMinutes;
+      items.push({
+        chapter,
+        subtopic,
+        subject,
+        totalMinutesNeeded,
+        remainingMinutes: totalMinutesNeeded,
+        completionDate: totalMinutesNeeded <= 0 ? toISODate(today) : null,
+      });
+    }
+  }
+
+  if (items.length > 0) {
+    let cursor = startOfDay(today);
+    const maxTestDate = items.reduce((max, item) => {
+      const testDate = parseDate(item.subject.testDate);
+      return testDate.getTime() > max.getTime() ? testDate : max;
+    }, cursor);
+
+    while (cursor.getTime() <= maxTestDate.getTime()) {
+      const dayDate = cursor;
+      const eligible = items.filter(
+        (item) => item.remainingMinutes > 0 && !isPastDate(item.subject.testDate, dayDate),
+      );
+
+      if (eligible.length > 0) {
+        let remainingBudget = availableMinutesForDate(availability, dayDate);
+        const sorted = eligible
+          .map((item) => ({ item, score: subtopicPriority(item.chapter, item.subtopic, item.subject, dayDate) }))
+          .sort((a, b) => b.score - a.score);
+
+        for (const { item } of sorted) {
+          if (remainingBudget <= 0) break;
+          // 既存の [MIN_SUBTOPIC_SESSION_MINUTES, SESSION_MINUTES] クランプに加え、
+          // この小項目自身の残り分にもクランプ（完了を超えて過剰割当しない）
+          const target = Math.max(MIN_SUBTOPIC_SESSION_MINUTES, Math.min(SESSION_MINUTES, item.remainingMinutes));
+          const cappedByOwnRemaining = Math.min(target, item.remainingMinutes);
+          const allocation = Math.min(cappedByOwnRemaining, remainingBudget);
+          if (allocation <= 0) continue;
+
+          item.remainingMinutes -= allocation;
+          remainingBudget -= allocation;
+          if (item.remainingMinutes <= 0 && item.completionDate === null) {
+            item.completionDate = toISODate(dayDate);
+          }
+        }
+      }
+
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
+    }
+  }
+
+  const subtopicForecasts: SubtopicForecast[] = items.map((item) => {
+    const onTrack = item.completionDate !== null;
+    return {
+      chapterId: item.chapter.id,
+      subtopicId: item.subtopic.id,
+      subjectId: item.subject.id,
+      totalMinutesNeeded: item.totalMinutesNeeded,
+      projectedCompletionDate: item.completionDate,
+      shortfallMinutes: onTrack ? 0 : item.remainingMinutes,
+      onTrack,
+    };
+  });
+
+  const subjectIds = Array.from(new Set(items.map((item) => item.subject.id)));
+  const subjectSummaries: SubjectForecastSummary[] = subjectIds.map((subjectId) => {
+    const own = subtopicForecasts.filter((f) => f.subjectId === subjectId);
+    return {
+      subjectId,
+      totalShortfallMinutes: own.reduce((sum, f) => sum + f.shortfallMinutes, 0),
+      atRiskSubtopicIds: own.filter((f) => !f.onTrack).map((f) => f.subtopicId),
+    };
+  });
+
+  return { subtopics: subtopicForecasts, subjects: subjectSummaries };
+}
+
+/** シミュレーション結果から「切る候補」として並べた1件 */
+export interface TriageCandidate {
+  chapterId: string;
+  subtopicId: string;
+  subjectId: string;
+  /**
+   * 配点按分 ÷ totalMinutesNeeded（残り総所要時間）。値が小さいほど「時間対効果が悪い」＝切る候補として優先度が高い。
+   * 分母は shortfallMinutes ではなく totalMinutesNeeded（設計ドキュメント準拠）。
+   * knapsackトリアージの本質は「同じ時間をかけるなら配点が高い方を残す」という時間対効果の比較であり、
+   * 分母に shortfallMinutes（間に合わなかった分）を使うと「間に合わなさが大きいもの」が
+   * 機械的に切られやすくなってしまい、意味が変わる。
+   */
+  efficiency: number;
+  shortfallMinutes: number;
+}
+
+/**
+ * 前向きシミュレーション結果から「切る候補」を効率の低い順（昇順）に並べる。
+ * ForwardSimulationResult 以外の新たな保存状態は持たない別の純粋関数。
+ * shortfallMinutes > 0 の小項目のみが対象（間に合う見込みのものは切る必要が無い）。
+ */
+export function triageSubtopics(result: ForwardSimulationResult, chapters: Chapter[]): TriageCandidate[] {
+  const chapterById = new Map(chapters.map((c) => [c.id, c]));
+
+  return result.subtopics
+    .filter((forecast) => forecast.shortfallMinutes > 0)
+    .map((forecast) => {
+      const chapter = chapterById.get(forecast.chapterId);
+      const weight = chapter ? subtopicPointWeights(chapter).get(forecast.subtopicId) ?? 0 : 0;
+      return {
+        chapterId: forecast.chapterId,
+        subtopicId: forecast.subtopicId,
+        subjectId: forecast.subjectId,
+        efficiency: forecast.totalMinutesNeeded > 0 ? weight / forecast.totalMinutesNeeded : 0,
+        shortfallMinutes: forecast.shortfallMinutes,
+      };
+    })
+    .sort((a, b) => a.efficiency - b.efficiency);
+}
+
+/** 「間に合わない見込み＋切る候補」を表示するトリガーの閾値（分）。1学習ブロック分程度の暫定値・調整可能 */
+export const FORECAST_SHORTFALL_THRESHOLD_MINUTES = 45;
+
+/**
+ * ある教科の見通し（間に合わない見込み＋切る候補）セクションを表示すべきかどうかの判定。
+ * 以下の2条件を両方満たすときのみ true：
+ * 1. その教科の合計不足分（totalShortfallMinutes）が FORECAST_SHORTFALL_THRESHOLD_MINUTES を超えている
+ *    （まとまった不足。1件だけ数分オーバーする程度は翌日の貪欲な再配分で吸収されるため無視する）
+ * 2. その教科のいずれかの小項目にセッションが1件以上記録されている
+ *    （登録直後に「何十個も登録した瞬間に間に合わない」という誤警報を防ぐ。フェーズ4の
+ *    「セッション0件は悪いほうに倒さない」と同じ考え方）
+ * テスト直前の抑制はしない（フェーズ4の PROBLEM_TIER_MIN_DAYS_LEFT とは逆。シミュレーションは
+ * テストが近いほど信頼度が上がるため、テスト当日まで表示し続ける）。
+ */
+export function shouldSurfaceForecastForSubject(
+  summary: SubjectForecastSummary,
+  sessions: StudySession[],
+  chapters: Chapter[],
+): boolean {
+  if (summary.totalShortfallMinutes <= FORECAST_SHORTFALL_THRESHOLD_MINUTES) return false;
+  const chapterIds = new Set(chapters.filter((c) => c.subjectId === summary.subjectId).map((c) => c.id));
+  return sessions.some((s) => !!s.subtopicId && chapterIds.has(s.chapterId));
+}
+
 // ---- 小さなユーティリティ ---------------------------------------------
 
 export function clamp01(value: number): number {

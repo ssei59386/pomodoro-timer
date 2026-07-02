@@ -34,6 +34,7 @@ export function App() {
     setTab("record");
   };
   const goSettings = () => setTab("settings");
+  const goHome = () => setTab("home");
 
   return (
     <div className="app-shell">
@@ -57,7 +58,7 @@ export function App() {
             onGoSettings={goSettings}
           />
         )}
-        {tab === "dashboard" && <Dashboard onGoSettings={goSettings} />}
+        {tab === "dashboard" && <Dashboard onGoSettings={goSettings} onGoHome={goHome} />}
         {tab === "settings" && <Settings />}
       </main>
 

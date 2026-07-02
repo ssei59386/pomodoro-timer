@@ -1021,6 +1021,110 @@ input[type="range"] {
   background: #fbfdff;
 }
 
+/* ---- 見通し機能フェーズ5：前向きシミュレーション・トリアージ ---- */
+.forecast-scope-note {
+  margin-bottom: 12px;
+}
+
+.forecast-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
+}
+
+.forecast-heading {
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+/* 「あくまで目安です」。設計要件③の核心コピーなので muted/small で埋もれさせない（通常サイズ・通常色） */
+.forecast-approx-note {
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+.forecast-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 「今のペースだと〜」は条件つきの見込みであってエラー確定ではないので、
+   tier-badge.tier-slightly-behind と同じ warning系トーンに揃える（赤は使わない） */
+.forecast-row {
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.forecast-item-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.forecast-go-home-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  margin: 10px 0 4px;
+}
+
+.triage-section {
+  margin-top: 14px;
+}
+
+/* 「時間配分の効率上、頑張りが足りないという意味ではありません」。設計要件④の核心コピーなので同様に格上げ */
+.triage-note {
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.triage-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.triage-row {
+  border: 1px solid var(--border);
+  background: #fbfdff;
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.triage-item-name {
+  font-size: 14px;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.triage-efficiency {
+  white-space: nowrap;
+}
+
 /* ---- 設定 ---- */
 .settings-chapter-row {
   display: flex;

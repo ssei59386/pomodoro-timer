@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Dashboard } from "./Dashboard";
 import { StoreProvider } from "../store";
+import { toISODate } from "../logic";
 import type { AppData } from "../types";
 
 const emptyChaptersData: AppData = {
@@ -64,10 +65,10 @@ const subtopicChapterData: AppData = {
   onboarded: true,
 };
 
-function renderDashboard(onGoSettings: () => void = () => {}) {
+function renderDashboard(onGoSettings: () => void = () => {}, onGoHome: () => void = () => {}) {
   return render(
     <StoreProvider>
-      <Dashboard onGoSettings={onGoSettings} />
+      <Dashboard onGoSettings={onGoSettings} onGoHome={onGoHome} />
     </StoreProvider>,
   );
 }
@@ -141,5 +142,153 @@ describe("Dashboard", () => {
     expect(screen.getByText("場合の数")).toBeDefined();
     expect(screen.getByText("条件付き確率")).toBeDefined();
     expect(screen.getByText("閉じる")).toBeDefined();
+  });
+});
+
+describe("フェーズ5：見通し（前向きシミュレーション）・切る候補（トリアージ）の表示", () => {
+  function daysFromNow(n: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return toISODate(d);
+  }
+
+  // テストまで2日、1日30分しか使えない設定で、大量の演習問題を残した小項目を1つ登録する。
+  // →「今のペースだと確実に間に合わない」大きな shortfall を作れる（閾値45分を余裕で超える）。
+  function atRiskData(overrides: { sessions?: AppData["sessions"] } = {}): AppData {
+    return {
+      subjects: [{ id: "s1", name: "数学", testDate: daysFromNow(2) }],
+      chapters: [
+        {
+          id: "c1",
+          subjectId: "s1",
+          name: "二次関数",
+          pointWeight: 20,
+          understanding: 0.4,
+          targetUnderstanding: 0.8,
+          lastStudiedDate: null,
+          subtopics: [
+            { id: "st1", name: "因数分解", understanding: 0, basicProblems: 50 },
+          ],
+        },
+      ],
+      sessions: overrides.sessions ?? [],
+      availability: {
+        weeklySchedule: { 0: [{ start: "00:00", end: "00:30" }], 1: [{ start: "00:00", end: "00:30" }], 2: [{ start: "00:00", end: "00:30" }], 3: [{ start: "00:00", end: "00:30" }], 4: [{ start: "00:00", end: "00:30" }], 5: [{ start: "00:00", end: "00:30" }], 6: [{ start: "00:00", end: "00:30" }] },
+        dateOverrides: {},
+      },
+      onboarded: true,
+    };
+  }
+
+  it("不足がまとまって大きく、かつセッションが記録されている教科では見通し・トリアージセクションが表示される", () => {
+    const data = atRiskData({
+      sessions: [
+        {
+          id: "sess1",
+          chapterId: "c1",
+          subtopicId: "st1",
+          date: daysFromNow(-1),
+          minutes: 30,
+          correctRate: 0.5,
+          selfReport: 2,
+        },
+      ],
+    });
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(data));
+    renderDashboard();
+
+    expect(screen.getByText("🧭 今のペースでの見通し")).toBeDefined();
+    // 同じ小項目が「見通し」と「トリアージ」の両方に出るので getAllByText で複数ヒットを許容する
+    expect(screen.getAllByText(/二次関数 ・ 因数分解/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/今のペースだと、テストまでに あと約.+足りない見込みです/)).toBeDefined();
+    expect(screen.getByText(/あくまで目安です/)).toBeDefined();
+    expect(screen.getByText("→ 今日のプランを見る")).toBeDefined();
+    expect(screen.getByText(/小項目未設定の章はこの見通しの対象外です/)).toBeDefined();
+
+    // トリアージ（切る候補）も同じ小項目について表示される
+    expect(screen.getByText(/時間配分の効率上、優先度を下げる候補です/)).toBeDefined();
+    expect(screen.getByText(/配点効率 [\d.]+ 点\/分/)).toBeDefined();
+  });
+
+  it("「今日のプランを見る」を押すと onGoHome が呼ばれる", () => {
+    const data = atRiskData({
+      sessions: [
+        {
+          id: "sess1",
+          chapterId: "c1",
+          subtopicId: "st1",
+          date: daysFromNow(-1),
+          minutes: 30,
+          correctRate: 0.5,
+          selfReport: 2,
+        },
+      ],
+    });
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(data));
+    let called = false;
+    renderDashboard(undefined, () => (called = true));
+
+    fireEvent.click(screen.getByText("→ 今日のプランを見る"));
+    expect(called).toBe(true);
+  });
+
+  it("セッションが1件も無ければ、不足が大きくても見通しセクションは表示されない（登録直後の誤警報防止）", () => {
+    const data = atRiskData({ sessions: [] });
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(data));
+    renderDashboard();
+
+    expect(screen.queryByText("🧭 今のペースでの見通し")).toBeNull();
+    expect(screen.queryByText(/小項目未設定の章はこの見通しの対象外です/)).toBeNull();
+  });
+
+  it("既に間に合っている（shortfallが無い）教科では見通しセクションは表示されない", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(subtopicChapterData));
+    renderDashboard();
+
+    expect(screen.queryByText("🧭 今のペースでの見通し")).toBeNull();
+  });
+
+  it("見通しリストは不足（shortfall）が大きい順に並ぶ", () => {
+    const data = atRiskData({
+      sessions: [
+        {
+          id: "sess1",
+          chapterId: "c1",
+          subtopicId: "st1",
+          date: daysFromNow(-1),
+          minutes: 30,
+          correctRate: 0.5,
+          selfReport: 2,
+        },
+      ],
+    });
+    // 2つ目の小項目（問題数が少ない＝shortfallが小さい）を追加する
+    data.chapters[0].subtopics!.push({ id: "st2", name: "軽めの単元", understanding: 0, basicProblems: 3 });
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(data));
+    renderDashboard();
+
+    const names = Array.from(document.querySelectorAll(".forecast-item-name")).map((el) => el.textContent);
+    expect(names[0]).toContain("因数分解"); // basicProblems=50 の方が shortfall が大きいので先頭
+    expect(names[1]).toContain("軽めの単元");
+  });
+
+  it("60分以上のshortfallは「N時間M分」表記になる", () => {
+    const data = atRiskData({
+      sessions: [
+        {
+          id: "sess1",
+          chapterId: "c1",
+          subtopicId: "st1",
+          date: daysFromNow(-1),
+          minutes: 30,
+          correctRate: 0.5,
+          selfReport: 2,
+        },
+      ],
+    });
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(data));
+    renderDashboard();
+
+    expect(screen.getByText(/あと約\d+時間(\d+分)?\s*足りない見込みです/)).toBeDefined();
   });
 });

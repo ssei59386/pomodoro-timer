@@ -7,13 +7,26 @@ import {
   subtopicProblemTier,
   worstProgressTier,
   PROGRESS_TIER_LABELS,
+  simulateForward,
+  triageSubtopics,
+  shouldSurfaceForecastForSubject,
   type ProgressTier,
+  type ForwardSimulationResult,
+  type TriageCandidate,
 } from "../logic";
 import type { Chapter, StudySession, Subject } from "../types";
 
 // 仕様書 §7.4 理解度ダッシュボード
 // 教科ごとに章を一覧、理解度をバーで可視化（現在 vs 目標）、テストまでの残り日数を表示。
-export function Dashboard({ onGoSettings }: { onGoSettings: () => void }) {
+// フェーズ5：Phase4のペースバッジの下に「見通し（前向きシミュレーション）＋切る候補（トリアージ）」を
+// 積む形で拡張。新しい画面・タブ・Homeバナーは作らない（設計ドキュメント通り）。
+export function Dashboard({
+  onGoSettings,
+  onGoHome,
+}: {
+  onGoSettings: () => void;
+  onGoHome: () => void;
+}) {
   const { data } = useStore();
   const today = useMemo(() => new Date(), []);
 
@@ -28,6 +41,27 @@ export function Dashboard({ onGoSettings }: { onGoSettings: () => void }) {
 
   const hasAnySubtopics = data.chapters.some((c) => (c.subtopics?.length ?? 0) > 0);
 
+  const forecast = useMemo(
+    () => simulateForward(data.chapters, data.subjects, data.availability, today, data.sessions),
+    [data.chapters, data.subjects, data.availability, today, data.sessions],
+  );
+
+  const triageCandidates = useMemo(
+    () => triageSubtopics(forecast, data.chapters),
+    [forecast, data.chapters],
+  );
+
+  // 「まとまった不足がある」かつ「その教科に取り組み始めている」の両方を満たす教科だけ見通しを出す
+  const subjectsToSurface = useMemo(
+    () =>
+      new Set(
+        forecast.subjects
+          .filter((summary) => shouldSurfaceForecastForSubject(summary, data.sessions, data.chapters))
+          .map((summary) => summary.subjectId),
+      ),
+    [forecast.subjects, data.sessions, data.chapters],
+  );
+
   return (
     <div className="screen">
       <div className="screen-head">
@@ -37,6 +71,12 @@ export function Dashboard({ onGoSettings }: { onGoSettings: () => void }) {
       {hasAnySubtopics && (
         <p className="muted small tier-badge-explainer">
           「理解度」「演習」バッジは、目標までの到達度と直近1週間の実績をもとに判定しています。
+        </p>
+      )}
+
+      {subjectsToSurface.size > 0 && (
+        <p className="muted small forecast-scope-note">
+          ※ 小項目未設定の章はこの見通しの対象外です。
         </p>
       )}
 
@@ -68,10 +108,122 @@ export function Dashboard({ onGoSettings }: { onGoSettings: () => void }) {
               ))}
             </ul>
           )}
+
+          {subjectsToSurface.has(subject.id) && (
+            <ForecastSection
+              subject={subject}
+              chapters={chapters}
+              forecast={forecast}
+              triageCandidates={triageCandidates}
+              onGoHome={onGoHome}
+            />
+          )}
         </section>
       ))}
     </div>
   );
+}
+
+/**
+ * 「今のペースだと間に合わない見込み」＋「切る候補」セクション（フェーズ5）。
+ * shouldSurfaceForecastForSubject が true の教科だけ、呼び出し側から描画される。
+ * 心理面の配慮（設計ドキュメント必須4点）：
+ * 1. 断定を避け「今のペースだと」の条件つき表現に統一
+ * 2. 予測の直後に必ず「今日のプランを見る」導線を置く
+ * 3. 「あくまで目安」トーンを明示
+ * 4. 切る候補は「時間配分の効率上」というフレーミングで、効率の数値を見せて算数であることを示す
+ */
+function ForecastSection({
+  subject,
+  chapters,
+  forecast,
+  triageCandidates,
+  onGoHome,
+}: {
+  subject: Subject;
+  chapters: Chapter[];
+  forecast: ForwardSimulationResult;
+  triageCandidates: TriageCandidate[];
+  onGoHome: () => void;
+}) {
+  const chapterById = useMemo(() => new Map(chapters.map((c) => [c.id, c])), [chapters]);
+
+  const nameOf = (chapterId: string, subtopicId: string) => {
+    const chapter = chapterById.get(chapterId);
+    const subtopicName = chapter?.subtopics?.find((s) => s.id === subtopicId)?.name ?? "";
+    return { chapterName: chapter?.name ?? "", subtopicName };
+  };
+
+  // 深刻さ順（不足が大きいもの＝優先度が高いものを先に見せる）。UnderstandingRow の
+  // sortedSubtopics（悪い順に並べる流儀）に揃える。
+  const atRisk = forecast.subtopics
+    .filter((f) => f.subjectId === subject.id && !f.onTrack)
+    .sort((a, b) => b.shortfallMinutes - a.shortfallMinutes);
+  // triageSubtopics 側で既に効率の低い（＝切る候補として優先度が高い）順にソート済み
+  const triageForSubject = triageCandidates.filter((c) => c.subjectId === subject.id);
+
+  if (atRisk.length === 0) return null;
+
+  return (
+    <div className="forecast-section">
+      <h4 className="forecast-heading">🧭 今のペースでの見通し</h4>
+      <p className="forecast-approx-note">
+        あくまで目安です。演習1問あたりの所要時間の見積もりは、記録がまだ少ないうちは実測値ではなく仮の値を使っているため、誤差が出ることがあります。
+      </p>
+
+      <ul className="forecast-list">
+        {atRisk.map((f) => {
+          const { chapterName, subtopicName } = nameOf(f.chapterId, f.subtopicId);
+          return (
+            <li key={f.subtopicId} className="forecast-row">
+              <span className="forecast-item-name">
+                {chapterName} ・ {subtopicName}
+              </span>
+              <span className="forecast-shortfall muted small">
+                今のペースだと、テストまでに あと約{formatMinutesLabel(f.shortfallMinutes)} 足りない見込みです
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+
+      <button type="button" className="secondary forecast-go-home-btn" onClick={onGoHome}>
+        → 今日のプランを見る
+      </button>
+
+      {triageForSubject.length > 0 && (
+        <div className="triage-section">
+          <p className="triage-note">
+            時間配分の効率上、優先度を下げる候補です（頑張りが足りないという意味ではありません）。
+          </p>
+          <ul className="triage-list">
+            {triageForSubject.map((t) => {
+              const { chapterName, subtopicName } = nameOf(t.chapterId, t.subtopicId);
+              return (
+                <li key={t.subtopicId} className="triage-row">
+                  <span className="triage-item-name">
+                    {chapterName} ・ {subtopicName}
+                  </span>
+                  <span className="triage-efficiency muted small">
+                    配点効率 {t.efficiency.toFixed(2)} 点/分（他の項目より時間対効果が低め）
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 分数を「N時間M分」表記に整形する（60分未満はそのまま「N分」）。大きい値ほど直感的に読めるようにする */
+function formatMinutesLabel(minutes: number): string {
+  const rounded = Math.max(0, Math.ceil(minutes));
+  if (rounded < 60) return `${rounded}分`;
+  const hours = Math.floor(rounded / 60);
+  const remainder = rounded % 60;
+  return remainder > 0 ? `${hours}時間${remainder}分` : `${hours}時間`;
 }
 
 function UnderstandingRow({

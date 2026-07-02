@@ -33,8 +33,14 @@ import {
   subtopicProblemTier,
   worstProgressTier,
   RECENT_ACTIVITY_WINDOW_DAYS,
+  simulateForward,
+  triageSubtopics,
+  shouldSurfaceForecastForSubject,
+  FORECAST_SHORTFALL_THRESHOLD_MINUTES,
+  SESSION_MINUTES,
 } from "./logic";
-import type { AvailabilitySettings, Chapter, ChapterSubtopic, StudySession, Subject } from "./types";
+import type { ForwardSimulationResult, SubjectForecastSummary } from "./logic";
+import type { AvailabilitySettings, Chapter, ChapterSubtopic, StudySession, Subject, TimeSlot } from "./types";
 
 const today = new Date(2026, 5, 29); // 2026-06-29
 
@@ -917,6 +923,324 @@ describe("実績ベースのペース判定", () => {
 
     it("全てnullならnullを返す", () => {
       expect(worstProgressTier([null, null])).toBeNull();
+    });
+  });
+});
+
+describe("フェーズ5：前向きシミュレーション（simulateForward）／トリアージ（triageSubtopics）", () => {
+  const today = new Date(2026, 5, 29); // 2026-06-29
+
+  function minutesToClock(mins: number): string {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  }
+
+  /** 毎日同じ分数だけ勉強できる、というシンプルな AvailabilitySettings を作る */
+  function dailyAvailability(minutesPerDay: number): AvailabilitySettings {
+    const slot: TimeSlot = { start: "00:00", end: minutesToClock(minutesPerDay) };
+    const weeklySchedule: Partial<Record<number, TimeSlot[]>> = {};
+    for (let day = 0; day <= 6; day++) {
+      weeklySchedule[day] = [slot];
+    }
+    return { weeklySchedule, dateOverrides: {} };
+  }
+
+  describe("simulateForward", () => {
+    it("既に理解度が目標を満たしている小項目は day0（today）時点で完了扱いになる", () => {
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-08-15" }];
+      const c = chapter({
+        id: "a",
+        subjectId: "s1",
+        subtopics: [subtopic({ id: "st1", understanding: 1, targetUnderstanding: 0.8 })],
+      });
+      const result = simulateForward([c], subjects, dailyAvailability(200), today);
+      expect(result.subtopics).toHaveLength(1);
+      const forecast = result.subtopics[0];
+      expect(forecast.totalMinutesNeeded).toBe(0);
+      expect(forecast.onTrack).toBe(true);
+      expect(forecast.shortfallMinutes).toBe(0);
+      expect(forecast.projectedCompletionDate).toBe("2026-06-29");
+    });
+
+    it("複数日にまたがって完了する場合、正しい完了日を予測する", () => {
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-08-15" }];
+      const c = chapter({
+        id: "a",
+        subjectId: "s1",
+        subtopics: [subtopic({ id: "st1", understanding: 0, basicProblems: 10 })], // 13*10 + 20(概念) = 150分
+      });
+      const result = simulateForward([c], subjects, dailyAvailability(200), today, []);
+      const forecast = result.subtopics[0];
+      expect(forecast.totalMinutesNeeded).toBe(150);
+      // 45分/日ずつ3日消化(135分)→残り15分は4日目(2026-07-02)に完了
+      expect(forecast.projectedCompletionDate).toBe("2026-07-02");
+      expect(forecast.onTrack).toBe(true);
+      expect(forecast.shortfallMinutes).toBe(0);
+    });
+
+    it("テスト日までに終わらない場合、shortfallMinutesが残り、projectedCompletionDateはnull", () => {
+      // テストまで3日（today, +1, +2 の3日分）、1日45分しか使えない場合の最大割当は135分
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-01" }];
+      const c = chapter({
+        id: "a",
+        subjectId: "s1",
+        subtopics: [subtopic({ id: "st1", understanding: 0, basicProblems: 10 })], // 150分必要
+      });
+      const result = simulateForward([c], subjects, dailyAvailability(SESSION_MINUTES), today);
+      const forecast = result.subtopics[0];
+      expect(forecast.totalMinutesNeeded).toBe(150);
+      expect(forecast.onTrack).toBe(false);
+      expect(forecast.projectedCompletionDate).toBeNull();
+      expect(forecast.shortfallMinutes).toBeCloseTo(15, 5); // 150 - 135
+    });
+
+    it("ある教科は自分のテスト日を過ぎたら対象から脱落し、以降の日は他教科に回る", () => {
+      const subjects: Subject[] = [
+        { id: "sA", name: "数学", testDate: "2026-07-01" }, // today から3日分だけ有効（today, +1, +2）
+        { id: "sB", name: "理科", testDate: "2026-07-20" }, // 十分先
+      ];
+      const chapterA = chapter({
+        id: "a",
+        subjectId: "sA",
+        pointWeight: 20,
+        understanding: 0,
+        targetUnderstanding: 0.8,
+        subtopics: [subtopic({ id: "stA", understanding: 0, basicProblems: 1000 })], // 絶対に終わらない量
+      });
+      const chapterB = chapter({
+        id: "b",
+        subjectId: "sB",
+        pointWeight: 20,
+        understanding: 0,
+        targetUnderstanding: 0.8,
+        subtopics: [subtopic({ id: "stB", understanding: 0, basicProblems: 0 })], // 概念コスト20分のみ
+      });
+      // 1日45分（＝1小項目分）しか無いので、A・B同時に進めることはできない。
+      // A の方がテストが近い＝proximityが大きいのでA優先のはず。
+      const result = simulateForward([chapterA, chapterB], subjects, dailyAvailability(SESSION_MINUTES), today);
+
+      const forecastA = result.subtopics.find((f) => f.subtopicId === "stA")!;
+      const forecastB = result.subtopics.find((f) => f.subtopicId === "stB")!;
+
+      // Aがテスト日(3日分=135分)を使い切っても終わらない量なので shortfall が発生する
+      expect(forecastA.onTrack).toBe(false);
+      expect(forecastA.shortfallMinutes).toBeGreaterThan(0);
+
+      // Bはtoday,+1,+2の3日間まったく割当を受けられず（Aが優先されるため）、
+      // Aがテスト日を過ぎて脱落した4日目（2026-07-02）にようやく20分を割り当てられ完了する
+      expect(forecastB.totalMinutesNeeded).toBe(20);
+      expect(forecastB.onTrack).toBe(true);
+      expect(forecastB.projectedCompletionDate).toBe("2026-07-02");
+    });
+
+    it("小項目を持たない章は完全に対象外（同じ教科に小項目ありの章が無くても結果に含まれない）", () => {
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-08-15" }];
+      const withSubtopics = chapter({
+        id: "a",
+        subjectId: "s1",
+        subtopics: [subtopic({ id: "st1", understanding: 0, basicProblems: 1 })],
+      });
+      const withoutSubtopics = chapter({ id: "b", subjectId: "s1", pointWeight: 100, understanding: 0 });
+      const result = simulateForward([withSubtopics, withoutSubtopics], subjects, dailyAvailability(200), today);
+      expect(result.subtopics).toHaveLength(1);
+      expect(result.subtopics[0].chapterId).toBe("a");
+    });
+
+    it("対象の小項目が1件も無ければ空の結果を返す（クラッシュしない）", () => {
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-08-15" }];
+      const c = chapter({ id: "a", subjectId: "s1" }); // subtopics 無し
+      const result = simulateForward([c], subjects, dailyAvailability(200), today);
+      expect(result.subtopics).toEqual([]);
+      expect(result.subjects).toEqual([]);
+    });
+
+    it("教科ごとのサマリー（totalShortfallMinutes / atRiskSubtopicIds）が正しく集計される", () => {
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-01" }];
+      const c = chapter({
+        id: "a",
+        subjectId: "s1",
+        subtopics: [
+          subtopic({ id: "st1", understanding: 0, basicProblems: 10 }), // 150分、間に合わない想定
+          subtopic({ id: "st2", understanding: 1, targetUnderstanding: 0.8 }), // 既に完了
+        ],
+      });
+      const result = simulateForward([c], subjects, dailyAvailability(SESSION_MINUTES), today);
+      expect(result.subjects).toHaveLength(1);
+      const summary = result.subjects[0];
+      expect(summary.subjectId).toBe("s1");
+      expect(summary.atRiskSubtopicIds).toEqual(["st1"]);
+      expect(summary.totalShortfallMinutes).toBeGreaterThan(0);
+    });
+  });
+
+  describe("triageSubtopics", () => {
+    it("shortfallMinutes > 0 の小項目だけを対象に、効率（配点按分 ÷ totalMinutesNeeded）の低い順に並べる", () => {
+      const chapters: Chapter[] = [
+        chapter({
+          id: "x",
+          subjectId: "s1",
+          pointWeight: 40,
+          subtopics: [subtopic({ id: "stA" }), subtopic({ id: "stB" })], // 均等按分で各20
+        }),
+        chapter({
+          id: "y",
+          subjectId: "s1",
+          pointWeight: 10,
+          subtopics: [subtopic({ id: "stC" })], // 按分10
+        }),
+      ];
+      const result: ForwardSimulationResult = {
+        subtopics: [
+          {
+            chapterId: "x",
+            subtopicId: "stA",
+            subjectId: "s1",
+            totalMinutesNeeded: 100,
+            projectedCompletionDate: null,
+            shortfallMinutes: 50,
+            onTrack: false,
+          }, // efficiency = 20/100 = 0.2（所要時間が長い割に配点は同じ → 効率が悪い）
+          {
+            chapterId: "x",
+            subtopicId: "stB",
+            subjectId: "s1",
+            totalMinutesNeeded: 40,
+            projectedCompletionDate: null,
+            shortfallMinutes: 10,
+            onTrack: false,
+          }, // efficiency = 20/40 = 0.5（shortfallはstAより小さいが、denominatorはtotalMinutesNeededなので効率はこちらが上）
+          {
+            chapterId: "y",
+            subtopicId: "stC",
+            subjectId: "s1",
+            totalMinutesNeeded: 50,
+            projectedCompletionDate: "2026-07-01",
+            shortfallMinutes: 0,
+            onTrack: true,
+          }, // 間に合うので対象外
+        ],
+        subjects: [],
+      };
+
+      const candidates = triageSubtopics(result, chapters);
+      expect(candidates).toHaveLength(2);
+      // 効率が低い（＝切る候補として優先度が高い）順：stA(0.2) → stB(0.5)
+      expect(candidates.map((c) => c.subtopicId)).toEqual(["stA", "stB"]);
+      expect(candidates[0].efficiency).toBeCloseTo(0.2, 5);
+      expect(candidates[1].efficiency).toBeCloseTo(0.5, 5);
+    });
+
+    it("対応する章が見つからない場合は配点按分0として扱う（クラッシュしない）", () => {
+      const result: ForwardSimulationResult = {
+        subtopics: [
+          {
+            chapterId: "missing",
+            subtopicId: "st1",
+            subjectId: "s1",
+            totalMinutesNeeded: 50,
+            projectedCompletionDate: null,
+            shortfallMinutes: 20,
+            onTrack: false,
+          },
+        ],
+        subjects: [],
+      };
+      const candidates = triageSubtopics(result, []);
+      expect(candidates).toHaveLength(1);
+      expect(candidates[0].efficiency).toBe(0);
+    });
+
+    it("totalMinutesNeeded が0（理論上ありえないが防御的に）の場合は efficiency を0として扱う（ゼロ除算を避ける）", () => {
+      const chapters: Chapter[] = [
+        chapter({ id: "x", subjectId: "s1", pointWeight: 20, subtopics: [subtopic({ id: "stA" })] }),
+      ];
+      const result: ForwardSimulationResult = {
+        subtopics: [
+          {
+            chapterId: "x",
+            subtopicId: "stA",
+            subjectId: "s1",
+            totalMinutesNeeded: 0,
+            projectedCompletionDate: null,
+            shortfallMinutes: 5,
+            onTrack: false,
+          },
+        ],
+        subjects: [],
+      };
+      const candidates = triageSubtopics(result, chapters);
+      expect(candidates[0].efficiency).toBe(0);
+    });
+  });
+
+  describe("shouldSurfaceForecastForSubject", () => {
+    const chapters: Chapter[] = [chapter({ id: "a", subjectId: "s1" })];
+
+    function makeSummary(overrides: Partial<SubjectForecastSummary> = {}): SubjectForecastSummary {
+      return { subjectId: "s1", totalShortfallMinutes: 0, atRiskSubtopicIds: [], ...overrides };
+    }
+
+    it("不足がまとまって大きく、かつその教科を勉強し始めている場合のみ true", () => {
+      const summary = makeSummary({ totalShortfallMinutes: FORECAST_SHORTFALL_THRESHOLD_MINUTES + 1 });
+      const sessions: StudySession[] = [
+        {
+          id: "sess1",
+          chapterId: "a",
+          subtopicId: "st1",
+          date: "2026-06-28",
+          minutes: 30,
+          correctRate: 0.8,
+          selfReport: 4,
+        },
+      ];
+      expect(shouldSurfaceForecastForSubject(summary, sessions, chapters)).toBe(true);
+    });
+
+    it("不足が閾値以下なら、セッションがあっても false", () => {
+      const summary = makeSummary({ totalShortfallMinutes: FORECAST_SHORTFALL_THRESHOLD_MINUTES });
+      const sessions: StudySession[] = [
+        {
+          id: "sess1",
+          chapterId: "a",
+          subtopicId: "st1",
+          date: "2026-06-28",
+          minutes: 30,
+          correctRate: 0.8,
+          selfReport: 4,
+        },
+      ];
+      expect(shouldSurfaceForecastForSubject(summary, sessions, chapters)).toBe(false);
+    });
+
+    it("不足が閾値を超えていても、その教科の小項目セッションが1件も無ければ false（登録直後の誤警報防止）", () => {
+      const summary = makeSummary({ totalShortfallMinutes: FORECAST_SHORTFALL_THRESHOLD_MINUTES + 100 });
+      expect(shouldSurfaceForecastForSubject(summary, [], chapters)).toBe(false);
+    });
+
+    it("章全体としてのセッション（subtopicId未指定）は「小項目のセッション」として数えない", () => {
+      const summary = makeSummary({ totalShortfallMinutes: FORECAST_SHORTFALL_THRESHOLD_MINUTES + 100 });
+      const sessions: StudySession[] = [
+        { id: "sess1", chapterId: "a", date: "2026-06-28", minutes: 30, correctRate: 0.8, selfReport: 4 },
+      ];
+      expect(shouldSurfaceForecastForSubject(summary, sessions, chapters)).toBe(false);
+    });
+
+    it("他教科の小項目セッションは数えない", () => {
+      const summary = makeSummary({ subjectId: "s1", totalShortfallMinutes: FORECAST_SHORTFALL_THRESHOLD_MINUTES + 100 });
+      const otherChapters: Chapter[] = [chapter({ id: "other", subjectId: "s2" })];
+      const sessions: StudySession[] = [
+        {
+          id: "sess1",
+          chapterId: "other",
+          subtopicId: "st1",
+          date: "2026-06-28",
+          minutes: 30,
+          correctRate: 0.8,
+          selfReport: 4,
+        },
+      ];
+      expect(shouldSurfaceForecastForSubject(summary, sessions, otherChapters)).toBe(false);
     });
   });
 });
