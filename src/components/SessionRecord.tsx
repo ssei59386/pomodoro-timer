@@ -8,9 +8,11 @@ import { SelfReportPicker } from "./SelfReportPicker";
 export function SessionRecord({
   preselectChapterId,
   onDone,
+  onGoSettings,
 }: {
   preselectChapterId: string | null;
   onDone: () => void;
+  onGoSettings: () => void;
 }) {
   const { data, recordSession } = useStore();
 
@@ -47,7 +49,12 @@ export function SessionRecord({
     return (
       <div className="screen">
         <h2>セッション記録</h2>
-        <p className="muted">先に章を登録してください（設定から追加できます）。</p>
+        <div className="empty">
+          <p className="muted">先に章を登録してください（設定から追加できます）。</p>
+          <button className="secondary" onClick={onGoSettings}>
+            設定で章を登録する
+          </button>
+        </div>
       </div>
     );
   }

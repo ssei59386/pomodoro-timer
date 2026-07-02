@@ -31,6 +31,7 @@ export function App() {
     setPreselectChapterId(chapterId ?? null);
     setTab("record");
   };
+  const goSettings = () => setTab("settings");
 
   return (
     <div className="app-shell">
@@ -45,14 +46,15 @@ export function App() {
       )}
 
       <main className="app-main">
-        {tab === "home" && <Home onRecord={goRecord} />}
+        {tab === "home" && <Home onRecord={goRecord} onGoSettings={goSettings} />}
         {tab === "record" && (
           <SessionRecord
             preselectChapterId={preselectChapterId}
             onDone={() => setTab("dashboard")}
+            onGoSettings={goSettings}
           />
         )}
-        {tab === "dashboard" && <Dashboard />}
+        {tab === "dashboard" && <Dashboard onGoSettings={goSettings} />}
         {tab === "settings" && <Settings />}
       </main>
 

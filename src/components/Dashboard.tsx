@@ -5,7 +5,7 @@ import type { Chapter } from "../types";
 
 // 仕様書 §7.4 理解度ダッシュボード
 // 教科ごとに章を一覧、理解度をバーで可視化（現在 vs 目標）、テストまでの残り日数を表示。
-export function Dashboard() {
+export function Dashboard({ onGoSettings }: { onGoSettings: () => void }) {
   const { data } = useStore();
   const today = useMemo(() => new Date(), []);
 
@@ -33,7 +33,12 @@ export function Dashboard() {
             </span>
           </div>
           {chapters.length === 0 ? (
-            <p className="muted">章がありません。</p>
+            <div className="empty">
+              <p className="muted">章がありません。</p>
+              <button className="secondary" onClick={onGoSettings}>
+                設定で章を登録する
+              </button>
+            </div>
           ) : (
             <ul className="understanding-list">
               {chapters.map((c) => (

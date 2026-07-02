@@ -58,10 +58,9 @@ describe("App", () => {
     renderApp();
 
     expect(screen.getByText("定期テスト学習進捗管理")).toBeDefined();
-    const tabLabels = ["今日", "記録", "理解度", "設定"];
-    const tabButtons = screen.getAllByRole("button").filter((btn) =>
-      tabLabels.some((label) => btn.textContent?.includes(label)),
-    );
+    const tabBar = document.querySelector(".tab-bar");
+    expect(tabBar).not.toBeNull();
+    const tabButtons = tabBar!.querySelectorAll("button");
     expect(tabButtons).toHaveLength(4);
   });
 
