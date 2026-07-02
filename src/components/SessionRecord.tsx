@@ -12,10 +12,12 @@ const WHOLE_CHAPTER_VALUE = "__whole_chapter__";
 
 export function SessionRecord({
   preselectChapterId,
+  preselectSubtopicId,
   onDone,
   onGoSettings,
 }: {
   preselectChapterId: string | null;
+  preselectSubtopicId: string | null;
   onDone: () => void;
   onGoSettings: () => void;
 }) {
@@ -34,16 +36,29 @@ export function SessionRecord({
   const [selfReport, setSelfReport] = useState(3);
   // 未入力を許容する任意項目のため null 初期値（minutes 等の必須数値入力とは異なる）
   const [problemsCompleted, setProblemsCompleted] = useState<number | null>(null);
+  // 小項目を選んだときだけ使う基礎/発展の内訳（章全体記録時の problemsCompleted とは別軸）
+  const [basicProblemsCompleted, setBasicProblemsCompleted] = useState<number | null>(null);
+  const [advancedProblemsCompleted, setAdvancedProblemsCompleted] = useState<number | null>(null);
   const [saved, setSaved] = useState(false);
 
+  // preselectChapterId と preselectSubtopicId は同じ「記録画面へ遷移する」操作から
+  // 同時に渡ってくるため、1つの effect にまとめて同時にセットする。
+  // 章の effect → 小項目リセットの effect、と2つに分けてしまうと、後者が発火して
+  // preselect した小項目IDを直後に "" へ戻してしまう競合が起きるため、あえて分離しない。
   useEffect(() => {
-    if (preselectChapterId) setChapterId(preselectChapterId);
-  }, [preselectChapterId]);
+    if (preselectChapterId) {
+      setChapterId(preselectChapterId);
+      setSubtopicId(preselectSubtopicId ?? "");
+    }
+  }, [preselectChapterId, preselectSubtopicId]);
 
-  // 章を切り替えたら、別の章の小項目IDが残らないようにリセットする
+  // 小項目の選択が変わるたびに、他の章・小項目の入力値が残らないようにリセットする
+  // （章全体用の problemsCompleted も対象 — 小項目に切り替えて戻った際に古い値が復活しないように）
   useEffect(() => {
-    setSubtopicId("");
-  }, [chapterId]);
+    setBasicProblemsCompleted(null);
+    setAdvancedProblemsCompleted(null);
+    setProblemsCompleted(null);
+  }, [subtopicId]);
 
   const subjectName = (subjectId: string) =>
     data.subjects.find((s) => s.id === subjectId)?.name ?? "";
@@ -60,7 +75,9 @@ export function SessionRecord({
       minutes,
       correctRate: correctPercent / 100,
       selfReport,
-      problemsCompleted: problemsCompleted ?? undefined,
+      problemsCompleted: subtopicId ? undefined : problemsCompleted ?? undefined,
+      basicProblemsCompleted: subtopicId ? basicProblemsCompleted ?? undefined : undefined,
+      advancedProblemsCompleted: subtopicId ? advancedProblemsCompleted ?? undefined : undefined,
     });
     setSaved(true);
     // 軽いフィードバックの後にダッシュボードへ
@@ -90,7 +107,13 @@ export function SessionRecord({
 
       <label className="field">
         <span>勉強した章</span>
-        <select value={chapterId} onChange={(e) => setChapterId(e.target.value)}>
+        <select
+          value={chapterId}
+          onChange={(e) => {
+            setChapterId(e.target.value);
+            setSubtopicId("");
+          }}
+        >
           {data.chapters.map((c) => (
             <option key={c.id} value={c.id}>
               [{subjectName(c.subjectId)}] {c.name}
@@ -109,7 +132,7 @@ export function SessionRecord({
             }
           >
             <option value="" disabled hidden>
-              小項目を選んでください（章全体で記録する場合は下から選択）
+              小項目を選んでください（章全体で記録する場合は「章全体として記録」を選択）
             </option>
             {subtopics.map((st) => (
               <option key={st.id} value={st.id}>
@@ -143,18 +166,56 @@ export function SessionRecord({
         />
       </label>
 
-      <label className="field">
-        <span>解いた問題数</span>
-        <input
-          type="number"
-          min={0}
-          value={problemsCompleted ?? ""}
-          onChange={(e) =>
-            setProblemsCompleted(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))
-          }
-        />
-        <span className="muted small">任意（基礎/発展の内訳は問いません）</span>
-      </label>
+      {subtopicId ? (
+        <div className="subtopic-problem-row-wrap">
+          <p className="muted small">
+            わかる範囲でOKです（両方空欄のままでも保存できます）
+          </p>
+          <div className="subtopic-problem-row">
+            <label className="field inline">
+              <span>基礎で解いた問題数</span>
+              <input
+                type="number"
+                min={0}
+                value={basicProblemsCompleted ?? ""}
+                onChange={(e) =>
+                  setBasicProblemsCompleted(
+                    e.target.value === "" ? null : Math.max(0, Number(e.target.value)),
+                  )
+                }
+              />
+              <span className="muted small">任意</span>
+            </label>
+            <label className="field inline">
+              <span>発展で解いた問題数</span>
+              <input
+                type="number"
+                min={0}
+                value={advancedProblemsCompleted ?? ""}
+                onChange={(e) =>
+                  setAdvancedProblemsCompleted(
+                    e.target.value === "" ? null : Math.max(0, Number(e.target.value)),
+                  )
+                }
+              />
+              <span className="muted small">任意</span>
+            </label>
+          </div>
+        </div>
+      ) : (
+        <label className="field">
+          <span>解いた問題数</span>
+          <input
+            type="number"
+            min={0}
+            value={problemsCompleted ?? ""}
+            onChange={(e) =>
+              setProblemsCompleted(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))
+            }
+          />
+          <span className="muted small">任意（基礎/発展の内訳は問いません）</span>
+        </label>
+      )}
 
       <div className="self-report-block">
         <span className="self-report-label">手応え（自己申告）</span>

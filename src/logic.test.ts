@@ -24,6 +24,15 @@ import {
   CONCEPT_LEARNING_COST_MINUTES,
   MINUTES_PER_BASIC_PROBLEM,
   MINUTES_PER_ADVANCED_PROBLEM,
+  learnedProblemRates,
+  MIN_SESSIONS_FOR_LEARNED_RATE,
+  TEACHER_HINT_PRIORITY_BOOST,
+  cumulativeSubtopicProblemsCompleted,
+  recentSubtopicProblemsCompleted,
+  subtopicUnderstandingTier,
+  subtopicProblemTier,
+  worstProgressTier,
+  RECENT_ACTIVITY_WINDOW_DAYS,
 } from "./logic";
 import type { AvailabilitySettings, Chapter, ChapterSubtopic, StudySession, Subject } from "./types";
 
@@ -177,6 +186,135 @@ describe("§6.3 計画生成（貪欲法・1章集中）", () => {
     const allDone = chapters.map((c) => ({ ...c, understanding: 0.9 }));
     const plan = generateTodayPlan(allDone, subjects, 120, today);
     expect(plan).toHaveLength(0);
+  });
+});
+
+describe("§6.3 計画生成（フェーズ4.5・小項目単位）", () => {
+  const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-03" }];
+
+  it("小項目を持つ章からは、小項目ごとに複数の PlanItem（subtopic が non-null）が生成される", () => {
+    const c = chapter({
+      id: "a",
+      subjectId: "s1",
+      pointWeight: 40,
+      understanding: 0.9, // 章レベルの understanding は使われない（デュアルパスで無視される）はず
+      subtopics: [
+        subtopic({ id: "st1", name: "小項目1", understanding: 0.1, basicProblems: 5 }),
+        subtopic({ id: "st2", name: "小項目2", understanding: 0.1, basicProblems: 5 }),
+      ],
+    });
+    const plan = generateTodayPlan([c], subjects, 120, today);
+    expect(plan.length).toBe(2);
+    expect(plan.every((p) => p.subtopic !== null)).toBe(true);
+    const ids = plan.map((p) => p.subtopic?.id).sort();
+    expect(ids).toEqual(["st1", "st2"]);
+  });
+
+  it("同じ章の複数小項目が同日プランに並びうる（1小項目集中・章単位のまとめ上限は無い）", () => {
+    const c = chapter({
+      id: "a",
+      subjectId: "s1",
+      pointWeight: 40,
+      subtopics: [
+        subtopic({ id: "st1", name: "小項目1", understanding: 0.1, basicProblems: 3 }),
+        subtopic({ id: "st2", name: "小項目2", understanding: 0.1, basicProblems: 3 }),
+        subtopic({ id: "st3", name: "小項目3", understanding: 0.1, basicProblems: 3 }),
+      ],
+    });
+    const plan = generateTodayPlan([c], subjects, 200, today);
+    expect(plan.filter((p) => p.chapter.id === "a")).toHaveLength(3);
+  });
+
+  it("小項目の割当時間は MIN_SUBTOPIC_SESSION_MINUTES 〜 SESSION_MINUTES の範囲にクランプされる", () => {
+    const c = chapter({
+      id: "a",
+      subjectId: "s1",
+      pointWeight: 40,
+      subtopics: [
+        // 理解度が高く見積もりがほぼ0分になるケース → 下限でクランプされるはず
+        subtopic({ id: "st1", name: "ほぼ完了", understanding: 0.99, basicProblems: 1 }),
+        // 問題数が非常に多く見積もりが SESSION_MINUTES を超えるケース → 上限でクランプされるはず
+        subtopic({ id: "st2", name: "問題数膨大", understanding: 0, basicProblems: 100, advancedProblems: 100 }),
+      ],
+    });
+    const plan = generateTodayPlan([c], subjects, 500, today);
+    for (const item of plan) {
+      expect(item.allocatedMinutes).toBeGreaterThanOrEqual(10);
+      expect(item.allocatedMinutes).toBeLessThanOrEqual(45);
+    }
+    const st2Item = plan.find((p) => p.subtopic?.id === "st2");
+    expect(st2Item?.allocatedMinutes).toBe(45);
+  });
+
+  it("sessions を渡すと learnedProblemRates 経由で割当時間の見積もりに反映される", () => {
+    const c = chapter({
+      id: "a",
+      subjectId: "s1",
+      pointWeight: 40,
+      subtopics: [subtopic({ id: "st1", name: "小項目1", understanding: 0, basicProblems: 2 })],
+    });
+    // デフォルト単価（MINUTES_PER_BASIC_PROBLEM=13）よりずっと軽い実測値を学習させる
+    const sessions: StudySession[] = Array.from({ length: 3 }, (_, i) => ({
+      id: `sess${i}`,
+      chapterId: "a",
+      subtopicId: "st1",
+      date: "2026-06-20",
+      minutes: 2,
+      correctRate: 0.8,
+      selfReport: 4,
+      basicProblemsCompleted: 1,
+    }));
+
+    const withoutSessions = generateTodayPlan([c], subjects, 500, today);
+    const withSessions = generateTodayPlan([c], subjects, 500, today, sessions);
+
+    expect(withSessions[0].allocatedMinutes).toBeLessThan(withoutSessions[0].allocatedMinutes);
+  });
+
+  it("teacherHinted な小項目の reasons には「先生のヒントあり」が含まれる", () => {
+    const c = chapter({
+      id: "a",
+      subjectId: "s1",
+      pointWeight: 40,
+      subtopics: [
+        subtopic({ id: "st1", name: "ヒントあり", understanding: 0.1, basicProblems: 3, teacherHinted: true }),
+      ],
+    });
+    const plan = generateTodayPlan([c], subjects, 120, today);
+    expect(plan[0].reasons).toContain("先生のヒントあり");
+  });
+
+  it("小項目を持つ章と持たない章が混在するとき、正しく統合されソートされる", () => {
+    const withSubtopics = chapter({
+      id: "a",
+      subjectId: "s1",
+      pointWeight: 40,
+      subtopics: [subtopic({ id: "st1", name: "小項目1", understanding: 0, basicProblems: 3 })],
+    });
+    const withoutSubtopics = chapter({
+      id: "b",
+      subjectId: "s1",
+      pointWeight: 10,
+      understanding: 0.75,
+    });
+    const plan = generateTodayPlan([withSubtopics, withoutSubtopics], subjects, 120, today);
+    expect(plan.length).toBe(2);
+    // 統合された1つのリストとして priority 降順でソートされていること
+    for (let i = 1; i < plan.length; i++) {
+      expect(plan[i - 1].priority).toBeGreaterThanOrEqual(plan[i].priority);
+    }
+    const chapterOnlyItem = plan.find((p) => p.chapter.id === "b");
+    expect(chapterOnlyItem?.subtopic).toBeNull();
+  });
+
+  it("小項目を持たない章のみを渡した場合、既存の generateTodayPlan（章単位・1章45分固定）と完全に一致する", () => {
+    const chapters: Chapter[] = [
+      chapter({ id: "a", subjectId: "s1", pointWeight: 40, understanding: 0.3 }),
+      chapter({ id: "c", subjectId: "s1", pointWeight: 10, understanding: 0.75 }),
+    ];
+    const plan = generateTodayPlan(chapters, subjects, 60, today);
+    expect(plan.every((p) => p.subtopic === null)).toBe(true);
+    expect(plan.every((p) => p.allocatedMinutes === 45 || p.allocatedMinutes <= 60)).toBe(true);
   });
 });
 
@@ -418,6 +556,26 @@ describe("小項目単位の優先度スコア", () => {
       const st = { ...subtopics[0], understanding: 0.9, lastStudiedDate: null };
       expect(subtopicPriority(c, st, subject, today)).toBe(0);
     });
+
+    it("teacherHinted: true の小項目は、そうでない場合の TEACHER_HINT_PRIORITY_BOOST 倍のスコアになる", () => {
+      const subtopics = [subtopic({ id: "a" })];
+      const c = chapter({ pointWeight: 20, targetUnderstanding: 0.8, subtopics });
+      const stWithoutHint = { ...subtopics[0], understanding: 0.4, lastStudiedDate: null };
+      const stWithHint = { ...stWithoutHint, teacherHinted: true };
+      const baseScore = subtopicPriority(c, stWithoutHint, subject, today);
+      const hintedScore = subtopicPriority(c, stWithHint, subject, today);
+      expect(hintedScore).toBeCloseTo(baseScore * TEACHER_HINT_PRIORITY_BOOST);
+    });
+
+    it("teacherHinted: false は teacherHinted 未設定と同じスコアになる（後方互換）", () => {
+      const subtopics = [subtopic({ id: "a" })];
+      const c = chapter({ pointWeight: 20, targetUnderstanding: 0.8, subtopics });
+      const stUnset = { ...subtopics[0], understanding: 0.4, lastStudiedDate: null };
+      const stFalse = { ...stUnset, teacherHinted: false };
+      expect(subtopicPriority(c, stFalse, subject, today)).toBeCloseTo(
+        subtopicPriority(c, stUnset, subject, today),
+      );
+    });
   });
 
   describe("scoreChapterOrSubtopics", () => {
@@ -495,5 +653,270 @@ describe("小項目の所要時間見積もり（estimateSubtopicRemainingMinute
     const recentEstimate = estimateSubtopicRemainingMinutes(recentlyStudied, today);
     const decayedEstimate = estimateSubtopicRemainingMinutes(longAgoStudied, today);
     expect(decayedEstimate.basicMinutes).toBeGreaterThan(recentEstimate.basicMinutes);
+  });
+
+  it("rates 引数を渡すと、その学習済みレートで計算される", () => {
+    const st = subtopic({ understanding: 0.5, lastStudiedDate: null, basicProblems: 10, advancedProblems: 4 });
+    const rates = { basicMinutesPerProblem: 100, advancedMinutesPerProblem: 200 };
+    const estimate = estimateSubtopicRemainingMinutes(st, today, rates);
+    const remainingRatio = 0.5;
+    expect(estimate.basicMinutes).toBeCloseTo(10 * 100 * remainingRatio);
+    expect(estimate.advancedMinutes).toBeCloseTo(4 * 200 * remainingRatio);
+  });
+
+  it("rates 引数を省略した場合は従来通りデフォルト値（MINUTES_PER_BASIC_PROBLEM/MINUTES_PER_ADVANCED_PROBLEM）が使われる", () => {
+    const st = subtopic({ understanding: 0.5, lastStudiedDate: null, basicProblems: 10, advancedProblems: 4 });
+    const estimate = estimateSubtopicRemainingMinutes(st, today);
+    const remainingRatio = 0.5;
+    expect(estimate.basicMinutes).toBeCloseTo(10 * MINUTES_PER_BASIC_PROBLEM * remainingRatio);
+    expect(estimate.advancedMinutes).toBeCloseTo(4 * MINUTES_PER_ADVANCED_PROBLEM * remainingRatio);
+  });
+});
+
+describe("演習時間の実測値学習（learnedProblemRates）", () => {
+  function makeSession(overrides: Partial<StudySession> = {}): StudySession {
+    return {
+      id: "sess1",
+      chapterId: "c1",
+      subtopicId: "st-a",
+      date: "2026-06-29",
+      minutes: 30,
+      correctRate: 0.8,
+      selfReport: 4,
+      ...overrides,
+    };
+  }
+
+  const chapters = [chapter({ id: "c1", subjectId: "s1" })];
+
+  it("純粋な基礎/発展セッションが MIN_SESSIONS_FOR_LEARNED_RATE 件未満ならデフォルト値を返す", () => {
+    const sessions = [
+      makeSession({ id: "1", basicProblemsCompleted: 5 }),
+      makeSession({ id: "2", basicProblemsCompleted: 5 }),
+    ];
+    const rates = learnedProblemRates(sessions, chapters, "s1");
+    expect(rates.basicMinutesPerProblem).toBe(MINUTES_PER_BASIC_PROBLEM);
+    expect(rates.advancedMinutesPerProblem).toBe(MINUTES_PER_ADVANCED_PROBLEM);
+  });
+
+  it("純粋な基礎セッションが MIN_SESSIONS_FOR_LEARNED_RATE 件以上あれば、その実測平均を返す", () => {
+    expect(MIN_SESSIONS_FOR_LEARNED_RATE).toBe(3);
+    const sessions = [
+      makeSession({ id: "1", minutes: 50, basicProblemsCompleted: 5 }), // 10分/問
+      makeSession({ id: "2", minutes: 60, basicProblemsCompleted: 6 }), // 10分/問
+      makeSession({ id: "3", minutes: 40, basicProblemsCompleted: 4 }), // 10分/問
+    ];
+    const rates = learnedProblemRates(sessions, chapters, "s1");
+    expect(rates.basicMinutesPerProblem).toBeCloseTo(10);
+    // 発展は対象セッションが無いのでデフォルトのまま
+    expect(rates.advancedMinutesPerProblem).toBe(MINUTES_PER_ADVANCED_PROBLEM);
+  });
+
+  it("発展セッションについても同様に学習される", () => {
+    const sessions = [
+      makeSession({ id: "1", minutes: 60, advancedProblemsCompleted: 3 }), // 20分/問
+      makeSession({ id: "2", minutes: 80, advancedProblemsCompleted: 4 }), // 20分/問
+      makeSession({ id: "3", minutes: 100, advancedProblemsCompleted: 5 }), // 20分/問
+    ];
+    const rates = learnedProblemRates(sessions, chapters, "s1");
+    expect(rates.advancedMinutesPerProblem).toBeCloseTo(20);
+    expect(rates.basicMinutesPerProblem).toBe(MINUTES_PER_BASIC_PROBLEM);
+  });
+
+  it("基礎と発展が混在するセッションは学習対象から除外される", () => {
+    const sessions = [
+      makeSession({ id: "1", minutes: 50, basicProblemsCompleted: 5, advancedProblemsCompleted: 2 }),
+      makeSession({ id: "2", minutes: 50, basicProblemsCompleted: 5, advancedProblemsCompleted: 2 }),
+      makeSession({ id: "3", minutes: 50, basicProblemsCompleted: 5, advancedProblemsCompleted: 2 }),
+    ];
+    const rates = learnedProblemRates(sessions, chapters, "s1");
+    // 全セッションが混在扱いで除外されるため、両方デフォルト値のまま
+    expect(rates.basicMinutesPerProblem).toBe(MINUTES_PER_BASIC_PROBLEM);
+    expect(rates.advancedMinutesPerProblem).toBe(MINUTES_PER_ADVANCED_PROBLEM);
+  });
+
+  it("対象外の教科・章のセッションは無視される", () => {
+    const otherChapters = [chapter({ id: "c1", subjectId: "s1" }), chapter({ id: "c2", subjectId: "s2" })];
+    const sessions = [
+      // s2 に属する章 c2 のセッション。s1 の学習には使われない
+      makeSession({ id: "1", chapterId: "c2", minutes: 50, basicProblemsCompleted: 5 }),
+      makeSession({ id: "2", chapterId: "c2", minutes: 50, basicProblemsCompleted: 5 }),
+      makeSession({ id: "3", chapterId: "c2", minutes: 50, basicProblemsCompleted: 5 }),
+    ];
+    const rates = learnedProblemRates(sessions, otherChapters, "s1");
+    expect(rates.basicMinutesPerProblem).toBe(MINUTES_PER_BASIC_PROBLEM);
+  });
+
+  it("subtopicId の無いセッション（章全体記録）は学習対象から除外される", () => {
+    const sessions = [
+      makeSession({ id: "1", subtopicId: undefined, minutes: 50, basicProblemsCompleted: 5 }),
+      makeSession({ id: "2", subtopicId: undefined, minutes: 50, basicProblemsCompleted: 5 }),
+      makeSession({ id: "3", subtopicId: undefined, minutes: 50, basicProblemsCompleted: 5 }),
+    ];
+    const rates = learnedProblemRates(sessions, chapters, "s1");
+    expect(rates.basicMinutesPerProblem).toBe(MINUTES_PER_BASIC_PROBLEM);
+  });
+});
+
+describe("実績ベースのペース判定", () => {
+  function makeSession(overrides: Partial<StudySession> = {}): StudySession {
+    return {
+      id: "sess1",
+      chapterId: "c1",
+      subtopicId: "st-a",
+      date: "2026-06-29",
+      minutes: 30,
+      correctRate: 0.8,
+      selfReport: 4,
+      ...overrides,
+    };
+  }
+
+  describe("cumulativeSubtopicProblemsCompleted / recentSubtopicProblemsCompleted", () => {
+    it("対象の小項目のセッションだけを集計し、他の小項目・章のセッションは無視する", () => {
+      const sessions: StudySession[] = [
+        makeSession({ id: "a", subtopicId: "st-a", basicProblemsCompleted: 3, advancedProblemsCompleted: 1 }),
+        makeSession({ id: "b", subtopicId: "st-a", basicProblemsCompleted: 2, advancedProblemsCompleted: 0 }),
+        makeSession({ id: "c", subtopicId: "st-b", basicProblemsCompleted: 10, advancedProblemsCompleted: 10 }),
+        makeSession({ id: "d", chapterId: "c2", subtopicId: "st-a", basicProblemsCompleted: 99 }),
+      ];
+      // st-b は同じ ID 文字列でも別データとして扱われる（subtopicId のみで絞り込むため、意図通りの仕様）
+      const result = cumulativeSubtopicProblemsCompleted(sessions, "st-a");
+      expect(result).toEqual({ basic: 3 + 2 + 99, advanced: 1 });
+    });
+
+    it("recentSubtopicProblemsCompleted は指定日数より古いセッションを除外する", () => {
+      const today = new Date(2026, 5, 29); // 2026-06-29
+      const sessions: StudySession[] = [
+        makeSession({ id: "recent", date: "2026-06-25", basicProblemsCompleted: 5 }), // 4日前
+        makeSession({ id: "old", date: "2026-06-01", basicProblemsCompleted: 100 }), // 28日前
+      ];
+      const result = recentSubtopicProblemsCompleted(sessions, "st-a", today, RECENT_ACTIVITY_WINDOW_DAYS);
+      expect(result).toEqual({ basic: 5, advanced: 0 });
+    });
+  });
+
+  describe("subtopicUnderstandingTier", () => {
+    const today = new Date(2026, 5, 29);
+    const c = chapter({ targetUnderstanding: 0.8 });
+
+    it("ギャップが小さければ直近取り組みが無くても on_track", () => {
+      const st = subtopic({ id: "st-a", understanding: 0.7, lastStudiedDate: null }); // gap=0.1
+      expect(subtopicUnderstandingTier(c, st, [], today)).toBe("on_track");
+    });
+
+    it("ギャップが中程度で直近取り組みがあれば slightly_behind", () => {
+      const st = subtopic({ id: "st-a", understanding: 0.5, lastStudiedDate: null }); // gap=0.3
+      const sessions = [makeSession({ subtopicId: "st-a", date: "2026-06-28" })];
+      expect(subtopicUnderstandingTier(c, st, sessions, today)).toBe("slightly_behind");
+    });
+
+    it("ギャップが中程度でセッションが一度も記録されていなければ slightly_behind（本来 at_risk のケースだが、登録直後との区別がつかないため悪いほうに倒さない）", () => {
+      const st = subtopic({ id: "st-a", understanding: 0.5, lastStudiedDate: null }); // gap=0.3
+      expect(subtopicUnderstandingTier(c, st, [], today)).toBe("slightly_behind");
+    });
+
+    it("ギャップが大きくてもセッションが一度も記録されていなければ slightly_behind に留める", () => {
+      const st = subtopic({ id: "st-a", understanding: 0.2, lastStudiedDate: null }); // gap=0.6
+      expect(subtopicUnderstandingTier(c, st, [], today)).toBe("slightly_behind");
+    });
+
+    it("ギャップが大きく、かつセッションが記録済みなら at_risk（直近取り組みの有無に関わらず）", () => {
+      const st = subtopic({ id: "st-a", understanding: 0.2, lastStudiedDate: null }); // gap=0.6
+      const sessions = [makeSession({ subtopicId: "st-a", date: "2026-06-28" })];
+      expect(subtopicUnderstandingTier(c, st, sessions, today)).toBe("at_risk");
+    });
+
+    it("対象小項目以外のセッションしか無い場合はセッション0件と同じ扱いになる", () => {
+      const st = subtopic({ id: "st-a", understanding: 0.2, lastStudiedDate: null }); // gap=0.6
+      const sessions = [makeSession({ subtopicId: "st-other", date: "2026-06-28" })];
+      expect(subtopicUnderstandingTier(c, st, sessions, today)).toBe("slightly_behind");
+    });
+  });
+
+  describe("subtopicProblemTier", () => {
+    const today = new Date(2026, 5, 29);
+    const testDate = "2026-07-13"; // today から2週間後 → weeksLeft=2
+
+    it("目標問題数が未設定なら null", () => {
+      const st = subtopic({ id: "st-a", basicProblems: undefined, advancedProblems: undefined });
+      const result = subtopicProblemTier(st, [], testDate, today);
+      expect(result.basic).toBeNull();
+      expect(result.advanced).toBeNull();
+    });
+
+    it("テストまで残り3日以下なら、実績があっても basic/advanced とも null（詰め込み期は判定しない）", () => {
+      const st = subtopic({ id: "st-a", basicProblems: 20, advancedProblems: 20 });
+      const sessions = [
+        makeSession({ subtopicId: "st-a", date: "2026-06-29", basicProblemsCompleted: 1, advancedProblemsCompleted: 1 }),
+      ];
+      const nearTestDate = "2026-07-01"; // today (2026-06-29) から2日後
+      const result = subtopicProblemTier(st, sessions, nearTestDate, today);
+      expect(result.basic).toBeNull();
+      expect(result.advanced).toBeNull();
+    });
+
+    it("残り問題数が0以下なら on_track", () => {
+      const st = subtopic({ id: "st-a", basicProblems: 5 });
+      const sessions = [makeSession({ subtopicId: "st-a", basicProblemsCompleted: 5 })];
+      const result = subtopicProblemTier(st, sessions, testDate, today);
+      expect(result.basic).toBe("on_track");
+    });
+
+    it("直近実績が必要ペース以上なら on_track", () => {
+      // remaining=20, weeksLeft=2 → requiredPerWeek=10。直近7日で10問こなしていれば ratio=1.0
+      const st = subtopic({ id: "st-a", basicProblems: 20 });
+      const sessions = [makeSession({ subtopicId: "st-a", date: "2026-06-29", basicProblemsCompleted: 10 })];
+      const result = subtopicProblemTier(st, sessions, testDate, today);
+      expect(result.basic).toBe("on_track");
+    });
+
+    it("直近実績が必要ペースの0.5〜1.0倍なら slightly_behind", () => {
+      const st = subtopic({ id: "st-a", basicProblems: 20 }); // requiredPerWeek=10
+      const sessions = [makeSession({ subtopicId: "st-a", date: "2026-06-29", basicProblemsCompleted: 6 })]; // ratio=0.6
+      const result = subtopicProblemTier(st, sessions, testDate, today);
+      expect(result.basic).toBe("slightly_behind");
+    });
+
+    it("直近実績が必要ペースの0.5倍未満なら at_risk", () => {
+      const st = subtopic({ id: "st-a", basicProblems: 20 }); // requiredPerWeek=10
+      const sessions = [makeSession({ subtopicId: "st-a", date: "2026-06-29", basicProblemsCompleted: 1 })]; // ratio=0.1
+      const result = subtopicProblemTier(st, sessions, testDate, today);
+      expect(result.basic).toBe("at_risk");
+    });
+
+    it("basic/advanced はそれぞれ独立して判定される", () => {
+      const st = subtopic({ id: "st-a", basicProblems: 20, advancedProblems: undefined });
+      const sessions = [makeSession({ subtopicId: "st-a", basicProblemsCompleted: 10 })];
+      const result = subtopicProblemTier(st, sessions, testDate, today);
+      expect(result.basic).toBe("on_track");
+      expect(result.advanced).toBeNull();
+    });
+
+    it("セッションが一度も記録されていない場合、本来 at_risk になる条件（直近実績0）でも slightly_behind に留める（登録直後との区別がつかないため悪いほうに倒さない）", () => {
+      const st = subtopic({ id: "st-a", basicProblems: 20, advancedProblems: 10 });
+      const result = subtopicProblemTier(st, [], testDate, today);
+      expect(result.basic).toBe("slightly_behind");
+      expect(result.advanced).toBe("slightly_behind");
+    });
+
+    it("対象小項目以外のセッションしか無い場合はセッション0件と同じ扱いになり slightly_behind に留める", () => {
+      const st = subtopic({ id: "st-a", basicProblems: 20 });
+      const sessions = [makeSession({ subtopicId: "st-other", date: "2026-06-29", basicProblemsCompleted: 10 })];
+      const result = subtopicProblemTier(st, sessions, testDate, today);
+      expect(result.basic).toBe("slightly_behind");
+    });
+  });
+
+  describe("worstProgressTier", () => {
+    it("null混じりの配列から最も悪いティアを返す", () => {
+      expect(worstProgressTier(["on_track", null, "slightly_behind"])).toBe("slightly_behind");
+      expect(worstProgressTier(["on_track", "at_risk", "slightly_behind"])).toBe("at_risk");
+      expect(worstProgressTier(["on_track", "on_track"])).toBe("on_track");
+    });
+
+    it("全てnullならnullを返す", () => {
+      expect(worstProgressTier([null, null])).toBeNull();
+    });
   });
 });

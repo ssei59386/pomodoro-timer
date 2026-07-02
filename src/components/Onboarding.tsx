@@ -51,6 +51,7 @@ interface DraftSubtopic {
   basicProblems: number | null; // 任意（教科書の例題＋問題集の基礎レベル問題の合計）
   advancedProblems: number | null; // 任意（教科書＋問題集の発展レベル問題の合計）
   difficultyLevel: 1 | 2 | 3 | 4 | 5 | null; // 任意。カリキュラム候補選択で自動入力、手動上書き可
+  teacherHinted: boolean; // 先生からテストに出るヒントがあったかどうか
 }
 
 const SUBJECT_LABELS: Record<SubjectKey, "数学" | "理科"> = {
@@ -129,6 +130,7 @@ export function Onboarding() {
                   basicProblems: null,
                   advancedProblems: null,
                   difficultyLevel: null,
+                  teacherHinted: false,
                 },
               ],
             }
@@ -272,6 +274,7 @@ export function Onboarding() {
                 basicProblems: st.basicProblems ?? undefined,
                 advancedProblems: st.advancedProblems ?? undefined,
                 difficultyLevel: st.difficultyLevel ?? undefined,
+                teacherHinted: st.teacherHinted,
               }))
             : undefined,
       };
@@ -471,6 +474,7 @@ export function Onboarding() {
                                     basicProblems: null,
                                     advancedProblems: null,
                                     difficultyLevel: cand.difficultyLevel,
+                                    teacherHinted: false,
                                   })),
                                 ],
                               }
@@ -552,6 +556,16 @@ export function Onboarding() {
                       </span>
                     </label>
                   </div>
+                  <label className="subtopic-hint-row">
+                    <input
+                      type="checkbox"
+                      checked={st.teacherHinted}
+                      onChange={(e) =>
+                        updateSubtopic(c.key, st.key, { teacherHinted: e.target.checked })
+                      }
+                    />
+                    <span className="muted small">先生からテストのヒントがあった</span>
+                  </label>
                   <button
                     type="button"
                     className="icon-btn"

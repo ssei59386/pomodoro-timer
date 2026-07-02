@@ -40,6 +40,8 @@ export interface ChapterSubtopic {
   advancedProblems?: number;
   /** カリキュラム参考データとの一致で自動入力される難易度（5段階）。手動上書き可 */
   difficultyLevel?: 1 | 2 | 3 | 4 | 5;
+  /** 先生からテストに出るヒント（言及・強調など）があったかどうか。優先度計算にボーナスを与える */
+  teacherHinted?: boolean;
 }
 
 /** 章 ＝ 理解度管理の最小単位 */
@@ -78,8 +80,12 @@ export interface StudySession {
   correctRate: number;
   /** 手応えの自己申告（1〜5の5段階） */
   selfReport: number;
-  /** このセッションで解いた問題数（任意、基礎/発展の内訳は問わない） */
+  /** このセッションで解いた問題数（任意、基礎/発展の内訳は問わない）。章全体として記録したセッション用 */
   problemsCompleted?: number;
+  /** 小項目を指定したセッションでの、基礎問題を解いた数（任意） */
+  basicProblemsCompleted?: number;
+  /** 小項目を指定したセッションでの、発展問題を解いた数（任意） */
+  advancedProblemsCompleted?: number;
 }
 
 /** 空き時間帯（"HH:mm" 形式） */

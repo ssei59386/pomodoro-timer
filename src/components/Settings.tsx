@@ -233,6 +233,16 @@ export function Settings() {
                           </span>
                         </label>
                       </div>
+                      <label className="subtopic-hint-row">
+                        <input
+                          type="checkbox"
+                          checked={st.teacherHinted ?? false}
+                          onChange={(e) =>
+                            updateSubtopicField(c, st.id, { teacherHinted: e.target.checked })
+                          }
+                        />
+                        <span className="muted small">先生からテストのヒントがあった</span>
+                      </label>
                       <button
                         type="button"
                         className="icon-btn"

@@ -170,6 +170,19 @@ describe("Settings", () => {
     expect(subtopic?.difficultyLevel).toBe(1);
   });
 
+  it("小項目の「先生からテストのヒントがあった」チェックボックスが teacherHinted として反映される", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSettings();
+
+    const hintCheckbox = screen.getByLabelText("先生からテストのヒントがあった") as HTMLInputElement;
+    expect(hintCheckbox.checked).toBe(false);
+    fireEvent.click(hintCheckbox);
+
+    expect(
+      latestData?.chapters.find((c) => c.id === "c1")?.subtopics?.[0].teacherHinted,
+    ).toBe(true);
+  });
+
   it("特別な予定（カレンダー）セクションが組み込まれている", () => {
     localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
     renderSettings();

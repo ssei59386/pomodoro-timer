@@ -57,6 +57,7 @@ function Probe() {
 
 function renderSessionRecord(props: {
   preselectChapterId?: string | null;
+  preselectSubtopicId?: string | null;
   onDone?: () => void;
   onGoSettings?: () => void;
 }) {
@@ -65,6 +66,7 @@ function renderSessionRecord(props: {
       <Probe />
       <SessionRecord
         preselectChapterId={props.preselectChapterId ?? null}
+        preselectSubtopicId={props.preselectSubtopicId ?? null}
         onDone={props.onDone ?? (() => {})}
         onGoSettings={props.onGoSettings ?? (() => {})}
       />
@@ -213,6 +215,89 @@ describe("SessionRecord", () => {
       chapterId: "c3",
       subtopicId: "st2",
     });
+  });
+
+  it("小項目を選んだ状態で基礎/発展の問題数を入力して保存すると、recordSession に basicProblemsCompleted/advancedProblemsCompleted が渡り problemsCompleted は渡らない", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSessionRecord({ preselectChapterId: "c3" });
+
+    const selects = document.querySelectorAll("select") as NodeListOf<HTMLSelectElement>;
+    fireEvent.change(selects[1], { target: { value: "st1" } });
+
+    const numberInputs = document.querySelectorAll(
+      'input[type="number"]',
+    ) as NodeListOf<HTMLInputElement>;
+    // 0: かけた時間, 1: 基礎で解いた問題数, 2: 発展で解いた問題数
+    fireEvent.change(numberInputs[1], { target: { value: "5" } });
+    fireEvent.change(numberInputs[2], { target: { value: "2" } });
+
+    fireEvent.click(screen.getByText("記録して理解度を更新"));
+
+    expect(latestData?.sessions).toHaveLength(1);
+    expect(latestData?.sessions[0]).toMatchObject({
+      chapterId: "c3",
+      subtopicId: "st1",
+      basicProblemsCompleted: 5,
+      advancedProblemsCompleted: 2,
+    });
+    expect(latestData?.sessions[0].problemsCompleted).toBeUndefined();
+  });
+
+  it("小項目未選択（章全体）で保存すると problemsCompleted だけが渡り basic/advancedProblemsCompleted は渡らない", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSessionRecord({ preselectChapterId: "c1" });
+
+    const numberInputs = document.querySelectorAll(
+      'input[type="number"]',
+    ) as NodeListOf<HTMLInputElement>;
+    const problemsInput = numberInputs[1];
+    fireEvent.change(problemsInput, { target: { value: "8" } });
+
+    fireEvent.click(screen.getByText("記録して理解度を更新"));
+
+    expect(latestData?.sessions).toHaveLength(1);
+    expect(latestData?.sessions[0]).toMatchObject({
+      chapterId: "c1",
+      problemsCompleted: 8,
+    });
+    expect(latestData?.sessions[0].basicProblemsCompleted).toBeUndefined();
+    expect(latestData?.sessions[0].advancedProblemsCompleted).toBeUndefined();
+  });
+
+  it("小項目選択→問題数入力→章全体に戻す、という操作をすると problemsCompleted はリセットされ古い値が復活しない", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSessionRecord({ preselectChapterId: "c1" });
+
+    // 章全体のまま「解いた問題数」に値を入れる
+    let numberInputs = document.querySelectorAll(
+      'input[type="number"]',
+    ) as NodeListOf<HTMLInputElement>;
+    fireEvent.change(numberInputs[1], { target: { value: "9" } });
+
+    // 章を切り替えて小項目を選択する（c3 は小項目を持つ）
+    const chapterSelect = document.querySelectorAll("select")[0] as HTMLSelectElement;
+    fireEvent.change(chapterSelect, { target: { value: "c3" } });
+    const subtopicSelect = document.querySelectorAll("select")[1] as HTMLSelectElement;
+    fireEvent.change(subtopicSelect, { target: { value: "st1" } });
+
+    // 章全体に戻す
+    fireEvent.change(subtopicSelect, {
+      target: { value: "__whole_chapter__" },
+    });
+
+    fireEvent.click(screen.getByText("記録して理解度を更新"));
+
+    expect(latestData?.sessions).toHaveLength(1);
+    expect(latestData?.sessions[0].problemsCompleted).toBeUndefined();
+  });
+
+  it("preselectSubtopicId が渡されたとき、章と一緒に小項目も初期選択される", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSessionRecord({ preselectChapterId: "c3", preselectSubtopicId: "st2" });
+
+    const selects = document.querySelectorAll("select") as NodeListOf<HTMLSelectElement>;
+    expect(selects[0].value).toBe("c3");
+    expect(selects[1].value).toBe("st2");
   });
 
   it("章を切り替えると小項目選択がリセットされる", () => {

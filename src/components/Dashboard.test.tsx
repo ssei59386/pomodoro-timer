@@ -42,6 +42,28 @@ const twoSubjectsData: AppData = {
   onboarded: true,
 };
 
+const subtopicChapterData: AppData = {
+  subjects: [{ id: "s1", name: "数学", testDate: "2026-08-01" }],
+  chapters: [
+    {
+      id: "c1",
+      subjectId: "s1",
+      name: "確率",
+      pointWeight: 20,
+      understanding: 0.4,
+      targetUnderstanding: 0.8,
+      lastStudiedDate: null,
+      subtopics: [
+        { id: "st1", name: "場合の数", understanding: 0.7, targetUnderstanding: 0.8 },
+        { id: "st2", name: "条件付き確率", understanding: 0.3, targetUnderstanding: 0.8 },
+      ],
+    },
+  ],
+  sessions: [],
+  availability: { weeklySchedule: {}, dateOverrides: {} },
+  onboarded: true,
+};
+
 function renderDashboard(onGoSettings: () => void = () => {}) {
   return render(
     <StoreProvider>
@@ -91,5 +113,33 @@ describe("Dashboard", () => {
 
     const sections = document.querySelectorAll("section.card");
     expect(sections).toHaveLength(2);
+  });
+
+  it("小項目を持たない章では見通しバッジ・展開ボタンが表示されない（既存表示に回帰なし）", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(twoSubjectsData));
+    renderDashboard();
+
+    expect(screen.queryByText("小項目の内訳を見る")).toBeNull();
+    expect(document.querySelector(".tier-badge")).toBeNull();
+  });
+
+  it("小項目を持つ章では理解度バッジが表示される", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(subtopicChapterData));
+    renderDashboard();
+
+    expect(screen.getByText("小項目の内訳を見る")).toBeDefined();
+    expect(document.querySelector(".tier-badge")).not.toBeNull();
+  });
+
+  it("展開ボタンを押すと小項目ごとの内訳が表示される", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(subtopicChapterData));
+    renderDashboard();
+
+    expect(screen.queryByText("場合の数")).toBeNull();
+    fireEvent.click(screen.getByText("小項目の内訳を見る"));
+
+    expect(screen.getByText("場合の数")).toBeDefined();
+    expect(screen.getByText("条件付き確率")).toBeDefined();
+    expect(screen.getByText("閉じる")).toBeDefined();
   });
 });

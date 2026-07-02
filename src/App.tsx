@@ -19,16 +19,18 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 export function App() {
   const { data, saveError } = useStore();
   const [tab, setTab] = useState<Tab>("home");
-  // 「記録する」ボタンから記録画面へ来たときに章を事前選択するための受け渡し
+  // 「記録する」ボタンから記録画面へ来たときに章・小項目を事前選択するための受け渡し
   const [preselectChapterId, setPreselectChapterId] = useState<string | null>(null);
+  const [preselectSubtopicId, setPreselectSubtopicId] = useState<string | null>(null);
 
   // 仕様書 §7.1: 未オンボーディングなら初期設定画面を全画面で表示
   if (!data.onboarded) {
     return <Onboarding />;
   }
 
-  const goRecord = (chapterId?: string) => {
+  const goRecord = (chapterId?: string, subtopicId?: string) => {
     setPreselectChapterId(chapterId ?? null);
+    setPreselectSubtopicId(subtopicId ?? null);
     setTab("record");
   };
   const goSettings = () => setTab("settings");
@@ -50,6 +52,7 @@ export function App() {
         {tab === "record" && (
           <SessionRecord
             preselectChapterId={preselectChapterId}
+            preselectSubtopicId={preselectSubtopicId}
             onDone={() => setTab("dashboard")}
             onGoSettings={goSettings}
           />

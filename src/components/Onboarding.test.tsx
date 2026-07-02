@@ -161,4 +161,31 @@ describe("Onboarding（小項目の反映）", () => {
     expect(chapter?.subtopics?.[0].understanding).toBeCloseTo(0.6);
     expect(chapter?.subtopics?.[1].understanding).toBeCloseTo(1.0);
   });
+
+  it("小項目の「先生からテストのヒントがあった」チェックボックスが Chapter.subtopics[].teacherHinted に反映される", () => {
+    renderOnboarding();
+
+    const mathDateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
+    fireEvent.change(mathDateInput, { target: { value: "2099-08-01" } });
+
+    const chapterNameInput = screen.getByPlaceholderText("章名（例：二次関数）");
+    fireEvent.change(chapterNameInput, { target: { value: "二次関数" } });
+
+    fireEvent.click(screen.getByText("＋ 小項目を追加"));
+
+    const subtopicNameInputs = screen.getAllByPlaceholderText("小項目名（例：頂点）");
+    fireEvent.change(subtopicNameInputs[0], { target: { value: "頂点" } });
+
+    const hintCheckbox = screen.getByLabelText("先生からテストのヒントがあった") as HTMLInputElement;
+    fireEvent.click(hintCheckbox);
+
+    const timeInputs = document.querySelectorAll('input[type="time"]') as NodeListOf<HTMLInputElement>;
+    fireEvent.change(timeInputs[0], { target: { value: "18:00" } });
+    fireEvent.change(timeInputs[1], { target: { value: "19:00" } });
+
+    fireEvent.click(screen.getByText("この内容で始める"));
+
+    expect(latestData?.onboarded).toBe(true);
+    expect(latestData?.chapters[0].subtopics?.[0].teacherHinted).toBe(true);
+  });
 });
