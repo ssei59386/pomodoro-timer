@@ -143,9 +143,38 @@ Apply this as a standing judgment lens, not literal role-play: when a request is
 - What's the "off-track" threshold — any single lagging chapter, or only above some cumulative point-weight impact?
 - This project's own standing workflow (see "計画立案時の相談方針" above) calls for a ceo/cto consult before implementing ambiguous-scope work like this — **not yet done**. Strongly recommended before writing any code for this feature, given its size relative to everything else built in Phase 0 so far.
 
-## Task handoff: math curriculum reference data — start a NEW chat session for this, ready to execute immediately
+## Task handoff: science curriculum reference data — RESOLVED (2026-07-02)
 
-**Not started yet, but this brief is meant to be immediately actionable** — starting a new chat in this repo and saying something like "数学の調査をして" should be enough to begin, since this CLAUDE.md file is auto-loaded as project instructions for any new session. No further scope clarification should be needed; everything below is confirmed.
+**Status: done.** 中1〜中3（中学理科3学年）＋高校8ブロック（物理基礎・物理・化学基礎・化学・生物基礎・生物・地学基礎・地学）すべて完了。`npx tsc --noEmit` およびテストスイート（54 tests）通過確認済み。数学と同様、まだUIには一切配線されていない（下記「How the app would eventually consume this」参照）。
+
+**成果物**：`src/data/curriculumTypes.ts`（共通型ファイル。`CurriculumBlock`/`CurriculumSubtopic`/`CurriculumChapter`/`CurriculumBlockData` を集約し、`mathCurriculumReference.ts` と理科の全ファイルがこれを `import type` + `export type {...} from "./curriculumTypes"` で共有する）に加え、以下13ファイル：
+- `scienceCurriculumReference_ch1.ts` — 中1（4章・53小項目）
+- `scienceCurriculumReference_ch2.ts` — 中2（4章・64小項目）
+- `scienceCurriculumReference_ch3.ts` — 中3（4章・78小項目）
+- `scienceCurriculumReference_physicsBase.ts` / `_physics.ts` — 物理基礎（5章・54小項目）／物理（5章・65小項目）
+- `scienceCurriculumReference_chemistryBase.ts` / `_chemistry.ts` — 化学基礎（5章・27小項目）／化学（5章・54小項目）
+- `scienceCurriculumReference_biologyBase.ts` / `_biology.ts` — 生物基礎（4章・37小項目）／生物（5章・58小項目）
+- `scienceCurriculumReference_earthScienceBase.ts` / `_earthScience.ts` — 地学基礎（5章・35小項目）／地学（9章・49小項目）
+
+各ファイルは学習指導要領＋東京書籍・啓林館・数研出版・実教出版などの教科書目次をcross-checkして作成。難易度は数学データセットと同じ1〜5の5段階（判定基準は各ファイル冒頭のJSDocに明記）。UIへの取り込み方法・3段階⇄5段階の不整合は数学データと同じ（下記参照）。
+
+**このタスクで得た教訓（今後の同種タスクにも適用）**：
+- サブエージェントに「進捗確認」だけを投げると、自ら手を動かさずさらに孫エージェントを起動して待つだけの状態になり停滞することがあった。委譲時の指示に「これ以上エージェントを起動せず、あなた自身が直接WebSearch/WebFetch・ファイル作成を行うこと」と明記するとこの失敗を防げる。
+- コンテキスト運用ルール（1セッションあたりサブエージェント1〜2体まで、35%到達で引き継ぎ）は今回複数回のセッションにまたがって守られ、実際に9ブロック分（中学3＋高校計6ファイル×2）を段階的に完了できた。同種の大規模コンテンツ調査タスクでは今後もこの運用を踏襲してよい。
+
+---
+
+## Task handoff: math curriculum reference data — RESOLVED (2026-07-02)
+
+**Status: done.** 9 parallel research agents (one per 中1/中2/中3/数I/数A/数II/数B/数III/数C) cross-referenced 学習指導要領 and major textbook publishers (東京書籍/啓林館/数研出版/実教出版), then results were compiled into `src/data/mathCurriculumReference.ts` — an array of `CurriculumBlockData` (block/subject/chapters), each chapter holding `CurriculumSubtopic[]` (name + 1–5 `difficultyLevel`). `npx tsc --noEmit` passes. This data is not wired into any UI yet — see "How the app would eventually consume this" below for the planned follow-up (fuzzy-match suggestion layer in Onboarding/Settings), which is still a separate, undesigned task.
+
+**Open reconciliation question, still unresolved**: this dataset uses a 5-level difficulty scale, while `ChapterMetadata.difficultyLevel` in `src/types.ts` uses 3 levels — deliberately left as a mismatch for the consumption follow-up task to resolve (expand the app's scale to 5, or map 5→3 at read time).
+
+**Difficulty-label audit (2026-07-02) — accepted as-is, no fixes applied.** A read-only review agent audited all 9 blocks' `difficultyLevel` values for internal consistency. Findings: no out-of-range values, no within-chapter reversals (e.g. rote memorization rated harder than a genuinely hard calculation). It did flag cross-block scale drift — 中3 has three "5"-rated subtopics (二次方程式の利用／円の性質の証明・作図／三平方の空間利用) while 数I〜数B barely use "5" at all (数I has exactly one, 数A/数II/数B have zero), and 数III has zero "1"-rated subtopics. **User's call: leave this as-is.** Rationale (user's own words): this app is primarily for 定期テスト (regular in-school exam) prep, where a student is only ever comparing chapters within their *current* grade/subject — not 中3 against 数III in the same priority queue — so cross-grade scale drift doesn't actually distort any real prioritization decision. More importantly, `difficultyLevel` in this reference dataset is only ever meant to seed an *initial* estimate (once the fuzzy-match suggestion layer described below is built); actual prioritization in the shipped app already runs on live `understanding` data from `updateUnderstanding`/session records, not this static reference. Do not re-raise the cross-block drift finding as a blocking issue in future sessions unless the consumption design changes to compare across grade levels.
+
+The original brief below is preserved for context on how the data was produced.
+
+**(Historical) Not started yet, but this brief is meant to be immediately actionable** — starting a new chat in this repo and saying something like "数学の調査をして" should be enough to begin, since this CLAUDE.md file is auto-loaded as project instructions for any new session. No further scope clarification should be needed; everything below is confirmed.
 
 This is a separate, mostly-independent research/content-authoring task that came out of the forecast-feature design above (item 2's `MINUTES_PER_PROBLEM`/difficulty guesses would be better-seeded with real curriculum data instead of pure guesses). It does **not** need this conversation's design nuance to execute, and is large enough (user-approved estimate: "several hours" for the properly cross-referenced version, vs. 30–60 min for an unverified quick draft — user chose the thorough version) that it deserves a fresh context budget rather than continuing to grow this already-long session.
 
