@@ -55,11 +55,38 @@ interface FlatEntry {
 }
 
 /**
- * 全角/半角・大小文字・空白揺れを吸収する正規化。
- * NFKC で全角英数・記号を半角化し、空白を除去、大文字を小文字化する。
+ * 漢数字（一〜九）→算用数字の変換マップ。
+ * カリキュラム参考データ自体に表記ゆれがある（中学ブロックは「一次関数」「二次方程式」のように
+ * 漢数字、高校数Iブロックは「2次関数」のように算用数字で登録されている）ため、
+ * データファイル群は変更せず、正規化側で吸収する。
+ */
+const KANJI_DIGIT_MAP: Record<string, string> = {
+  一: "1",
+  二: "2",
+  三: "3",
+  四: "4",
+  五: "5",
+  六: "6",
+  七: "7",
+  八: "8",
+  九: "9",
+};
+
+/**
+ * 「十」「百」「千」などの位取りを含む変換は対象外（意図的にスコープ外）。
+ * 「十分」のような数詞以外の熟語を誤変換するリスクの方が大きいため、
+ * 「二次関数」「三平方の定理」のように常に単一桁の漢数字を使う章名・小項目名のみを対象とする。
+ */
+function convertKanjiDigits(text: string): string {
+  return text.replace(/[一二三四五六七八九]/g, (ch) => KANJI_DIGIT_MAP[ch] ?? ch);
+}
+
+/**
+ * 全角/半角・大小文字・空白揺れ・漢数字/算用数字の揺れを吸収する正規化。
+ * NFKC で全角英数・記号を半角化し、空白を除去、大文字を小文字化し、漢数字を算用数字に変換する。
  */
 function normalize(text: string): string {
-  return text.normalize("NFKC").replace(/\s+/g, "").toLowerCase();
+  return convertKanjiDigits(text.normalize("NFKC").replace(/\s+/g, "").toLowerCase());
 }
 
 let flatIndexCache: FlatEntry[] | null = null;

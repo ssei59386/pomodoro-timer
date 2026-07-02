@@ -102,6 +102,12 @@ describe("searchCurriculumSubtopics", () => {
     }
   });
 
+  it("正規化：漢数字/算用数字の表記ゆれを吸収する（「二次関数」で「2次関数」がヒットする）", () => {
+    const results = searchCurriculumSubtopics("二次関数");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.some((r) => r.subtopicName.includes("2次関数"))).toBe(true);
+  });
+
   it("各小項目の difficultyLevel は 1〜5 の範囲", () => {
     const results = searchCurriculumSubtopics("計算");
     for (const r of results) {

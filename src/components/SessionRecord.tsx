@@ -32,6 +32,8 @@ export function SessionRecord({
   const [minutes, setMinutes] = useState(45);
   const [correctPercent, setCorrectPercent] = useState(70); // 0〜100% で入力
   const [selfReport, setSelfReport] = useState(3);
+  // 未入力を許容する任意項目のため null 初期値（minutes 等の必須数値入力とは異なる）
+  const [problemsCompleted, setProblemsCompleted] = useState<number | null>(null);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -58,6 +60,7 @@ export function SessionRecord({
       minutes,
       correctRate: correctPercent / 100,
       selfReport,
+      problemsCompleted: problemsCompleted ?? undefined,
     });
     setSaved(true);
     // 軽いフィードバックの後にダッシュボードへ
@@ -138,6 +141,19 @@ export function SessionRecord({
           value={correctPercent}
           onChange={(e) => setCorrectPercent(Number(e.target.value))}
         />
+      </label>
+
+      <label className="field">
+        <span>解いた問題数</span>
+        <input
+          type="number"
+          min={0}
+          value={problemsCompleted ?? ""}
+          onChange={(e) =>
+            setProblemsCompleted(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))
+          }
+        />
+        <span className="muted small">任意（基礎/発展の内訳は問いません）</span>
       </label>
 
       <div className="self-report-block">

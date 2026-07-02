@@ -133,6 +133,41 @@ describe("SessionRecord", () => {
     });
   });
 
+  it("解いた問題数を入力して保存すると recordSession に problemsCompleted が渡る", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSessionRecord({});
+
+    const select = document.querySelector("select") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "c1" } });
+
+    const numberInputs = document.querySelectorAll(
+      'input[type="number"]',
+    ) as NodeListOf<HTMLInputElement>;
+    const problemsInput = numberInputs[1];
+    fireEvent.change(problemsInput, { target: { value: "12" } });
+
+    fireEvent.click(screen.getByText("記録して理解度を更新"));
+
+    expect(latestData?.sessions).toHaveLength(1);
+    expect(latestData?.sessions[0]).toMatchObject({
+      chapterId: "c1",
+      problemsCompleted: 12,
+    });
+  });
+
+  it("解いた問題数を未入力のまま保存すると problemsCompleted は undefined のまま渡る", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSessionRecord({});
+
+    const select = document.querySelector("select") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "c1" } });
+
+    fireEvent.click(screen.getByText("記録して理解度を更新"));
+
+    expect(latestData?.sessions).toHaveLength(1);
+    expect(latestData?.sessions[0].problemsCompleted).toBeUndefined();
+  });
+
   it("preselectChapterId が渡されたとき、その章が初期選択される", () => {
     localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
     renderSessionRecord({ preselectChapterId: "c2" });
