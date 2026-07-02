@@ -456,20 +456,22 @@ export function Onboarding() {
               </p>
               {c.subtopics.map((st) => (
                 <div key={st.key} className="subtopic-row">
-                  <input
-                    type="text"
-                    className="grow"
-                    placeholder="小項目名（例：頂点）"
-                    value={st.name}
-                    onChange={(e) => updateSubtopic(c.key, st.key, { name: e.target.value })}
-                  />
-                  <CurriculumSuggest
-                    query={st.name}
-                    subject={SUBJECT_LABELS[c.subjectKey]}
-                    onSelect={(result) =>
-                      updateSubtopic(c.key, st.key, { difficultyLevel: result.difficultyLevel })
-                    }
-                  />
+                  <div className="subtopic-name-field">
+                    <input
+                      type="text"
+                      className="grow"
+                      placeholder="小項目名（例：頂点）"
+                      value={st.name}
+                      onChange={(e) => updateSubtopic(c.key, st.key, { name: e.target.value })}
+                    />
+                    <CurriculumSuggest
+                      query={st.name}
+                      subject={SUBJECT_LABELS[c.subjectKey]}
+                      onSelect={(result) =>
+                        updateSubtopic(c.key, st.key, { difficultyLevel: result.difficultyLevel })
+                      }
+                    />
+                  </div>
                   {st.difficultyLevel !== null && (
                     <span className="muted small">
                       難易度（カリキュラム参考・5段階）：{st.difficultyLevel}

@@ -362,6 +362,10 @@ input[type="range"] {
   border-radius: 8px;
 }
 
+.subtopic-name-field {
+  position: relative;
+}
+
 .subtopic-row .self-report-picker {
   flex: 1;
 }

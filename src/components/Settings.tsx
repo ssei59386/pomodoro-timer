@@ -140,26 +140,28 @@ export function Settings() {
                   )}
                   {(c.subtopics ?? []).map((st) => (
                     <div key={st.id} className="subtopic-row">
-                      <input
-                        type="text"
-                        className="grow"
-                        placeholder="小項目名（例：頂点）"
-                        value={st.name}
-                        onChange={(e) =>
-                          updateSubtopicField(c, st.id, { name: e.target.value })
-                        }
-                      />
-                      {(subject.name === "数学" || subject.name === "理科") && (
-                        <CurriculumSuggest
-                          query={st.name}
-                          subject={subject.name}
-                          onSelect={(result) =>
-                            updateSubtopicField(c, st.id, {
-                              difficultyLevel: result.difficultyLevel,
-                            })
+                      <div className="subtopic-name-field">
+                        <input
+                          type="text"
+                          className="grow"
+                          placeholder="小項目名（例：頂点）"
+                          value={st.name}
+                          onChange={(e) =>
+                            updateSubtopicField(c, st.id, { name: e.target.value })
                           }
                         />
-                      )}
+                        {(subject.name === "数学" || subject.name === "理科") && (
+                          <CurriculumSuggest
+                            query={st.name}
+                            subject={subject.name}
+                            onSelect={(result) =>
+                              updateSubtopicField(c, st.id, {
+                                difficultyLevel: result.difficultyLevel,
+                              })
+                            }
+                          />
+                        )}
+                      </div>
                       {st.difficultyLevel !== undefined && (
                         <span className="muted small">
                           難易度（カリキュラム参考・5段階）：{st.difficultyLevel}
