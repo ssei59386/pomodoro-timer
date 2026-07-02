@@ -12,6 +12,7 @@ import { SelfReportPicker } from "./SelfReportPicker";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 import { DateOverridesList } from "./DateOverridesList";
 import { CurriculumSuggest } from "./CurriculumSuggest";
+import { ChapterCurriculumSuggest } from "./ChapterCurriculumSuggest";
 
 // 仕様書 §7.1 初期設定 / オンボーディング
 // 数学・理科の2教科（Phase 0）と各教科のテスト日、章（名前・配点・自己申告）、勉強可能時間を登録。
@@ -359,12 +360,15 @@ export function Onboarding() {
                 <option value="math">数学</option>
                 <option value="science">理科</option>
               </select>
-              <input
-                type="text"
-                placeholder="章名（例：二次関数）"
-                value={c.name}
-                onChange={(e) => updateChapter(c.key, { name: e.target.value })}
-              />
+              <div className="chapter-name-field">
+                <input
+                  type="text"
+                  placeholder="章名（例：二次関数）"
+                  value={c.name}
+                  onChange={(e) => updateChapter(c.key, { name: e.target.value })}
+                />
+                <ChapterCurriculumSuggest query={c.name} subject={SUBJECT_LABELS[c.subjectKey]} />
+              </div>
               <button
                 type="button"
                 className="icon-btn"

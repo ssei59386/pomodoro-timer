@@ -310,6 +310,15 @@ input[type="range"] {
   width: 90px;
 }
 
+.chapter-name-field {
+  position: relative;
+  flex: 1;
+}
+
+.chapter-name-field input[type="text"] {
+  width: 100%;
+}
+
 .add-chapter-buttons {
   display: flex;
   gap: 8px;

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ALL_CURRICULUM_BLOCKS, searchCurriculumSubtopics } from "./curriculumSearch";
+import {
+  ALL_CURRICULUM_BLOCKS,
+  searchCurriculumChapters,
+  searchCurriculumSubtopics,
+} from "./curriculumSearch";
 
 describe("searchCurriculumSubtopics", () => {
   it("該当なしのとき空配列を返す", () => {
@@ -114,5 +118,40 @@ describe("searchCurriculumSubtopics", () => {
       expect(r.difficultyLevel).toBeGreaterThanOrEqual(1);
       expect(r.difficultyLevel).toBeLessThanOrEqual(5);
     }
+  });
+});
+
+describe("searchCurriculumChapters", () => {
+  it("実在する章名で部分一致検索できる", () => {
+    const mathBlock = ALL_CURRICULUM_BLOCKS.find((b) => b.subject === "数学" && b.block === "中1");
+    expect(mathBlock).toBeDefined();
+    const sampleChapter = mathBlock!.chapters[0];
+    const results = searchCurriculumChapters(sampleChapter.name, { subject: "数学" });
+    expect(results.some((r) => r.chapterName === sampleChapter.name)).toBe(true);
+  });
+
+  it("前方一致は後方一致よりスコアが高い", () => {
+    // 「関数 y=ax²」（中3）は「関数」が先頭に来る前方一致、
+    // 「2次関数」（数I）は「関数」が末尾に来る後方一致。両方が実在する章名であることを利用する。
+    const results = searchCurriculumChapters("関数", { subject: "数学" });
+    const prefixMatch = results.find((r) => r.chapterName.startsWith("関数"));
+    const laterMatch = results.find((r) => !r.chapterName.startsWith("関数"));
+    expect(prefixMatch).toBeDefined();
+    expect(laterMatch).toBeDefined();
+    expect(prefixMatch!.score).toBeGreaterThan(laterMatch!.score);
+  });
+
+  it("subject フィルタが効く", () => {
+    const results = searchCurriculumChapters("2次関数", { subject: "理科" });
+    expect(results).toEqual([]);
+  });
+
+  it("該当なしのとき空配列を返す", () => {
+    expect(searchCurriculumChapters("存在しない架空の章名XYZ123")).toEqual([]);
+  });
+
+  it("正規化：漢数字/算用数字の表記ゆれを吸収する（「二次関数」で「2次関数」章がヒットする）", () => {
+    const results = searchCurriculumChapters("二次関数", { subject: "数学" });
+    expect(results.some((r) => r.chapterName.includes("2次関数"))).toBe(true);
   });
 });

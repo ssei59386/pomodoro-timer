@@ -5,6 +5,7 @@ import type { Chapter, ChapterSubtopic } from "../types";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 import { CalendarOverrides } from "./CalendarOverrides";
 import { CurriculumSuggest } from "./CurriculumSuggest";
+import { ChapterCurriculumSuggest } from "./ChapterCurriculumSuggest";
 
 // 仕様書 §7.5 設定
 // テスト日・勉強可能時間・章/配点の編集、データのリセット。
@@ -99,12 +100,17 @@ export function Settings() {
             {chapters.map((c) => (
               <div key={c.id}>
                 <div className="settings-chapter-row">
-                  <input
-                    type="text"
-                    className="grow"
-                    value={c.name}
-                    onChange={(e) => updateChapter({ ...c, name: e.target.value })}
-                  />
+                  <div className="chapter-name-field">
+                    <input
+                      type="text"
+                      className="grow"
+                      value={c.name}
+                      onChange={(e) => updateChapter({ ...c, name: e.target.value })}
+                    />
+                    {(subject.name === "数学" || subject.name === "理科") && (
+                      <ChapterCurriculumSuggest query={c.name} subject={subject.name} />
+                    )}
+                  </div>
                   <input
                     type="number"
                     className="narrow"

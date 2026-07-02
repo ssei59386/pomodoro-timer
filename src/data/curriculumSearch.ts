@@ -118,6 +118,74 @@ export interface SearchCurriculumSubtopicsOptions {
   limit?: number;
 }
 
+export interface CurriculumChapterSearchResult {
+  block: CurriculumBlockData["block"];
+  subject: CurriculumBlockData["subject"];
+  chapterName: string;
+  /** マッチスコア（大きいほど良い一致）。前方一致にボーナス */
+  score: number;
+}
+
+interface FlatChapterEntry {
+  block: CurriculumBlockData["block"];
+  subject: CurriculumBlockData["subject"];
+  chapterName: string;
+  normalizedName: string;
+}
+
+let flatChapterIndexCache: FlatChapterEntry[] | null = null;
+
+/** モジュールスコープでメモ化した章名専用フラットインデックスを構築する（小項目用インデックスとは別キャッシュ） */
+function buildFlatChapterIndex(): FlatChapterEntry[] {
+  if (flatChapterIndexCache) return flatChapterIndexCache;
+  const entries: FlatChapterEntry[] = [];
+  for (const block of ALL_CURRICULUM_BLOCKS) {
+    for (const chapter of block.chapters) {
+      entries.push({
+        block: block.block,
+        subject: block.subject,
+        chapterName: chapter.name,
+        normalizedName: normalize(chapter.name),
+      });
+    }
+  }
+  flatChapterIndexCache = entries;
+  return entries;
+}
+
+/**
+ * 章名の部分一致検索。
+ * 前方一致は後方一致よりスコアが高い。該当なしなら空配列を返す。
+ */
+export function searchCurriculumChapters(
+  query: string,
+  options: SearchCurriculumSubtopicsOptions = {},
+): CurriculumChapterSearchResult[] {
+  const normalizedQuery = normalize(query);
+  if (!normalizedQuery) return [];
+
+  const index = buildFlatChapterIndex();
+  const matches: CurriculumChapterSearchResult[] = [];
+
+  for (const entry of index) {
+    if (options.subject && entry.subject !== options.subject) continue;
+    const matchIndex = entry.normalizedName.indexOf(normalizedQuery);
+    if (matchIndex === -1) continue;
+    const score = matchIndex === 0 ? 2 : 1;
+    matches.push({
+      block: entry.block,
+      subject: entry.subject,
+      chapterName: entry.chapterName,
+      score,
+    });
+  }
+
+  matches.sort((a, b) => b.score - a.score);
+
+  const limit = options.limit ?? matches.length;
+  return matches.slice(0, limit);
+}
+
 /**
  * 小項目名の部分一致検索。
  * 前方一致は後方一致よりスコアが高い。該当なしなら空配列を返す。
