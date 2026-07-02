@@ -6,6 +6,7 @@ import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 import { CalendarOverrides } from "./CalendarOverrides";
 import { CurriculumSuggest } from "./CurriculumSuggest";
 import { ChapterCurriculumSuggest } from "./ChapterCurriculumSuggest";
+import { CurriculumSubtopicPicker } from "./CurriculumSubtopicPicker";
 
 // 仕様書 §7.5 設定
 // テスト日・勉強可能時間・章/配点の編集、データのリセット。
@@ -135,9 +136,30 @@ export function Settings() {
                     <span className="muted small">
                       小項目（任意）— 学習範囲を細かく分けて管理したい場合に使えます
                     </span>
-                    <button type="button" className="link-btn" onClick={() => addSubtopic(c)}>
-                      ＋ 小項目を追加
-                    </button>
+                    <div className="subtopic-block-actions">
+                      {(subject.name === "数学" || subject.name === "理科") && (
+                        <CurriculumSubtopicPicker
+                          chapterName={c.name}
+                          subject={subject.name}
+                          onAdd={(candidates) => {
+                            updateChapter({
+                              ...c,
+                              subtopics: [
+                                ...(c.subtopics ?? []),
+                                ...candidates.map((cand) => ({
+                                  id: uid(),
+                                  name: cand.name,
+                                  difficultyLevel: cand.difficultyLevel,
+                                })),
+                              ],
+                            });
+                          }}
+                        />
+                      )}
+                      <button type="button" className="link-btn" onClick={() => addSubtopic(c)}>
+                        ＋ 小項目を追加
+                      </button>
+                    </div>
                   </div>
                   {(subject.name === "数学" || subject.name === "理科") && (
                     <p className="muted small">

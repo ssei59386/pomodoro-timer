@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ALL_CURRICULUM_BLOCKS,
+  getCurriculumChapterSubtopics,
   searchCurriculumChapters,
   searchCurriculumSubtopics,
 } from "./curriculumSearch";
@@ -153,5 +154,40 @@ describe("searchCurriculumChapters", () => {
   it("正規化：漢数字/算用数字の表記ゆれを吸収する（「二次関数」で「2次関数」章がヒットする）", () => {
     const results = searchCurriculumChapters("二次関数", { subject: "数学" });
     expect(results.some((r) => r.chapterName.includes("2次関数"))).toBe(true);
+  });
+});
+
+describe("getCurriculumChapterSubtopics", () => {
+  it("実在する章に対して正しい小項目一覧を返す", () => {
+    const mathBlock = ALL_CURRICULUM_BLOCKS.find((b) => b.subject === "数学" && b.block === "中1");
+    expect(mathBlock).toBeDefined();
+    const sampleChapter = mathBlock!.chapters[0];
+    const results = getCurriculumChapterSubtopics("中1", "数学", sampleChapter.name);
+    expect(results).toEqual(
+      sampleChapter.subtopics.map((st) => ({ name: st.name, difficultyLevel: st.difficultyLevel })),
+    );
+  });
+
+  it("searchCurriculumChapters の結果をそのまま渡して使える", () => {
+    const mathBlock = ALL_CURRICULUM_BLOCKS.find((b) => b.subject === "数学" && b.block === "中1");
+    expect(mathBlock).toBeDefined();
+    const sampleChapter = mathBlock!.chapters[0];
+    const searchResults = searchCurriculumChapters(sampleChapter.name, { subject: "数学", limit: 1 });
+    expect(searchResults.length).toBe(1);
+    const match = searchResults[0];
+    const results = getCurriculumChapterSubtopics(match.block, match.subject, match.chapterName);
+    expect(results.length).toBe(sampleChapter.subtopics.length);
+  });
+
+  it("該当する章が無いとき空配列を返す", () => {
+    expect(getCurriculumChapterSubtopics("中1", "数学", "存在しない架空の章名XYZ123")).toEqual([]);
+  });
+
+  it("block/subject の組み合わせが一致しないとき空配列を返す", () => {
+    const mathBlock = ALL_CURRICULUM_BLOCKS.find((b) => b.subject === "数学" && b.block === "中1");
+    expect(mathBlock).toBeDefined();
+    const sampleChapter = mathBlock!.chapters[0];
+    // 同名の章が理科ブロックには存在しない前提（subject 不一致で空配列）
+    expect(getCurriculumChapterSubtopics("中1", "理科", sampleChapter.name)).toEqual([]);
   });
 });

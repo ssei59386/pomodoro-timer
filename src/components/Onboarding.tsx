@@ -13,6 +13,7 @@ import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 import { DateOverridesList } from "./DateOverridesList";
 import { CurriculumSuggest } from "./CurriculumSuggest";
 import { ChapterCurriculumSuggest } from "./ChapterCurriculumSuggest";
+import { CurriculumSubtopicPicker } from "./CurriculumSubtopicPicker";
 
 // 仕様書 §7.1 初期設定 / オンボーディング
 // 数学・理科の2教科（Phase 0）と各教科のテスト日、章（名前・配点・自己申告）、勉強可能時間を登録。
@@ -451,9 +452,37 @@ export function Onboarding() {
             <div className="subtopic-block">
               <div className="subtopic-block-head">
                 <span className="muted small">小項目（任意・プリントの見出しなど2〜4個）</span>
-                <button type="button" className="link-btn" onClick={() => addSubtopic(c.key)}>
-                  ＋ 小項目を追加
-                </button>
+                <div className="subtopic-block-actions">
+                  <CurriculumSubtopicPicker
+                    chapterName={c.name}
+                    subject={SUBJECT_LABELS[c.subjectKey]}
+                    onAdd={(candidates) => {
+                      setChapters((prev) =>
+                        prev.map((chapter) =>
+                          chapter.key === c.key
+                            ? {
+                                ...chapter,
+                                subtopics: [
+                                  ...chapter.subtopics,
+                                  ...candidates.map((cand) => ({
+                                    key: uid(),
+                                    name: cand.name,
+                                    selfReport: 3,
+                                    basicProblems: null,
+                                    advancedProblems: null,
+                                    difficultyLevel: cand.difficultyLevel,
+                                  })),
+                                ],
+                              }
+                            : chapter,
+                        ),
+                      );
+                    }}
+                  />
+                  <button type="button" className="link-btn" onClick={() => addSubtopic(c.key)}>
+                    ＋ 小項目を追加
+                  </button>
+                </div>
               </div>
               <p className="muted small">
                 小項目名を入力すると、カリキュラム参考データとの一致で難易度が自動入力されます（手動で上書き可）。

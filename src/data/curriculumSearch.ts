@@ -186,6 +186,33 @@ export function searchCurriculumChapters(
   return matches.slice(0, limit);
 }
 
+export interface CurriculumChapterSubtopicCandidate {
+  name: string;
+  difficultyLevel: 1 | 2 | 3 | 4 | 5;
+}
+
+/**
+ * 指定したブロック・教科・章名に一致する章の小項目一覧を返す。
+ * `searchCurriculumChapters` の結果（{block, subject, chapterName}）をそのまま渡せる設計。
+ * 該当する章が無ければ空配列を返す。
+ */
+export function getCurriculumChapterSubtopics(
+  block: CurriculumBlockData["block"],
+  subject: CurriculumBlockData["subject"],
+  chapterName: string,
+): CurriculumChapterSubtopicCandidate[] {
+  const matchedBlock = ALL_CURRICULUM_BLOCKS.find(
+    (b) => b.block === block && b.subject === subject,
+  );
+  if (!matchedBlock) return [];
+  const matchedChapter = matchedBlock.chapters.find((c) => c.name === chapterName);
+  if (!matchedChapter) return [];
+  return matchedChapter.subtopics.map((st) => ({
+    name: st.name,
+    difficultyLevel: st.difficultyLevel,
+  }));
+}
+
 /**
  * 小項目名の部分一致検索。
  * 前方一致は後方一致よりスコアが高い。該当なしなら空配列を返す。
