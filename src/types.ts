@@ -20,13 +20,26 @@ export interface ChapterMetadata {
 }
 
 /**
- * 章内の小項目（名前のみの情報管理）。
- * オンボーディング時の自己申告は初期理解度の計算に使われて役目を終えるため、
- * ここでは再入力・スコアリング連動はせず、学習範囲を見返すための名前一覧として保持する。
+ * 章内の小項目。
+ * 元々は名前のみの情報管理（学習範囲を見返すための一覧）だったが、
+ * 「見通し」機能フェーズ1で小項目単位の理解度追跡・所要時間見積もりに対応するため、
+ * 以下のフィールドをすべて optional で追加した（未設定の既存データはロジック側でフォールバックする）。
  */
 export interface ChapterSubtopic {
   id: string;
   name: string;
+  /** 小項目の現在の推定理解度（0.0〜1.0）。章を持つ理解度追跡はこちらが正 */
+  understanding?: number;
+  /** 小項目の目標理解度。未設定なら親 Chapter の targetUnderstanding にフォールバック */
+  targetUnderstanding?: number;
+  /** 最後にこの小項目を学習した日（忘却曲線の減衰計算に使用） */
+  lastStudiedDate?: string | null;
+  /** 基礎問題数（教科書の例題＋問題集の基礎レベル問題の合計） */
+  basicProblems?: number;
+  /** 発展問題数（教科書＋問題集の発展レベル問題の合計） */
+  advancedProblems?: number;
+  /** カリキュラム参考データとの一致で自動入力される難易度（5段階）。手動上書き可 */
+  difficultyLevel?: 1 | 2 | 3 | 4 | 5;
 }
 
 /** 章 ＝ 理解度管理の最小単位 */
@@ -55,6 +68,8 @@ export interface Chapter {
 export interface StudySession {
   id: string;
   chapterId: string;
+  /** 章に小項目がある場合、対象の小項目ID（フェーズ2以降で実際に書き込まれる。フェーズ1では型のみ追加） */
+  subtopicId?: string;
   /** 実施日（ISO 8601 の日付文字列） */
   date: string;
   /** かけた時間（分） */
@@ -63,6 +78,8 @@ export interface StudySession {
   correctRate: number;
   /** 手応えの自己申告（1〜5の5段階） */
   selfReport: number;
+  /** このセッションで解いた問題数（任意、基礎/発展の内訳は問わない） */
+  problemsCompleted?: number;
 }
 
 /** 空き時間帯（"HH:mm" 形式） */
