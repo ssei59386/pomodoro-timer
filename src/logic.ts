@@ -1,5 +1,5 @@
 // 仕様書 §6 コアロジック（最小版）。すべて純粋関数として実装する。
-import type { AvailabilitySettings, Chapter, StudySession, Subject, TimeSlot } from "./types";
+import type { AvailabilitySettings, Chapter, ChapterSubtopic, StudySession, Subject, TimeSlot } from "./types";
 
 // ---- 調整可能な定数 ----------------------------------------------------
 
@@ -236,6 +236,124 @@ export function applySessionToChapter(chapter: Chapter, session: StudySession): 
   };
 }
 
+// ---- 「見通し」機能フェーズ1：小項目単位の優先度スコア・所要時間見積もり ----
+// 既存の priority / generateTodayPlan / applySessionToChapter / buildReasons は一切変更しない
+// （章単位のロジックは今回のフェーズでは無関係、回帰リスクをゼロに保つ設計方針）。
+
+/**
+ * 章の配点（pointWeight）を、その章が持つ小項目の間で均等に按分する。
+ * 各小項目の按分weightの合計は常に chapter.pointWeight と一致する
+ * （章単位のスコアとの比較可能性を保つため）。
+ * 小項目が無い/空の章は空の Map を返す。
+ */
+export function subtopicPointWeights(chapter: Chapter): Map<string, number> {
+  const subtopics = chapter.subtopics ?? [];
+  const map = new Map<string, number>();
+  if (subtopics.length === 0) return map;
+  const share = chapter.pointWeight / subtopics.length;
+  for (const subtopic of subtopics) {
+    map.set(subtopic.id, share);
+  }
+  return map;
+}
+
+/**
+ * 忘却曲線を適用した小項目の「現在の」推定理解度（read-time のみの計算）。
+ * 章版 decayedUnderstanding と同じ減衰式を使う。
+ * understanding 未設定なら 0 として扱い、lastStudiedDate 未設定ならその値をそのまま返す（減衰させない）。
+ */
+export function decayedSubtopicUnderstanding(subtopic: ChapterSubtopic, today: Date): number {
+  const understanding = subtopic.understanding ?? 0;
+  if (!subtopic.lastStudiedDate) return understanding;
+  const days = daysSince(subtopic.lastStudiedDate, today);
+  if (days <= 0) return understanding;
+  const decayFactor = Math.pow(0.5, days / FORGETTING_HALF_LIFE_DAYS);
+  return clamp01(understanding * decayFactor);
+}
+
+/**
+ * 小項目版の優先度スコア。章版 priority と同じ形（配点 × 伸びしろ × 近さ）だが、
+ * 配点は subtopicPointWeights で按分した値を使う。
+ */
+export function subtopicPriority(
+  chapter: Chapter,
+  subtopic: ChapterSubtopic,
+  subject: Subject,
+  today: Date,
+): number {
+  const weight = subtopicPointWeights(chapter).get(subtopic.id) ?? 0;
+  const target = subtopic.targetUnderstanding ?? chapter.targetUnderstanding;
+  const currentUnderstanding = decayedSubtopicUnderstanding(subtopic, today);
+  const gap = Math.max(target - currentUnderstanding, 0);
+  return weight * gap * proximity(subject.testDate, today);
+}
+
+/** 章 or 小項目のどちらを対象にしたスコアかを表す（小項目が無い章は subtopic: null の1件） */
+export interface PriorityScoreItem {
+  chapter: Chapter;
+  /** null なら章レベルのスコア（小項目を持たない章のフォールバック） */
+  subtopic: ChapterSubtopic | null;
+  subject: Subject;
+  score: number;
+}
+
+/**
+ * 章のスコアを算出する（デュアルパス）。
+ * - 小項目が無い/空の章：既存の priority() をそのまま使い、1件配列で返す（後方互換）。
+ * - 小項目がある章：各小項目ごとに subtopicPriority() を計算し、小項目数分の配列を返す。
+ */
+export function scoreChapterOrSubtopics(chapter: Chapter, subject: Subject, today: Date): PriorityScoreItem[] {
+  const subtopics = chapter.subtopics ?? [];
+  if (subtopics.length === 0) {
+    return [{ chapter, subtopic: null, subject, score: priority(chapter, subject, today) }];
+  }
+  return subtopics.map((subtopic) => ({
+    chapter,
+    subtopic,
+    subject,
+    score: subtopicPriority(chapter, subtopic, subject, today),
+  }));
+}
+
+// ---- 小項目の所要時間見積もり（基礎/発展の2軸） ------------------------
+
+/** 理解度がこの値未満のときだけ「概念学習コスト」を上乗せする（毎回の再計算で重複計上しないよう閾値化） */
+export const CONCEPT_LEARNING_COST_MINUTES = 20;
+/** 基礎問題1問あたりの目安時間（分） */
+export const MINUTES_PER_BASIC_PROBLEM = 3;
+/** 発展問題1問あたりの目安時間（分） */
+export const MINUTES_PER_ADVANCED_PROBLEM = 6;
+
+/** 理解度がこの値未満なら、まだ概念そのものを学べていないとみなす閾値 */
+const CONCEPT_UNDERSTANDING_THRESHOLD = 0.2;
+
+export interface SubtopicTimeEstimate {
+  conceptMinutes: number;
+  basicMinutes: number;
+  advancedMinutes: number;
+  totalMinutes: number;
+}
+
+/**
+ * 小項目の残り所要時間を見積もる。
+ * remainingRatio（1 − 減衰後理解度）を基礎/発展それぞれの問題数に掛けて按分する。
+ * difficultyLevel はここでは使わない（問題数ベースの見積もりと混在させると二重計上になるため、
+ * 今は候補提示用の付随情報にとどめる）。
+ */
+export function estimateSubtopicRemainingMinutes(subtopic: ChapterSubtopic, today: Date): SubtopicTimeEstimate {
+  const currentUnderstanding = decayedSubtopicUnderstanding(subtopic, today);
+  const remainingRatio = 1 - currentUnderstanding;
+  const conceptMinutes = currentUnderstanding < CONCEPT_UNDERSTANDING_THRESHOLD ? CONCEPT_LEARNING_COST_MINUTES : 0;
+  const basicMinutes = (subtopic.basicProblems ?? 0) * MINUTES_PER_BASIC_PROBLEM * remainingRatio;
+  const advancedMinutes = (subtopic.advancedProblems ?? 0) * MINUTES_PER_ADVANCED_PROBLEM * remainingRatio;
+  return {
+    conceptMinutes,
+    basicMinutes,
+    advancedMinutes,
+    totalMinutes: conceptMinutes + basicMinutes + advancedMinutes,
+  };
+}
+
 // ---- 小さなユーティリティ ---------------------------------------------
 
 export function clamp01(value: number): number {
@@ -260,7 +378,7 @@ function parseDate(isoDate: string): Date {
 }
 
 /** 指定日からの経過日数（today が指定日より前なら負の値） */
-function daysSince(isoDate: string, today: Date): number {
+export function daysSince(isoDate: string, today: Date): number {
   const date = parseDate(isoDate);
   const diffMs = startOfDay(today).getTime() - date.getTime();
   return Math.floor(diffMs / (1000 * 60 * 60 * 24));

@@ -127,9 +127,9 @@ Apply this as a standing judgment lens, not literal role-play: when a request is
 
 **Resolved (2026-07-02, later)**: When the "勉強できる時間を少なくとも1つ設定してください" (or invalid-slot) error fired in Onboarding, `scrollToSection` already scrolled to the weekly-schedule section, but every day row looks the same empty-input way under `showInitialSlots`, so it wasn't visually obvious *which* day was wrong — misleading, since it's actually an aggregate condition ("at least one, anywhere"), not a per-day one. Fixed by adding `WeeklyScheduleEditor`'s new `hasError?: boolean` prop, which puts a `--danger`-colored border/background (`.weekly-schedule-error` in `styles.css`) around the whole editor. `Onboarding.tsx` tracks this via a `weeklyScheduleError` state, reset to `false` at the top of `handleSubmit` and set `true` only in the two weekly-schedule-related validation branches. The related "cut metadata-block from onboarding" suggestion (item 2 above) was explicitly left for a later session.
 
-## In-progress feature: "見通し" (pace/progress forecast) — Phase 1 IN PROGRESS (paused mid-implementation, 2026-07-02)
+## In-progress feature: "見通し" (pace/progress forecast) — Phase 1 COMPLETE (2026-07-02), Phase 2 next
 
-**Status: scope is now fully decided (user override on record below); Phase 1 implementation started and was deliberately paused partway through by user request (not an error/blocker).** See "Phase 1 current implementation state" at the bottom of this section for exactly what's done vs. not, before resuming.
+**Status: scope is fully decided (user override on record below); Phase 1 is now fully implemented and tested.** See "Phase 1 current implementation state" at the bottom of this section for exactly what's done. Resume at Phase 2 (see Phase breakdown below).
 
 **Origin / user's actual motivation** (worth preserving verbatim in spirit): the user's biggest personal stress during their own exam prep was (1) constant doubt about whether what they're studying *right now* actually maximizes their overall test score, and (2) plans falling apart with no graceful recovery whenever a session took longer than expected. They want the app to let a student "just do what's in front of them" trusting it's the optimal use of time, without having to think about it.
 
@@ -172,17 +172,17 @@ Per this file's own standing workflow, ceo and cto subagents were consulted befo
 - **Phase 4**: `Dashboard.tsx` gets subtopic-level understanding bars + pace-tier badges; resolves the registration-date-vs-moving-window open question above.
 - **Phase 5**: highest-risk phase, done last — day-by-day forward simulation (`simulateForward` in `logic.ts`, reusing the greedy-allocation shape of `generateTodayPlan` but iterated per simulated day with a time→understanding-gain update step) + triage UI + this is also where `generateTodayPlan`/`Home.tsx` actually get connected to subtopic-level scoring for real plan generation (until this phase, entering subtopic data doesn't yet affect what a student sees on the Home tab — an intentional, known gap during the rollout, not a bug).
 
-### Phase 1 current implementation state (as of pause, 2026-07-02 — resume from here)
+### Phase 1 current implementation state (COMPLETE, 2026-07-02)
 
-Implementation was delegated to the `engineer` subagent and **deliberately stopped by the user partway through** (not a failure) to switch sessions/models. Verified safe, uncommitted state at time of pause:
+Implementation was originally delegated to the `engineer` subagent, paused partway by the user to switch sessions, then resumed and finished (again via the `engineer` subagent) in a later 2026-07-02 session:
 - ✅ `src/types.ts` — `ChapterSubtopic`/`StudySession` extended exactly per plan (all fields optional). Done.
-- ✅ `src/data/curriculumSearch.ts` — fuzzy-match utility fully written (127 lines), matches the design above. Done, but **has no test file yet**.
-- ❌ `src/logic.ts` — new functions (`subtopicPointWeights`, `decayedSubtopicUnderstanding`, `subtopicPriority`, `scoreChapterOrSubtopics`, `estimateSubtopicRemainingMinutes`, related constants, and exporting the existing internal `daysSince`) — **not started**.
-- ❌ `src/data/curriculumSearch.test.ts` — not created.
-- ❌ `src/logic.test.ts` additions — not added.
-- Verified at pause time: `npx tsc --noEmit` passes clean, and all pre-existing 89 tests still pass (the partial state is safe — `curriculumSearch.ts` isn't imported from anywhere yet, so it can't break anything; `types.ts` changes are all-optional so nothing broke).
+- ✅ `src/data/curriculumSearch.ts` — fuzzy-match utility (127 lines), matches the design above. Done.
+- ✅ `src/logic.ts` — new functions added: `subtopicPointWeights`, `decayedSubtopicUnderstanding`, `subtopicPriority`, `scoreChapterOrSubtopics` (+ `PriorityScoreItem`), `estimateSubtopicRemainingMinutes` (+ `SubtopicTimeEstimate`), constants `CONCEPT_LEARNING_COST_MINUTES`/`MINUTES_PER_BASIC_PROBLEM`/`MINUTES_PER_ADVANCED_PROBLEM`. Previously-internal `daysSince` is now exported (visibility-only change, behavior unchanged). Existing `priority`/`generateTodayPlan`/`applySessionToChapter`/`buildReasons` were **not touched** (confirmed zero regression by construction — dual-path fallback for chapters without subtopics reuses `priority()` directly).
+- ✅ `src/data/curriculumSearch.test.ts` — created, 15 tests (normalization, prefix-vs-later-match scoring, `subject` filter, `limit`, empty-query/no-match, and per-block smoke tests pulling a real subtopic name out of `ALL_CURRICULUM_BLOCKS` for both 数学 and every 理科 block).
+- ✅ `src/logic.test.ts` additions — 19 tests across two new `describe` blocks ("小項目単位の優先度スコア", "小項目の所要時間見積もり"): even point-weight sharing sums back to `chapter.pointWeight`, decay-fallback behavior matches the chapter-level `decayedUnderstanding` bit-for-bit, missing `understanding`/`lastStudiedDate` don't crash (treated as 0 / no-decay respectively), `scoreChapterOrSubtopics` returns exactly `priority()`'s value for subtopic-less chapters (dual-path backward-compat), and the basic/advanced/concept time-estimate math (including the 0.2 concept-cost threshold and decay's effect on remaining time).
+- Verified: `npx tsc --noEmit` passes clean; full suite is **123 tests across 12 files, all green** (89 pre-existing + 15 curriculumSearch + 19 new logic.ts tests).
 
-**To resume**: re-read `C:\Users\user\.claude\plans\eager-discovering-waffle.md` if still present on this machine (it has full function signatures/formulas), or use the "Full design" subsection above (same content, inlined for portability). Finish the remaining `logic.ts` functions + both test files, per the completion criteria already spelled out above, then move to Phase 2.
+**Next**: Phase 2 (`SessionRecord` → subtopic-targeted recording, `applySessionToSubtopic` in `logic.ts`, `store.tsx`'s `recordSession` branching on `session.subtopicId`). No UI or `store.tsx` changes exist yet from Phase 1 — entering subtopic data still has zero visible effect in the app until Phase 3/5, as designed.
 
 ## Task handoff: science curriculum reference data — RESOLVED (2026-07-02)
 

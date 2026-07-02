@@ -15,8 +15,16 @@ import {
   decayedUnderstanding,
   isValidTimeSlot,
   isPastDate,
+  subtopicPointWeights,
+  decayedSubtopicUnderstanding,
+  subtopicPriority,
+  scoreChapterOrSubtopics,
+  estimateSubtopicRemainingMinutes,
+  CONCEPT_LEARNING_COST_MINUTES,
+  MINUTES_PER_BASIC_PROBLEM,
+  MINUTES_PER_ADVANCED_PROBLEM,
 } from "./logic";
-import type { AvailabilitySettings, Chapter, StudySession, Subject } from "./types";
+import type { AvailabilitySettings, Chapter, ChapterSubtopic, StudySession, Subject } from "./types";
 
 const today = new Date(2026, 5, 29); // 2026-06-29
 
@@ -29,6 +37,14 @@ function chapter(overrides: Partial<Chapter> = {}): Chapter {
     understanding: 0.4,
     targetUnderstanding: 0.8,
     lastStudiedDate: null,
+    ...overrides,
+  };
+}
+
+function subtopic(overrides: Partial<ChapterSubtopic> = {}): ChapterSubtopic {
+  return {
+    id: "st1",
+    name: "因数分解",
     ...overrides,
   };
 }
@@ -253,5 +269,166 @@ describe("applySessionToChapter", () => {
     // observed=0.8, new=0.5*0.8+0.5*0.4=0.6
     expect(updated.understanding).toBeCloseTo(0.6);
     expect(updated.lastStudiedDate).toBe("2026-06-29");
+  });
+});
+
+describe("小項目単位の優先度スコア", () => {
+  const subject: Subject = { id: "s1", name: "数学", testDate: "2026-07-09" };
+
+  describe("subtopicPointWeights", () => {
+    it("小項目が無い/空の章は空の Map を返す", () => {
+      const c = chapter({ pointWeight: 20 });
+      expect(subtopicPointWeights(c).size).toBe(0);
+      expect(subtopicPointWeights(chapter({ pointWeight: 20, subtopics: [] })).size).toBe(0);
+    });
+
+    it("複数の小項目に均等按分し、合計が chapter.pointWeight と一致する", () => {
+      const subtopics = [subtopic({ id: "a" }), subtopic({ id: "b" }), subtopic({ id: "c" })];
+      const c = chapter({ pointWeight: 30, subtopics });
+      const weights = subtopicPointWeights(c);
+      expect(weights.get("a")).toBeCloseTo(10);
+      expect(weights.get("b")).toBeCloseTo(10);
+      expect(weights.get("c")).toBeCloseTo(10);
+      const total = [...weights.values()].reduce((sum, v) => sum + v, 0);
+      expect(total).toBeCloseTo(c.pointWeight);
+    });
+  });
+
+  describe("decayedSubtopicUnderstanding", () => {
+    it("understanding 未設定なら 0 として扱う", () => {
+      const st = subtopic({ understanding: undefined, lastStudiedDate: null });
+      expect(decayedSubtopicUnderstanding(st, today)).toBe(0);
+    });
+
+    it("lastStudiedDate 未設定なら understanding をそのまま返す（減衰しない）", () => {
+      const st = subtopic({ understanding: 0.6, lastStudiedDate: null });
+      expect(decayedSubtopicUnderstanding(st, today)).toBeCloseTo(0.6);
+    });
+
+    it("章版 decayedUnderstanding と同じ半減期の挙動になる（21日でちょうど半分）", () => {
+      const st = subtopic({ understanding: 0.8, lastStudiedDate: "2026-06-08" }); // today から21日前
+      const c = chapter({ understanding: 0.8, lastStudiedDate: "2026-06-08" });
+      expect(decayedSubtopicUnderstanding(st, today)).toBeCloseTo(decayedUnderstanding(c, today));
+      expect(decayedSubtopicUnderstanding(st, today)).toBeCloseTo(0.4);
+    });
+
+    it("学習当日（経過0日）は減衰しない", () => {
+      const st = subtopic({ understanding: 0.8, lastStudiedDate: "2026-06-29" });
+      expect(decayedSubtopicUnderstanding(st, today)).toBeCloseTo(0.8);
+    });
+  });
+
+  describe("subtopicPriority", () => {
+    it("按分weight × 伸びしろ × 近さ で計算される", () => {
+      const subtopics = [subtopic({ id: "a" }), subtopic({ id: "b" })];
+      const c = chapter({ pointWeight: 20, targetUnderstanding: 0.8, subtopics });
+      const st = { ...subtopics[0], understanding: 0.4, lastStudiedDate: null };
+      const score = subtopicPriority(c, st, subject, today);
+      const expected = 10 * Math.max(0.8 - 0.4, 0) * proximity(subject.testDate, today);
+      expect(score).toBeCloseTo(expected);
+    });
+
+    it("targetUnderstanding は小項目側の値があれば優先する", () => {
+      const subtopics = [subtopic({ id: "a" })];
+      const c = chapter({ pointWeight: 20, targetUnderstanding: 0.8, subtopics });
+      const st = { ...subtopics[0], understanding: 0.5, targetUnderstanding: 0.6, lastStudiedDate: null };
+      const score = subtopicPriority(c, st, subject, today);
+      const expected = 20 * Math.max(0.6 - 0.5, 0) * proximity(subject.testDate, today);
+      expect(score).toBeCloseTo(expected);
+    });
+
+    it("understanding/lastStudiedDate 未設定の小項目でもクラッシュせず計算できる", () => {
+      const subtopics = [subtopic({ id: "a" })];
+      const c = chapter({ pointWeight: 20, targetUnderstanding: 0.8, subtopics });
+      expect(() => subtopicPriority(c, subtopics[0], subject, today)).not.toThrow();
+      const score = subtopicPriority(c, subtopics[0], subject, today);
+      // understanding未設定 -> 0扱い、gap = 0.8
+      const expected = 20 * 0.8 * proximity(subject.testDate, today);
+      expect(score).toBeCloseTo(expected);
+    });
+
+    it("目標到達済み（gap負）の小項目は0にクランプ", () => {
+      const subtopics = [subtopic({ id: "a" })];
+      const c = chapter({ pointWeight: 20, targetUnderstanding: 0.8, subtopics });
+      const st = { ...subtopics[0], understanding: 0.9, lastStudiedDate: null };
+      expect(subtopicPriority(c, st, subject, today)).toBe(0);
+    });
+  });
+
+  describe("scoreChapterOrSubtopics", () => {
+    it("小項目を持たない章は既存 priority() と同じスコアを1件返す（デュアルパスの後方互換）", () => {
+      const c = chapter({ pointWeight: 20, understanding: 0.4, targetUnderstanding: 0.8 });
+      const items = scoreChapterOrSubtopics(c, subject, today);
+      expect(items).toHaveLength(1);
+      expect(items[0].subtopic).toBeNull();
+      expect(items[0].chapter).toBe(c);
+      expect(items[0].score).toBeCloseTo(priority(c, subject, today));
+    });
+
+    it("空配列の subtopics も章レベル扱いになる", () => {
+      const c = chapter({ subtopics: [] });
+      const items = scoreChapterOrSubtopics(c, subject, today);
+      expect(items).toHaveLength(1);
+      expect(items[0].subtopic).toBeNull();
+    });
+
+    it("小項目がある章は小項目数分のスコアを返す", () => {
+      const subtopics = [
+        subtopic({ id: "a", understanding: 0.3, lastStudiedDate: null }),
+        subtopic({ id: "b", understanding: 0.7, lastStudiedDate: null }),
+      ];
+      const c = chapter({ pointWeight: 20, targetUnderstanding: 0.8, subtopics });
+      const items = scoreChapterOrSubtopics(c, subject, today);
+      expect(items).toHaveLength(2);
+      expect(items.every((i) => i.subtopic !== null)).toBe(true);
+      expect(items[0].score).toBeCloseTo(subtopicPriority(c, subtopics[0], subject, today));
+      expect(items[1].score).toBeCloseTo(subtopicPriority(c, subtopics[1], subject, today));
+    });
+  });
+});
+
+describe("小項目の所要時間見積もり（estimateSubtopicRemainingMinutes）", () => {
+  it("理解度が0.2未満のときだけ概念学習コストが乗る", () => {
+    const low = subtopic({ understanding: 0.1, lastStudiedDate: null });
+    const high = subtopic({ understanding: 0.5, lastStudiedDate: null });
+    expect(estimateSubtopicRemainingMinutes(low, today).conceptMinutes).toBe(CONCEPT_LEARNING_COST_MINUTES);
+    expect(estimateSubtopicRemainingMinutes(high, today).conceptMinutes).toBe(0);
+  });
+
+  it("understanding 未設定（0扱い）なら概念学習コストが乗る", () => {
+    const st = subtopic({ understanding: undefined, lastStudiedDate: null });
+    expect(estimateSubtopicRemainingMinutes(st, today).conceptMinutes).toBe(CONCEPT_LEARNING_COST_MINUTES);
+  });
+
+  it("基礎/発展の問題数 × 理解度ギャップ(remainingRatio) で時間が計算される", () => {
+    const st = subtopic({ understanding: 0.5, lastStudiedDate: null, basicProblems: 10, advancedProblems: 4 });
+    const estimate = estimateSubtopicRemainingMinutes(st, today);
+    const remainingRatio = 0.5; // 1 - 0.5
+    expect(estimate.basicMinutes).toBeCloseTo(10 * MINUTES_PER_BASIC_PROBLEM * remainingRatio);
+    expect(estimate.advancedMinutes).toBeCloseTo(4 * MINUTES_PER_ADVANCED_PROBLEM * remainingRatio);
+    expect(estimate.totalMinutes).toBeCloseTo(estimate.conceptMinutes + estimate.basicMinutes + estimate.advancedMinutes);
+  });
+
+  it("問題数が未設定なら基礎/発展の時間は0", () => {
+    const st = subtopic({ understanding: 0.5, lastStudiedDate: null });
+    const estimate = estimateSubtopicRemainingMinutes(st, today);
+    expect(estimate.basicMinutes).toBe(0);
+    expect(estimate.advancedMinutes).toBe(0);
+  });
+
+  it("理解度が高いほど残り時間が短くなる（同じ問題数で比較）", () => {
+    const lowUnderstanding = subtopic({ understanding: 0.2, lastStudiedDate: null, basicProblems: 10 });
+    const highUnderstanding = subtopic({ understanding: 0.9, lastStudiedDate: null, basicProblems: 10 });
+    const lowEstimate = estimateSubtopicRemainingMinutes(lowUnderstanding, today);
+    const highEstimate = estimateSubtopicRemainingMinutes(highUnderstanding, today);
+    expect(highEstimate.basicMinutes).toBeLessThan(lowEstimate.basicMinutes);
+  });
+
+  it("減衰後の理解度を使う（lastStudiedDate から日数が経つほど残り時間が増える）", () => {
+    const recentlyStudied = subtopic({ understanding: 0.8, lastStudiedDate: "2026-06-29", basicProblems: 10 });
+    const longAgoStudied = subtopic({ understanding: 0.8, lastStudiedDate: "2026-05-18", basicProblems: 10 }); // 42日前
+    const recentEstimate = estimateSubtopicRemainingMinutes(recentlyStudied, today);
+    const decayedEstimate = estimateSubtopicRemainingMinutes(longAgoStudied, today);
+    expect(decayedEstimate.basicMinutes).toBeGreaterThan(recentEstimate.basicMinutes);
   });
 });
