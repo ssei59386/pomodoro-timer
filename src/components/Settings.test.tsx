@@ -138,6 +138,38 @@ describe("Settings", () => {
     expect(latestData?.chapters.find((c) => c.id === "c1")?.subtopics).toHaveLength(1);
   });
 
+  it("小項目の基礎問題数・発展問題数を入力すると反映される", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSettings();
+
+    const basicInput = screen.getByPlaceholderText("教科書の例題+問題集の基礎問題") as HTMLInputElement;
+    fireEvent.change(basicInput, { target: { value: "12" } });
+    expect(
+      latestData?.chapters.find((c) => c.id === "c1")?.subtopics?.[0].basicProblems,
+    ).toBe(12);
+
+    const advancedInput = screen.getByPlaceholderText("教科書+問題集の発展問題") as HTMLInputElement;
+    fireEvent.change(advancedInput, { target: { value: "5" } });
+    expect(
+      latestData?.chapters.find((c) => c.id === "c1")?.subtopics?.[0].advancedProblems,
+    ).toBe(5);
+  });
+
+  it("小項目名にカリキュラム候補が一致すると候補が表示され、選ぶとdifficultyLevelのみ反映され名前は変わらない", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSettings();
+
+    const nameInput = screen.getByDisplayValue("頂点") as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "正負の数の意味・数直線・絶対値" } });
+
+    const suggestion = screen.getByText("正負の数の意味・数直線・絶対値", { selector: ".curriculum-suggest-name" });
+    fireEvent.mouseDown(suggestion);
+
+    const subtopic = latestData?.chapters.find((c) => c.id === "c1")?.subtopics?.[0];
+    expect(subtopic?.name).toBe("正負の数の意味・数直線・絶対値"); // ユーザー入力した名前のまま（上書きされない）
+    expect(subtopic?.difficultyLevel).toBe(1);
+  });
+
   it("特別な予定（カレンダー）セクションが組み込まれている", () => {
     localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
     renderSettings();

@@ -344,6 +344,7 @@ input[type="range"] {
 }
 
 .subtopic-row {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -367,6 +368,23 @@ input[type="range"] {
 
 .subtopic-row .icon-btn {
   align-self: flex-end;
+}
+
+.subtopic-problem-row {
+  display: flex;
+  gap: 8px;
+}
+
+.subtopic-problem-row .field.inline {
+  flex: 1;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 0;
+}
+
+.subtopic-problem-row .field.inline input {
+  width: 100%;
 }
 
 .link-btn {
@@ -608,6 +626,54 @@ input[type="range"] {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #fff;
+}
+
+/* ---- カリキュラム参考データのサジェスト ---- */
+.curriculum-suggest-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.curriculum-suggest-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 44px;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  width: 100%;
+}
+
+.curriculum-suggest-item:hover,
+.curriculum-suggest-item:active {
+  background: #f1f5f9;
+}
+
+.curriculum-suggest-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.curriculum-suggest-meta {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 /* ---- 自己申告ピッカー ---- */

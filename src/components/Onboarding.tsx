@@ -11,6 +11,7 @@ import { useStore, uid } from "../store";
 import { SelfReportPicker } from "./SelfReportPicker";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 import { DateOverridesList } from "./DateOverridesList";
+import { CurriculumSuggest } from "./CurriculumSuggest";
 
 // 仕様書 §7.1 初期設定 / オンボーディング
 // 数学・理科の2教科（Phase 0）と各教科のテスト日、章（名前・配点・自己申告）、勉強可能時間を登録。
@@ -45,9 +46,12 @@ interface DraftSubtopic {
   key: string; // uid()
   name: string;
   selfReport: number; // 1〜5, デフォルト 3
+  basicProblems: number | null; // 任意（教科書の例題＋問題集の基礎レベル問題の合計）
+  advancedProblems: number | null; // 任意（教科書＋問題集の発展レベル問題の合計）
+  difficultyLevel: 1 | 2 | 3 | 4 | 5 | null; // 任意。カリキュラム候補選択で自動入力、手動上書き可
 }
 
-const SUBJECT_LABELS: Record<SubjectKey, string> = {
+const SUBJECT_LABELS: Record<SubjectKey, "数学" | "理科"> = {
   math: "数学",
   science: "理科",
 };
@@ -112,7 +116,20 @@ export function Onboarding() {
     setChapters((prev) =>
       prev.map((c) =>
         c.key === chapterKey
-          ? { ...c, subtopics: [...c.subtopics, { key: uid(), name: "", selfReport: 3 }] }
+          ? {
+              ...c,
+              subtopics: [
+                ...c.subtopics,
+                {
+                  key: uid(),
+                  name: "",
+                  selfReport: 3,
+                  basicProblems: null,
+                  advancedProblems: null,
+                  difficultyLevel: null,
+                },
+              ],
+            }
           : c,
       ),
     );
@@ -246,7 +263,14 @@ export function Onboarding() {
         metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
         subtopics:
           namedSubtopics.length > 0
-            ? namedSubtopics.map((st) => ({ id: uid(), name: st.name.trim() }))
+            ? namedSubtopics.map((st) => ({
+                id: uid(),
+                name: st.name.trim(),
+                understanding: computeInitialUnderstanding(st.selfReport),
+                basicProblems: st.basicProblems ?? undefined,
+                advancedProblems: st.advancedProblems ?? undefined,
+                difficultyLevel: st.difficultyLevel ?? undefined,
+              }))
             : undefined,
       };
     });
@@ -404,7 +428,7 @@ export function Onboarding() {
               </div>
               <div className="metadata-row">
                 <label className="field inline">
-                  <span>難易度</span>
+                  <span>章の難易度（3段階）</span>
                   <select
                     value={c.metadata.difficultyLevel}
                     onChange={(e) =>
@@ -427,6 +451,9 @@ export function Onboarding() {
                   ＋ 小項目を追加
                 </button>
               </div>
+              <p className="muted small">
+                小項目名を入力すると、カリキュラム参考データとの一致で難易度が自動入力されます（手動で上書き可）。
+              </p>
               {c.subtopics.map((st) => (
                 <div key={st.key} className="subtopic-row">
                   <input
@@ -436,11 +463,60 @@ export function Onboarding() {
                     value={st.name}
                     onChange={(e) => updateSubtopic(c.key, st.key, { name: e.target.value })}
                   />
+                  <CurriculumSuggest
+                    query={st.name}
+                    subject={SUBJECT_LABELS[c.subjectKey]}
+                    onSelect={(result) =>
+                      updateSubtopic(c.key, st.key, { difficultyLevel: result.difficultyLevel })
+                    }
+                  />
+                  {st.difficultyLevel !== null && (
+                    <span className="muted small">
+                      難易度（カリキュラム参考・5段階）：{st.difficultyLevel}
+                    </span>
+                  )}
                   <SelfReportPicker
                     value={st.selfReport}
                     onChange={(v) => updateSubtopic(c.key, st.key, { selfReport: v })}
                     labels={INITIAL_UNDERSTANDING_LABELS}
                   />
+                  <div className="subtopic-problem-row">
+                    <label className="field inline">
+                      <span className="muted small">基礎問題数</span>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="教科書の例題+問題集の基礎問題"
+                        value={st.basicProblems ?? ""}
+                        onChange={(e) =>
+                          updateSubtopic(c.key, st.key, {
+                            basicProblems: e.target.value === "" ? null : Math.max(0, Number(e.target.value)),
+                          })
+                        }
+                      />
+                      <span className="muted small">
+                        任意・教科書の例題＋問題集の基礎レベル問題の合計
+                      </span>
+                    </label>
+                    <label className="field inline">
+                      <span className="muted small">発展問題数</span>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="教科書+問題集の発展問題"
+                        value={st.advancedProblems ?? ""}
+                        onChange={(e) =>
+                          updateSubtopic(c.key, st.key, {
+                            advancedProblems:
+                              e.target.value === "" ? null : Math.max(0, Number(e.target.value)),
+                          })
+                        }
+                      />
+                      <span className="muted small">
+                        任意・教科書＋問題集の発展レベル問題の合計
+                      </span>
+                    </label>
+                  </div>
                   <button
                     type="button"
                     className="icon-btn"

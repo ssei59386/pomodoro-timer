@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useStore, uid } from "../store";
 import { DEFAULT_TARGET_UNDERSTANDING, isPastDate } from "../logic";
-import type { Chapter } from "../types";
+import type { Chapter, ChapterSubtopic } from "../types";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 import { CalendarOverrides } from "./CalendarOverrides";
+import { CurriculumSuggest } from "./CurriculumSuggest";
 
 // 仕様書 §7.5 設定
 // テスト日・勉強可能時間・章/配点の編集、データのリセット。
@@ -27,11 +28,15 @@ export function Settings() {
     });
   };
 
-  const updateSubtopicName = (chapter: Chapter, subtopicId: string, name: string) => {
+  const updateSubtopicField = (
+    chapter: Chapter,
+    subtopicId: string,
+    patch: Partial<ChapterSubtopic>,
+  ) => {
     updateChapter({
       ...chapter,
       subtopics: (chapter.subtopics ?? []).map((st) =>
-        st.id === subtopicId ? { ...st, name } : st,
+        st.id === subtopicId ? { ...st, ...patch } : st,
       ),
     });
   };
@@ -128,6 +133,11 @@ export function Settings() {
                       ＋ 小項目を追加
                     </button>
                   </div>
+                  {(subject.name === "数学" || subject.name === "理科") && (
+                    <p className="muted small">
+                      小項目名を入力すると、カリキュラム参考データとの一致で難易度が自動入力されます（手動で上書き可）。
+                    </p>
+                  )}
                   {(c.subtopics ?? []).map((st) => (
                     <div key={st.id} className="subtopic-row">
                       <input
@@ -135,8 +145,64 @@ export function Settings() {
                         className="grow"
                         placeholder="小項目名（例：頂点）"
                         value={st.name}
-                        onChange={(e) => updateSubtopicName(c, st.id, e.target.value)}
+                        onChange={(e) =>
+                          updateSubtopicField(c, st.id, { name: e.target.value })
+                        }
                       />
+                      {(subject.name === "数学" || subject.name === "理科") && (
+                        <CurriculumSuggest
+                          query={st.name}
+                          subject={subject.name}
+                          onSelect={(result) =>
+                            updateSubtopicField(c, st.id, {
+                              difficultyLevel: result.difficultyLevel,
+                            })
+                          }
+                        />
+                      )}
+                      {st.difficultyLevel !== undefined && (
+                        <span className="muted small">
+                          難易度（カリキュラム参考・5段階）：{st.difficultyLevel}
+                        </span>
+                      )}
+                      <div className="subtopic-problem-row">
+                        <label className="field inline">
+                          <span className="muted small">基礎問題数</span>
+                          <input
+                            type="number"
+                            min={0}
+                            placeholder="教科書の例題+問題集の基礎問題"
+                            value={st.basicProblems ?? ""}
+                            onChange={(e) =>
+                              updateSubtopicField(c, st.id, {
+                                basicProblems:
+                                  e.target.value === "" ? undefined : Math.max(0, Number(e.target.value)),
+                              })
+                            }
+                          />
+                          <span className="muted small">
+                            任意・教科書の例題＋問題集の基礎レベル問題の合計
+                          </span>
+                        </label>
+                        <label className="field inline">
+                          <span className="muted small">発展問題数</span>
+                          <input
+                            type="number"
+                            min={0}
+                            placeholder="教科書+問題集の発展問題"
+                            value={st.advancedProblems ?? ""}
+                            onChange={(e) =>
+                              updateSubtopicField(c, st.id, {
+                                advancedProblems:
+                                  e.target.value === "" ? undefined : Math.max(0, Number(e.target.value)),
+                              })
+                            }
+                          />
+                          <span className="muted small">
+                            任意・教科書＋問題集の発展レベル問題の合計
+                          </span>
+                        </label>
+                      </div>
                       <button
                         type="button"
                         className="icon-btn"

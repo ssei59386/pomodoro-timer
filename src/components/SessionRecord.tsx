@@ -5,6 +5,11 @@ import { SelfReportPicker } from "./SelfReportPicker";
 
 // 仕様書 §7.3 セッション記録
 // 対象の章を選び、かけた時間・演習の正答率・手応え（5段階）を入力 → 保存で理解度更新（§6.1）
+
+// select の「章全体として記録」オプション用の値。空文字列は未選択プレースホルダーに使うため、
+// 実際の選択肢としては別の値を割り当て、onChange で subtopicId の空文字列に正規化する。
+const WHOLE_CHAPTER_VALUE = "__whole_chapter__";
+
 export function SessionRecord({
   preselectChapterId,
   onDone,
@@ -19,6 +24,11 @@ export function SessionRecord({
   const [chapterId, setChapterId] = useState<string>(
     preselectChapterId ?? data.chapters[0]?.id ?? "",
   );
+  // 空文字列 = 未選択 or 「章全体として記録」（小項目を指定しない）。
+  // select の初期値は空文字列だが、先頭に選択不可のプレースホルダーを置いて未選択を明示するため、
+  // 「章全体として記録」オプション自体は別の値（WHOLE_CHAPTER_VALUE）を持たせ、
+  // onChange で空文字列に正規化する。
+  const [subtopicId, setSubtopicId] = useState<string>("");
   const [minutes, setMinutes] = useState(45);
   const [correctPercent, setCorrectPercent] = useState(70); // 0〜100% で入力
   const [selfReport, setSelfReport] = useState(3);
@@ -28,13 +38,22 @@ export function SessionRecord({
     if (preselectChapterId) setChapterId(preselectChapterId);
   }, [preselectChapterId]);
 
+  // 章を切り替えたら、別の章の小項目IDが残らないようにリセットする
+  useEffect(() => {
+    setSubtopicId("");
+  }, [chapterId]);
+
   const subjectName = (subjectId: string) =>
     data.subjects.find((s) => s.id === subjectId)?.name ?? "";
+
+  const selectedChapter = data.chapters.find((c) => c.id === chapterId);
+  const subtopics = selectedChapter?.subtopics ?? [];
 
   const handleSave = () => {
     if (!chapterId) return;
     recordSession({
       chapterId,
+      subtopicId: subtopicId || undefined,
       date: toISODate(new Date()),
       minutes,
       correctRate: correctPercent / 100,
@@ -76,6 +95,28 @@ export function SessionRecord({
           ))}
         </select>
       </label>
+
+      {subtopics.length > 0 && (
+        <label className="field">
+          <span>小項目</span>
+          <select
+            value={subtopicId}
+            onChange={(e) =>
+              setSubtopicId(e.target.value === WHOLE_CHAPTER_VALUE ? "" : e.target.value)
+            }
+          >
+            <option value="" disabled hidden>
+              小項目を選んでください（章全体で記録する場合は下から選択）
+            </option>
+            {subtopics.map((st) => (
+              <option key={st.id} value={st.id}>
+                {st.name}
+              </option>
+            ))}
+            <option value={WHOLE_CHAPTER_VALUE}>章全体として記録</option>
+          </select>
+        </label>
+      )}
 
       <label className="field">
         <span>かけた時間（分）</span>

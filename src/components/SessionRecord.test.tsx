@@ -25,6 +25,19 @@ const onboardedData: AppData = {
       targetUnderstanding: 0.8,
       lastStudiedDate: null,
     },
+    {
+      id: "c3",
+      subjectId: "s1",
+      name: "確率",
+      pointWeight: 15,
+      understanding: 0.3,
+      targetUnderstanding: 0.8,
+      lastStudiedDate: null,
+      subtopics: [
+        { id: "st1", name: "場合の数" },
+        { id: "st2", name: "条件付き確率" },
+      ],
+    },
   ],
   sessions: [],
   availability: {
@@ -126,5 +139,63 @@ describe("SessionRecord", () => {
 
     const select = document.querySelector("select") as HTMLSelectElement;
     expect(select.value).toBe("c2");
+  });
+
+  it("小項目を持たない章を選んでいるときは小項目選択が表示されない", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSessionRecord({ preselectChapterId: "c1" });
+
+    expect(screen.queryByText("小項目")).toBeNull();
+  });
+
+  it("小項目を持つ章を選ぶと小項目選択が表示され、選ばずに保存すると subtopicId は渡されない", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSessionRecord({ preselectChapterId: "c3" });
+
+    expect(screen.getByText("小項目")).toBeDefined();
+    const selects = document.querySelectorAll("select") as NodeListOf<HTMLSelectElement>;
+    const subtopicSelect = selects[1];
+    expect(subtopicSelect.value).toBe("");
+
+    fireEvent.click(screen.getByText("記録して理解度を更新"));
+
+    expect(latestData?.sessions).toHaveLength(1);
+    expect(latestData?.sessions[0].chapterId).toBe("c3");
+    expect(latestData?.sessions[0].subtopicId).toBeUndefined();
+  });
+
+  it("小項目を選んで保存すると recordSession に subtopicId が渡される", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSessionRecord({ preselectChapterId: "c3" });
+
+    const selects = document.querySelectorAll("select") as NodeListOf<HTMLSelectElement>;
+    const subtopicSelect = selects[1];
+    fireEvent.change(subtopicSelect, { target: { value: "st2" } });
+
+    fireEvent.click(screen.getByText("記録して理解度を更新"));
+
+    expect(latestData?.sessions[0]).toMatchObject({
+      chapterId: "c3",
+      subtopicId: "st2",
+    });
+  });
+
+  it("章を切り替えると小項目選択がリセットされる", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSessionRecord({ preselectChapterId: "c3" });
+
+    let selects = document.querySelectorAll("select") as NodeListOf<HTMLSelectElement>;
+    fireEvent.change(selects[1], { target: { value: "st1" } });
+    expect((document.querySelectorAll("select")[1] as HTMLSelectElement).value).toBe("st1");
+
+    const chapterSelect = document.querySelectorAll("select")[0] as HTMLSelectElement;
+    fireEvent.change(chapterSelect, { target: { value: "c1" } });
+
+    // c1 は小項目を持たないので、小項目選択自体が消える
+    expect(screen.queryByText("小項目")).toBeNull();
+
+    fireEvent.change(chapterSelect, { target: { value: "c3" } });
+    selects = document.querySelectorAll("select") as NodeListOf<HTMLSelectElement>;
+    expect(selects[1].value).toBe("");
   });
 });

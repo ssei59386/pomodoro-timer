@@ -156,5 +156,9 @@ describe("Onboarding（小項目の反映）", () => {
     const chapter = latestData?.chapters[0];
     expect(chapter?.subtopics).toHaveLength(2);
     expect(chapter?.subtopics?.map((st) => st.name)).toEqual(["頂点", "軸"]);
+    // 各小項目の自己申告が Chapter.subtopics[].understanding に個別反映されること（旧バグの修正確認）。
+    // 1つ目はデフォルトの自己申告3 → 0.6、2つ目は5（人に教えられる）→ 1.0。
+    expect(chapter?.subtopics?.[0].understanding).toBeCloseTo(0.6);
+    expect(chapter?.subtopics?.[1].understanding).toBeCloseTo(1.0);
   });
 });
