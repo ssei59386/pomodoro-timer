@@ -93,4 +93,10 @@ Still-open backlog items from that history (not yet scoped/resolved, low priorit
 
 **Curriculum reference data (math + science): RESOLVED, both fully built and integrated** into the "見通し" feature's suggestion layer (`src/data/curriculumSearch.ts`). Full research-task history is in **`docs/curriculum-data.md`**.
 
+## セッション引き継ぎメモ（2026-07-03、英語暗記機能セッション終了時点）
+
+- 英語（単語帳＋教科書）の暗記科目対応（`docs/feature-memorization.md`参照）はコミット済み（commit `a921a17`）だが、**このセッションでは意図的にpushしていない**——ユーザーから「commitだけしてほしい、直したい箇所がある」との明示的な指示があったため（通常のセッション引き継ぎ時push方針より、この場での明示的指示を優先した）。次のセッション開始時、まずユーザーに「直したい箇所」の具体的な内容を確認すること。それが済んでから、必要ならpushする（`.github/workflows/deploy-pages.yml`によりGitHub Pagesへ自動デプロイされる点に注意）。
+- テストスイートは **291件** （`npm test`で確認）。
+- dev serverをバックグラウンドで起動済みの場合がある（`npm run dev`、http://localhost:5173/）。次のセッションでは新たに起動し直して問題ない。
+
 **暗記科目対応: 英語（単語帳＋教科書）は実装完了（2026-07-03）。国語・社会は未着手。** 数学・理科向けの「見通し」機能完成を受けて、定期テストの暗記科目にも対応したいというユーザー提起。ceo/ctoは「先に数学・理科版を身近な人に使わせるべき」と推奨したが、ユーザーはこれを明示的に上書きし、予定通り暗記科目を先に作ることを選択した（この判断は再度持ち出さないこと）。設計は複数回の紆余曲折を経て、**単語の意味テキストは一切保存せず、単語帳の見出し番号・教科書レッスン内の通し番号という「番号」だけで個々の単語をLeitner方式（簡易間隔反復）で管理する**方式に確定・実装済み（`VocabRange`/`VocabItem`、`src/components/VocabQuiz.tsx`）。教科書の長文読解・文法ワークは既存の章モデルをそのまま使う（数学と同じ）。ux-reviewer指摘も反映済み。テスト291件パス。詳細は **`docs/feature-memorization.md`** 参照。次にやるなら：国語・社会への展開（英語の実運用結果を見てから）。
