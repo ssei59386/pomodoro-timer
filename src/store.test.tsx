@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import { StoreProvider, useStore } from "./store";
 import { initialData } from "./storage";
-import type { AvailabilitySettings, Chapter, ChapterSubtopic, Subject } from "./types";
+import type { AvailabilitySettings, Chapter, ChapterSubtopic, Subject, VocabItem, VocabRange } from "./types";
 
 // StoreContext を直接テストするための小さなプローブコンポーネント。
 // 専用の renderHook ユーティリティは導入していないため、useStore() の値を
@@ -212,6 +212,73 @@ describe("StoreProvider / useStore", () => {
       getStore().resetAll();
     });
     expect(getStore().data).toEqual(initialData);
+  });
+
+  it("completeOnboarding に vocabRanges/vocabItems を渡すと保存される（省略時は空配列のまま）", () => {
+    renderStore();
+
+    const vocabRange: VocabRange = {
+      id: "r1",
+      subjectId: "s1",
+      label: "ターゲット1900",
+      startNumber: 371,
+      endNumber: 373,
+    };
+    const vocabItems: VocabItem[] = [
+      { id: "r1-371", rangeId: "r1", number: 371, introduced: false, box: 0, nextReviewDate: null },
+    ];
+
+    act(() => {
+      getStore().completeOnboarding({
+        subjects: [subject],
+        chapters: [chapter()],
+        availability,
+        vocabRanges: [vocabRange],
+        vocabItems,
+      });
+    });
+
+    expect(getStore().data.vocabRanges).toEqual([vocabRange]);
+    expect(getStore().data.vocabItems).toEqual(vocabItems);
+  });
+
+  it("recordVocabAnswer: 未着手の単語に回答すると着手済みになり箱1に入る、既に着手済みなら正誤で箱が上下する", () => {
+    renderStore();
+
+    const vocabRange: VocabRange = {
+      id: "r1",
+      subjectId: "s1",
+      label: "ターゲット1900",
+      startNumber: 1,
+      endNumber: 2,
+    };
+    const vocabItems: VocabItem[] = [
+      { id: "r1-1", rangeId: "r1", number: 1, introduced: false, box: 0, nextReviewDate: null },
+      { id: "r1-2", rangeId: "r1", number: 2, introduced: true, box: 2, nextReviewDate: "2020-01-01" },
+    ];
+
+    act(() => {
+      getStore().completeOnboarding({
+        subjects: [subject],
+        chapters: [chapter()],
+        availability,
+        vocabRanges: [vocabRange],
+        vocabItems,
+      });
+    });
+
+    act(() => {
+      getStore().recordVocabAnswer("r1-1", false);
+    });
+    const item1 = getStore().data.vocabItems.find((i) => i.id === "r1-1");
+    expect(item1?.introduced).toBe(true);
+    expect(item1?.box).toBe(1);
+
+    act(() => {
+      getStore().recordVocabAnswer("r1-2", true);
+    });
+    const item2 = getStore().data.vocabItems.find((i) => i.id === "r1-2");
+    expect(item2?.box).toBe(3);
   });
 
   it("saveError: 保存失敗時に true、成功に戻れば false に戻る", () => {

@@ -30,6 +30,8 @@ const onboardedData: AppData = {
     weeklySchedule: { 1: [{ start: "18:00", end: "19:00" }] },
     dateOverrides: {},
   },
+  vocabRanges: [],
+  vocabItems: [],
   onboarded: true,
 };
 

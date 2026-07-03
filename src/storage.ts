@@ -8,6 +8,8 @@ export const initialData: AppData = {
   chapters: [],
   sessions: [],
   availability: { weeklySchedule: {}, dateOverrides: {} },
+  vocabRanges: [],
+  vocabItems: [],
   onboarded: false,
 };
 

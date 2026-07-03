@@ -1,11 +1,13 @@
 import { useRef, useState } from "react";
-import type { Chapter, ChapterMetadata, Subject, TimeSlot } from "../types";
+import type { Chapter, ChapterMetadata, Subject, TimeSlot, VocabItem, VocabRange } from "../types";
 import {
   DEFAULT_TARGET_UNDERSTANDING,
   computeInitialUnderstanding,
   averageInitialUnderstanding,
+  generateVocabItemsForRange,
   isPastDate,
   isValidTimeSlot,
+  validateVocabRangeDraft,
 } from "../logic";
 import { useStore, uid } from "../store";
 import { SelfReportPicker } from "./SelfReportPicker";
@@ -16,7 +18,7 @@ import { ChapterCurriculumSuggest } from "./ChapterCurriculumSuggest";
 import { CurriculumSubtopicPicker } from "./CurriculumSubtopicPicker";
 
 // 仕様書 §7.1 初期設定 / オンボーディング
-// 数学・理科の2教科（Phase 0）と各教科のテスト日、章（名前・配点・自己申告）、勉強可能時間を登録。
+// 数学・理科・英語（暗記科目v1）の3教科と各教科のテスト日、章（名前・配点・自己申告）、勉強可能時間を登録。
 
 // 初期理解度確認用は曖昧な手応えラベルではなく、行動レベルの具体的な指標にする
 const INITIAL_UNDERSTANDING_LABELS = [
@@ -27,7 +29,16 @@ const INITIAL_UNDERSTANDING_LABELS = [
   "人に教えられる",
 ];
 
-type SubjectKey = "math" | "science";
+type SubjectKey = "math" | "science" | "english";
+
+// カリキュラムサジェスト機能（ChapterCurriculumSuggest/CurriculumSuggest/CurriculumSubtopicPicker）は
+// 数学・理科向け参考データ専用（著作権上の理由で英語向けデータは作らない方針）。英語の章では
+// これらのコンポーネントを呼ばないよう、対象教科のときだけ絞り込んだ subject 値を返す。
+function curriculumSubjectFor(subjectKey: SubjectKey): "数学" | "理科" | null {
+  if (subjectKey === "math") return "数学";
+  if (subjectKey === "science") return "理科";
+  return null;
+}
 
 interface DraftChapter {
   key: string; // フォーム内での一時キー
@@ -54,16 +65,32 @@ interface DraftSubtopic {
   teacherHinted: boolean; // 先生からテストに出るヒントがあったかどうか
 }
 
-const SUBJECT_LABELS: Record<SubjectKey, "数学" | "理科"> = {
+const SUBJECT_LABELS: Record<SubjectKey, "数学" | "理科" | "英語"> = {
   math: "数学",
   science: "理科",
+  english: "英語",
 };
+
+/**
+ * 単語帳の範囲登録（確定設計 v2、docs/feature-memorization.md 参照）。
+ * 単語の意味は一切入力させず、番号の範囲だけを登録する。chapterKey は DraftChapter.key への参照
+ * （実際の Chapter.id は送信時に採番されるため、送信時に id へ変換する）。
+ */
+interface DraftVocabRange {
+  key: string;
+  label: string;
+  subjectKey: SubjectKey;
+  chapterKey: string | null;
+  startNumber: number | null;
+  endNumber: number | null;
+}
 
 export function Onboarding() {
   const { completeOnboarding } = useStore();
 
   const [mathDate, setMathDate] = useState("");
   const [scienceDate, setScienceDate] = useState("");
+  const [englishDate, setEnglishDate] = useState("");
   const [weeklySchedule, setWeeklySchedule] = useState<Partial<Record<number, TimeSlot[]>>>({});
   const [dateOverrides, setDateOverrides] = useState<Record<string, TimeSlot[]>>({});
   const [showDateOverrides, setShowDateOverrides] = useState(false);
@@ -79,6 +106,7 @@ export function Onboarding() {
       metadata: { exerciseCount: null, learningScope: "", difficultyLevel: 2 },
     },
   ]);
+  const [vocabRanges, setVocabRanges] = useState<DraftVocabRange[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [weeklyScheduleError, setWeeklyScheduleError] = useState(false);
 
@@ -86,6 +114,7 @@ export function Onboarding() {
   const weeklyScheduleSectionRef = useRef<HTMLElement | null>(null);
   const dateOverridesSectionRef = useRef<HTMLElement | null>(null);
   const chaptersSectionRef = useRef<HTMLElement | null>(null);
+  const vocabSectionRef = useRef<HTMLElement | null>(null);
 
   const scrollToSection = (ref: React.RefObject<HTMLElement | null>) => {
     ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -162,16 +191,60 @@ export function Onboarding() {
     );
   };
 
+  const addVocabRange = () => {
+    setVocabRanges((prev) => [
+      ...prev,
+      {
+        key: uid(),
+        label: "",
+        subjectKey: "english",
+        chapterKey: null,
+        startNumber: null,
+        endNumber: null,
+      },
+    ]);
+  };
+
+  const updateVocabRange = (key: string, patch: Partial<DraftVocabRange>) => {
+    setVocabRanges((prev) => prev.map((v) => (v.key === key ? { ...v, ...patch } : v)));
+  };
+
+  const removeVocabRange = (key: string) => {
+    setVocabRanges((prev) => prev.filter((v) => v.key !== key));
+  };
+
   const handleSubmit = () => {
     setWeeklyScheduleError(false);
     const named = chapters.filter((c) => c.name.trim() !== "");
-    if (named.length === 0) {
-      setError("章を1つ以上登録してください。");
+    // 何かしら入力されている（ラベル or 開始/終了番号のいずれか）行だけをバリデーション対象にする。
+    // ＋ボタンで足しただけの空行はスキップ扱いにする（送信をブロックしない）。
+    const attemptedVocabRanges = vocabRanges.filter(
+      (v) => v.label.trim() !== "" || v.startNumber !== null || v.endNumber !== null,
+    );
+    // 章と単語帳はどちらも「学習する範囲」の登録手段なので、どちらか1つでもあれば送信できる
+    // （単語帳のみで使いたい生徒が、意味のない章を1つ登録させられるのを防ぐ。ux-reviewer指摘）。
+    if (named.length === 0 && attemptedVocabRanges.length === 0) {
+      setError("章または単語帳の範囲を1つ以上登録してください。");
       scrollToSection(chaptersSectionRef);
       return;
     }
-    const usedMath = named.some((c) => c.subjectKey === "math");
-    const usedScience = named.some((c) => c.subjectKey === "science");
+    for (const v of attemptedVocabRanges) {
+      const vocabError = validateVocabRangeDraft(v);
+      if (vocabError) {
+        setError(vocabError);
+        scrollToSection(vocabSectionRef);
+        return;
+      }
+    }
+    const usedMath =
+      named.some((c) => c.subjectKey === "math") ||
+      attemptedVocabRanges.some((v) => v.subjectKey === "math");
+    const usedScience =
+      named.some((c) => c.subjectKey === "science") ||
+      attemptedVocabRanges.some((v) => v.subjectKey === "science");
+    const usedEnglish =
+      named.some((c) => c.subjectKey === "english") ||
+      attemptedVocabRanges.some((v) => v.subjectKey === "english");
     if (usedMath && !mathDate) {
       setError("数学のテスト日を入力してください。");
       scrollToSection(testDateSectionRef);
@@ -179,6 +252,11 @@ export function Onboarding() {
     }
     if (usedScience && !scienceDate) {
       setError("理科のテスト日を入力してください。");
+      scrollToSection(testDateSectionRef);
+      return;
+    }
+    if (usedEnglish && !englishDate) {
+      setError("英語のテスト日を入力してください。");
       scrollToSection(testDateSectionRef);
       return;
     }
@@ -190,6 +268,11 @@ export function Onboarding() {
     }
     if (usedScience && isPastDate(scienceDate, today)) {
       setError("理科のテスト日は今日以降の日付にしてください。");
+      scrollToSection(testDateSectionRef);
+      return;
+    }
+    if (usedEnglish && isPastDate(englishDate, today)) {
+      setError("英語のテスト日は今日以降の日付にしてください。");
       scrollToSection(testDateSectionRef);
       return;
     }
@@ -234,8 +317,18 @@ export function Onboarding() {
       subjectIdByKey.science = id;
       subjects.push({ id, name: SUBJECT_LABELS.science, testDate: scienceDate });
     }
+    if (usedEnglish) {
+      const id = uid();
+      subjectIdByKey.english = id;
+      subjects.push({ id, name: SUBJECT_LABELS.english, testDate: englishDate });
+    }
 
+    // 単語帳の範囲がどの章（教科書レッスン）に紐づくかは DraftChapter.key で参照しているため、
+    // 実際の Chapter.id が採番されるこのループの中で対応表を作る（vocabRanges の構築はこの後）。
+    const chapterIdByKey = new Map<string, string>();
     const builtChapters: Chapter[] = named.map((c) => {
+      const chapterId = uid();
+      chapterIdByKey.set(c.key, chapterId);
       const namedSubtopics = c.subtopics.filter((st) => st.name.trim() !== "");
       // 初回はセッションが無いので、自己申告（＋わかれば直近の正答率）から初期理解度を決める（§6.1）。
       // 小項目に分けて自己申告していれば、その平均を使う（より精緻な初期値）。
@@ -257,7 +350,7 @@ export function Onboarding() {
         metadata.difficultyLevel = c.metadata.difficultyLevel;
       }
       return {
-        id: uid(),
+        id: chapterId,
         subjectId: subjectIdByKey[c.subjectKey]!,
         name: c.name.trim(),
         pointWeight: c.pointWeight,
@@ -280,10 +373,24 @@ export function Onboarding() {
       };
     });
 
+    const builtVocabRanges: VocabRange[] = attemptedVocabRanges.map((v) => ({
+      id: uid(),
+      subjectId: subjectIdByKey[v.subjectKey]!,
+      label: v.label.trim(),
+      chapterId: v.chapterKey ? chapterIdByKey.get(v.chapterKey) : undefined,
+      startNumber: v.startNumber!,
+      endNumber: v.endNumber!,
+    }));
+    const builtVocabItems: VocabItem[] = builtVocabRanges.flatMap((range) =>
+      generateVocabItemsForRange(range),
+    );
+
     completeOnboarding({
       subjects,
       chapters: builtChapters,
       availability: { weeklySchedule, dateOverrides },
+      vocabRanges: builtVocabRanges,
+      vocabItems: builtVocabItems,
     });
   };
 
@@ -292,7 +399,7 @@ export function Onboarding() {
       <header className="onboarding-header">
         <h1>はじめの設定</h1>
         <p className="muted">
-          数学・理科のテスト日と、勉強する章を登録しましょう。あとから設定で変更できます。
+          数学・理科・英語のテスト日と、勉強する章を登録しましょう。あとから設定で変更できます。
         </p>
       </header>
 
@@ -312,6 +419,14 @@ export function Onboarding() {
             type="date"
             value={scienceDate}
             onChange={(e) => setScienceDate(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          <span>英語のテスト日</span>
+          <input
+            type="date"
+            value={englishDate}
+            onChange={(e) => setEnglishDate(e.target.value)}
           />
         </label>
       </section>
@@ -363,6 +478,7 @@ export function Onboarding() {
               >
                 <option value="math">数学</option>
                 <option value="science">理科</option>
+                <option value="english">英語</option>
               </select>
               <div className="chapter-name-field">
                 <input
@@ -371,7 +487,12 @@ export function Onboarding() {
                   value={c.name}
                   onChange={(e) => updateChapter(c.key, { name: e.target.value })}
                 />
-                <ChapterCurriculumSuggest query={c.name} subject={SUBJECT_LABELS[c.subjectKey]} />
+                {curriculumSubjectFor(c.subjectKey) && (
+                  <ChapterCurriculumSuggest
+                    query={c.name}
+                    subject={curriculumSubjectFor(c.subjectKey)!}
+                  />
+                )}
               </div>
               <button
                 type="button"
@@ -456,41 +577,45 @@ export function Onboarding() {
               <div className="subtopic-block-head">
                 <span className="muted small">小項目（任意・プリントの見出しなど2〜4個）</span>
                 <div className="subtopic-block-actions">
-                  <CurriculumSubtopicPicker
-                    chapterName={c.name}
-                    subject={SUBJECT_LABELS[c.subjectKey]}
-                    onAdd={(candidates) => {
-                      setChapters((prev) =>
-                        prev.map((chapter) =>
-                          chapter.key === c.key
-                            ? {
-                                ...chapter,
-                                subtopics: [
-                                  ...chapter.subtopics,
-                                  ...candidates.map((cand) => ({
-                                    key: uid(),
-                                    name: cand.name,
-                                    selfReport: 3,
-                                    basicProblems: null,
-                                    advancedProblems: null,
-                                    difficultyLevel: cand.difficultyLevel,
-                                    teacherHinted: false,
-                                  })),
-                                ],
-                              }
-                            : chapter,
-                        ),
-                      );
-                    }}
-                  />
+                  {curriculumSubjectFor(c.subjectKey) && (
+                    <CurriculumSubtopicPicker
+                      chapterName={c.name}
+                      subject={curriculumSubjectFor(c.subjectKey)!}
+                      onAdd={(candidates) => {
+                        setChapters((prev) =>
+                          prev.map((chapter) =>
+                            chapter.key === c.key
+                              ? {
+                                  ...chapter,
+                                  subtopics: [
+                                    ...chapter.subtopics,
+                                    ...candidates.map((cand) => ({
+                                      key: uid(),
+                                      name: cand.name,
+                                      selfReport: 3,
+                                      basicProblems: null,
+                                      advancedProblems: null,
+                                      difficultyLevel: cand.difficultyLevel,
+                                      teacherHinted: false,
+                                    })),
+                                  ],
+                                }
+                              : chapter,
+                          ),
+                        );
+                      }}
+                    />
+                  )}
                   <button type="button" className="link-btn" onClick={() => addSubtopic(c.key)}>
                     ＋ 小項目を追加
                   </button>
                 </div>
               </div>
-              <p className="muted small">
-                小項目名を入力すると、カリキュラム参考データとの一致で難易度が自動入力されます（手動で上書き可）。
-              </p>
+              {curriculumSubjectFor(c.subjectKey) && (
+                <p className="muted small">
+                  小項目名を入力すると、カリキュラム参考データとの一致で難易度が自動入力されます（手動で上書き可）。
+                </p>
+              )}
               {c.subtopics.map((st) => (
                 <div key={st.key} className="subtopic-row">
                   <div className="subtopic-name-field">
@@ -501,13 +626,15 @@ export function Onboarding() {
                       value={st.name}
                       onChange={(e) => updateSubtopic(c.key, st.key, { name: e.target.value })}
                     />
-                    <CurriculumSuggest
-                      query={st.name}
-                      subject={SUBJECT_LABELS[c.subjectKey]}
-                      onSelect={(result) =>
-                        updateSubtopic(c.key, st.key, { difficultyLevel: result.difficultyLevel })
-                      }
-                    />
+                    {curriculumSubjectFor(c.subjectKey) && (
+                      <CurriculumSuggest
+                        query={st.name}
+                        subject={curriculumSubjectFor(c.subjectKey)!}
+                        onSelect={(result) =>
+                          updateSubtopic(c.key, st.key, { difficultyLevel: result.difficultyLevel })
+                        }
+                      />
+                    )}
                   </div>
                   {st.difficultyLevel !== null && (
                     <span className="muted small">
@@ -611,7 +738,110 @@ export function Onboarding() {
           <button type="button" className="secondary" onClick={() => addChapter("science")}>
             ＋ 理科の章
           </button>
+          <button type="button" className="secondary" onClick={() => addChapter("english")}>
+            ＋ 英語の章
+          </button>
         </div>
+      </section>
+
+      <section className="card" ref={vocabSectionRef}>
+        <div className="section-head-row">
+          <h2>単語帳の登録</h2>
+          <span className="optional-badge">任意</span>
+        </div>
+        <p className="muted">
+          単語帳（例：ターゲット1900）の範囲（開始番号〜終了番号）を登録すると、番号ごとに新規学習・復習の進み具合を自動で管理します。単語の意味は入力不要です。
+        </p>
+
+        {vocabRanges.map((v) => {
+          const chapterOptions = chapters.filter(
+            (c) => c.subjectKey === v.subjectKey && c.name.trim() !== "",
+          );
+          return (
+            <div key={v.key} className="subtopic-row">
+              <div className="chapter-draft-row">
+                <select
+                  value={v.subjectKey}
+                  onChange={(e) =>
+                    updateVocabRange(v.key, {
+                      subjectKey: e.target.value as SubjectKey,
+                      chapterKey: null,
+                    })
+                  }
+                >
+                  <option value="math">数学</option>
+                  <option value="science">理科</option>
+                  <option value="english">英語</option>
+                </select>
+                <input
+                  type="text"
+                  className="grow"
+                  placeholder="ラベル（例：ターゲット1900）"
+                  value={v.label}
+                  onChange={(e) => updateVocabRange(v.key, { label: e.target.value })}
+                />
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label="単語帳の範囲を削除"
+                  onClick={() => removeVocabRange(v.key)}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="subtopic-problem-row">
+                <label className="field inline">
+                  <span className="muted small">開始番号</span>
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="例：371"
+                    value={v.startNumber ?? ""}
+                    onChange={(e) =>
+                      updateVocabRange(v.key, {
+                        startNumber: e.target.value === "" ? null : Math.max(1, Number(e.target.value)),
+                      })
+                    }
+                  />
+                </label>
+                <label className="field inline">
+                  <span className="muted small">終了番号</span>
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="例：670"
+                    value={v.endNumber ?? ""}
+                    onChange={(e) =>
+                      updateVocabRange(v.key, {
+                        endNumber: e.target.value === "" ? null : Math.max(1, Number(e.target.value)),
+                      })
+                    }
+                  />
+                </label>
+              </div>
+              <label className="field">
+                <span className="muted small">対応する章（任意・教科書レッスンに紐づける場合のみ）</span>
+                <select
+                  value={v.chapterKey ?? ""}
+                  onChange={(e) =>
+                    updateVocabRange(v.key, { chapterKey: e.target.value === "" ? null : e.target.value })
+                  }
+                >
+                  <option value="">なし（単語帳のみ）</option>
+                  {chapterOptions.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          );
+        })}
+
+        <button type="button" className="secondary" onClick={addVocabRange}>
+          ＋ 単語帳の範囲を追加
+        </button>
       </section>
 
       {error && <p className="error">{error}</p>}

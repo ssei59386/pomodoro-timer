@@ -1,12 +1,30 @@
 import { useState } from "react";
 import { useStore, uid } from "../store";
-import { DEFAULT_TARGET_UNDERSTANDING, isPastDate } from "../logic";
-import type { Chapter, ChapterSubtopic } from "../types";
+import { DEFAULT_TARGET_UNDERSTANDING, isPastDate, validateVocabRangeDraft } from "../logic";
+import type { Chapter, ChapterSubtopic, Subject } from "../types";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 import { CalendarOverrides } from "./CalendarOverrides";
 import { CurriculumSuggest } from "./CurriculumSuggest";
 import { ChapterCurriculumSuggest } from "./ChapterCurriculumSuggest";
 import { CurriculumSubtopicPicker } from "./CurriculumSubtopicPicker";
+
+/**
+ * 単語帳の範囲登録フォームの下書き（Settings は既に確定済みの Subject/Chapter を持つため、
+ * Onboarding のような draft key 経由の間接参照は不要で、subjectId/chapterId を直接扱う）。
+ */
+interface VocabRangeDraft {
+  label: string;
+  startNumber: number | null;
+  endNumber: number | null;
+  chapterId: string | null;
+}
+
+const EMPTY_VOCAB_DRAFT: VocabRangeDraft = {
+  label: "",
+  startNumber: null,
+  endNumber: null,
+  chapterId: null,
+};
 
 // 仕様書 §7.5 設定
 // テスト日・勉強可能時間・章/配点の編集、データのリセット。
@@ -18,10 +36,43 @@ export function Settings() {
     addChapter,
     removeChapter,
     setAvailability,
+    addVocabRange,
+    removeVocabRange,
     resetAll,
   } = useStore();
 
   const [confirmingReset, setConfirmingReset] = useState(false);
+  // 単語帳登録フォームの下書き・エラーは教科ごとに独立させる（教科card内で完結させるため）
+  const [vocabDraftBySubject, setVocabDraftBySubject] = useState<Record<string, VocabRangeDraft>>({});
+  const [vocabErrorBySubject, setVocabErrorBySubject] = useState<Record<string, string | null>>({});
+
+  const getVocabDraft = (subjectId: string): VocabRangeDraft =>
+    vocabDraftBySubject[subjectId] ?? EMPTY_VOCAB_DRAFT;
+
+  const updateVocabDraft = (subjectId: string, patch: Partial<VocabRangeDraft>) => {
+    setVocabDraftBySubject((prev) => ({
+      ...prev,
+      [subjectId]: { ...getVocabDraft(subjectId), ...patch },
+    }));
+  };
+
+  const submitVocabDraft = (subject: Subject) => {
+    const draft = getVocabDraft(subject.id);
+    const validationError = validateVocabRangeDraft(draft);
+    if (validationError) {
+      setVocabErrorBySubject((prev) => ({ ...prev, [subject.id]: validationError }));
+      return;
+    }
+    addVocabRange({
+      subjectId: subject.id,
+      label: draft.label.trim(),
+      chapterId: draft.chapterId ?? undefined,
+      startNumber: draft.startNumber!,
+      endNumber: draft.endNumber!,
+    });
+    setVocabDraftBySubject((prev) => ({ ...prev, [subject.id]: EMPTY_VOCAB_DRAFT }));
+    setVocabErrorBySubject((prev) => ({ ...prev, [subject.id]: null }));
+  };
 
   const addSubtopic = (chapter: Chapter) => {
     updateChapter({
@@ -272,6 +323,91 @@ export function Settings() {
             >
               ＋ 章を追加
             </button>
+
+            <h4 className="sub-head">単語帳</h4>
+            <p className="muted small">
+              単語帳（例：ターゲット1900）の範囲を登録すると、番号ごとに新規学習・復習の進み具合を自動で管理します。単語の意味は入力不要です。
+            </p>
+            {data.vocabRanges
+              .filter((r) => r.subjectId === subject.id)
+              .map((range) => (
+                <div key={range.id} className="settings-chapter-row">
+                  <span className="grow">
+                    {range.label}（{range.startNumber}〜{range.endNumber}番）
+                  </span>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label="単語帳の範囲を削除"
+                    onClick={() => removeVocabRange(range.id)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            <div className="subtopic-row vocab-range-draft">
+              <input
+                type="text"
+                className="grow"
+                placeholder="ラベル（例：ターゲット1900）"
+                value={getVocabDraft(subject.id).label}
+                onChange={(e) => updateVocabDraft(subject.id, { label: e.target.value })}
+              />
+              <div className="subtopic-problem-row">
+                <label className="field inline">
+                  <span className="muted small">開始番号</span>
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="例：371"
+                    value={getVocabDraft(subject.id).startNumber ?? ""}
+                    onChange={(e) =>
+                      updateVocabDraft(subject.id, {
+                        startNumber: e.target.value === "" ? null : Math.max(1, Number(e.target.value)),
+                      })
+                    }
+                  />
+                </label>
+                <label className="field inline">
+                  <span className="muted small">終了番号</span>
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="例：670"
+                    value={getVocabDraft(subject.id).endNumber ?? ""}
+                    onChange={(e) =>
+                      updateVocabDraft(subject.id, {
+                        endNumber: e.target.value === "" ? null : Math.max(1, Number(e.target.value)),
+                      })
+                    }
+                  />
+                </label>
+              </div>
+              <label className="field">
+                <span className="muted small">対応する章（任意・教科書レッスンに紐づける場合のみ）</span>
+                <select
+                  value={getVocabDraft(subject.id).chapterId ?? ""}
+                  onChange={(e) =>
+                    updateVocabDraft(subject.id, {
+                      chapterId: e.target.value === "" ? null : e.target.value,
+                    })
+                  }
+                >
+                  <option value="">なし（単語帳のみ）</option>
+                  {chapters.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {vocabErrorBySubject[subject.id] && (
+                <p className="error-inline">{vocabErrorBySubject[subject.id]}</p>
+              )}
+              <button type="button" className="secondary" onClick={() => submitVocabDraft(subject)}>
+                ＋ 単語帳の範囲を追加
+              </button>
+            </div>
           </section>
         );
       })}

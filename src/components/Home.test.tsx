@@ -32,6 +32,8 @@ const chapterOnlyData: AppData = {
   ],
   sessions: [],
   availability: { weeklySchedule: everydaySchedule, dateOverrides: {} },
+  vocabRanges: [],
+  vocabItems: [],
   onboarded: true,
 };
 
@@ -55,13 +57,18 @@ const subtopicChapterData: AppData = {
   ],
   sessions: [],
   availability: { weeklySchedule: everydaySchedule, dateOverrides: {} },
+  vocabRanges: [],
+  vocabItems: [],
   onboarded: true,
 };
 
-function renderHome(onRecord: (chapterId?: string, subtopicId?: string) => void = () => {}) {
+function renderHome(
+  onRecord: (chapterId?: string, subtopicId?: string) => void = () => {},
+  onVocabQuiz: () => void = () => {},
+) {
   return render(
     <StoreProvider>
-      <Home onRecord={onRecord} onGoSettings={() => {}} />
+      <Home onRecord={onRecord} onGoSettings={() => {}} onVocabQuiz={onVocabQuiz} />
     </StoreProvider>,
   );
 }
@@ -154,5 +161,70 @@ describe("Home", () => {
     renderHome();
 
     expect(screen.queryByText(/教科書p\.10-20/)).toBeNull();
+  });
+
+  it("今日取り組む単語があるとき、他の章カードと同じリスト内に「今日の単語」カードが表示され、タップで onVocabQuiz が呼ばれる", () => {
+    const vocabData: AppData = {
+      ...chapterOnlyData,
+      subjects: [
+        ...chapterOnlyData.subjects,
+        { id: "s2", name: "英語", testDate: futureTestDate },
+      ],
+      vocabRanges: [
+        { id: "r1", subjectId: "s2", label: "ターゲット1900", startNumber: 1, endNumber: 2 },
+      ],
+      vocabItems: [
+        { id: "r1-1", rangeId: "r1", number: 1, introduced: false, box: 0, nextReviewDate: null },
+      ],
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(vocabData));
+    let vocabQuizOpened = false;
+    renderHome(() => {}, () => (vocabQuizOpened = true));
+
+    expect(screen.getByText("今日の単語")).toBeDefined();
+    const cards = document.querySelectorAll(".plan-card");
+    expect(cards.length).toBeGreaterThanOrEqual(2);
+    expect(cards[0].classList.contains("vocab-plan-card")).toBe(true);
+
+    fireEvent.click(screen.getByText("始める"));
+    expect(vocabQuizOpened).toBe(true);
+
+    // 他の章カードと同様、概算所要時間が表示される（件数のみだった旧表示の修正確認）
+    const vocabCard = cards[0];
+    expect(vocabCard.querySelector(".plan-minutes")?.textContent).toMatch(/約\d+(〜\d+)?分/);
+  });
+
+  it("復習の予定日を1日以上過ぎたアイテムがあるとき、間が空いたことへの配慮メッセージが表示される", () => {
+    const backlogData: AppData = {
+      ...chapterOnlyData,
+      subjects: [
+        ...chapterOnlyData.subjects,
+        { id: "s2", name: "英語", testDate: futureTestDate },
+      ],
+      vocabRanges: [
+        { id: "r1", subjectId: "s2", label: "ターゲット1900", startNumber: 1, endNumber: 1 },
+      ],
+      vocabItems: [
+        {
+          id: "r1-1",
+          rangeId: "r1",
+          number: 1,
+          introduced: true,
+          box: 2,
+          nextReviewDate: "2020-01-01", // 十分に過去の日付＝復習がかなり溜まっている想定
+        },
+      ],
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(backlogData));
+    renderHome();
+
+    expect(screen.getByText(/間が空いたので、いつもより多めに出ています/)).toBeDefined();
+  });
+
+  it("単語帳が未登録のときは「今日の単語」カードが表示されない", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(chapterOnlyData));
+    renderHome();
+
+    expect(screen.queryByText("今日の単語")).toBeNull();
   });
 });

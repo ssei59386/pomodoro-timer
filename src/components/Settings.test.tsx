@@ -32,6 +32,8 @@ const onboardedData: AppData = {
     weeklySchedule: { 1: [{ start: "18:00", end: "19:00" }] },
     dateOverrides: {},
   },
+  vocabRanges: [],
+  vocabItems: [],
   onboarded: true,
 };
 
@@ -202,5 +204,62 @@ describe("Settings", () => {
 
     expect(latestData?.onboarded).toBe(false);
     expect(latestData?.chapters).toHaveLength(0);
+  });
+
+  it("単語帳の範囲を追加できる（オンボーディング後に追加する運用ができなかった問題の修正）", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSettings();
+
+    fireEvent.change(screen.getByPlaceholderText("ラベル（例：ターゲット1900）"), {
+      target: { value: "ターゲット1900" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("例：371"), { target: { value: "371" } });
+    fireEvent.change(screen.getByPlaceholderText("例：670"), { target: { value: "670" } });
+    fireEvent.click(screen.getByText("＋ 単語帳の範囲を追加"));
+
+    expect(latestData?.vocabRanges).toHaveLength(1);
+    expect(latestData?.vocabRanges[0]).toMatchObject({
+      label: "ターゲット1900",
+      subjectId: "s1",
+      startNumber: 371,
+      endNumber: 670,
+    });
+    expect(latestData?.vocabItems).toHaveLength(300);
+    expect(screen.getByText("ターゲット1900（371〜670番）")).toBeDefined();
+  });
+
+  it("ラベルが空欄のまま追加しようとするとエラーが表示され追加されない", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSettings();
+
+    fireEvent.change(screen.getByPlaceholderText("例：371"), { target: { value: "1" } });
+    fireEvent.change(screen.getByPlaceholderText("例：670"), { target: { value: "10" } });
+    fireEvent.click(screen.getByText("＋ 単語帳の範囲を追加"));
+
+    expect(screen.getByText("単語帳のラベルを入力してください。")).toBeDefined();
+    expect(latestData?.vocabRanges).toHaveLength(0);
+  });
+
+  it("登録済みの単語帳の範囲を削除できる", () => {
+    localStorage.setItem(
+      "study-planner-data-v1",
+      JSON.stringify({
+        ...onboardedData,
+        vocabRanges: [{ id: "r1", subjectId: "s1", label: "ターゲット1900", startNumber: 371, endNumber: 373 }],
+        vocabItems: [
+          { id: "r1-371", rangeId: "r1", number: 371, introduced: false, box: 0, nextReviewDate: null },
+          { id: "r1-372", rangeId: "r1", number: 372, introduced: false, box: 0, nextReviewDate: null },
+          { id: "r1-373", rangeId: "r1", number: 373, introduced: false, box: 0, nextReviewDate: null },
+        ],
+      }),
+    );
+    renderSettings();
+
+    expect(screen.getByText("ターゲット1900（371〜373番）")).toBeDefined();
+    fireEvent.click(screen.getByLabelText("単語帳の範囲を削除"));
+
+    expect(latestData?.vocabRanges).toHaveLength(0);
+    expect(latestData?.vocabItems).toHaveLength(0);
+    expect(screen.queryByText("ターゲット1900（371〜373番）")).toBeNull();
   });
 });

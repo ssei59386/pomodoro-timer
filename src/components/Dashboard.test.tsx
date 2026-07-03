@@ -10,6 +10,8 @@ const emptyChaptersData: AppData = {
   chapters: [],
   sessions: [],
   availability: { weeklySchedule: {}, dateOverrides: {} },
+  vocabRanges: [],
+  vocabItems: [],
   onboarded: true,
 };
 
@@ -40,6 +42,8 @@ const twoSubjectsData: AppData = {
   ],
   sessions: [],
   availability: { weeklySchedule: {}, dateOverrides: {} },
+  vocabRanges: [],
+  vocabItems: [],
   onboarded: true,
 };
 
@@ -62,6 +66,8 @@ const subtopicChapterData: AppData = {
   ],
   sessions: [],
   availability: { weeklySchedule: {}, dateOverrides: {} },
+  vocabRanges: [],
+  vocabItems: [],
   onboarded: true,
 };
 
@@ -79,6 +85,41 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+});
+
+const vocabData: AppData = {
+  subjects: [{ id: "s1", name: "英語", testDate: "2026-08-01" }],
+  chapters: [],
+  sessions: [],
+  availability: { weeklySchedule: {}, dateOverrides: {} },
+  vocabRanges: [{ id: "r1", subjectId: "s1", label: "ターゲット1900", startNumber: 371, endNumber: 373 }],
+  vocabItems: [
+    { id: "r1-371", rangeId: "r1", number: 371, introduced: true, box: 5, nextReviewDate: "2026-09-01" },
+    { id: "r1-372", rangeId: "r1", number: 372, introduced: true, box: 2, nextReviewDate: "2026-07-10" },
+    { id: "r1-373", rangeId: "r1", number: 373, introduced: false, box: 0, nextReviewDate: null },
+  ],
+  onboarded: true,
+};
+
+describe("Dashboard（単語帳の進捗）", () => {
+  it("単語帳が登録されているとき、範囲・着手済み数・習得済み数が実装用語を使わずに表示される", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(vocabData));
+    renderDashboard();
+
+    expect(screen.getByText("単語帳の進捗")).toBeDefined();
+    expect(screen.getByText("ターゲット1900")).toBeDefined();
+    expect(
+      screen.getByText(/371〜373番のうち、着手済み 2個・5回連続で正解した語 1個/),
+    ).toBeDefined();
+    expect(screen.queryByText(/box5/)).toBeNull();
+  });
+
+  it("単語帳が未登録のときは「単語帳の進捗」セクションが表示されない", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(emptyChaptersData));
+    renderDashboard();
+
+    expect(screen.queryByText("単語帳の進捗")).toBeNull();
+  });
 });
 
 describe("Dashboard", () => {
@@ -172,6 +213,8 @@ describe("フェーズ5：見通し（前向きシミュレーション）・切
         },
       ],
       sessions: overrides.sessions ?? [],
+      vocabRanges: [],
+      vocabItems: [],
       availability: {
         weeklySchedule: { 0: [{ start: "00:00", end: "00:30" }], 1: [{ start: "00:00", end: "00:30" }], 2: [{ start: "00:00", end: "00:30" }], 3: [{ start: "00:00", end: "00:30" }], 4: [{ start: "00:00", end: "00:30" }], 5: [{ start: "00:00", end: "00:30" }], 6: [{ start: "00:00", end: "00:30" }] },
         dateOverrides: {},

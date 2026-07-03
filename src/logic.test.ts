@@ -38,9 +38,27 @@ import {
   shouldSurfaceForecastForSubject,
   FORECAST_SHORTFALL_THRESHOLD_MINUTES,
   SESSION_MINUTES,
+  VOCAB_BOX_INTERVAL_DAYS,
+  generateVocabItemsForRange,
+  advanceVocabItem,
+  calculateDailyNewVocabPace,
+  getTodaysVocabItems,
+  validateVocabRangeDraft,
+  MAX_VOCAB_RANGE_SIZE,
+  estimateVocabMinutes,
+  toISODate,
 } from "./logic";
 import type { ForwardSimulationResult, SubjectForecastSummary } from "./logic";
-import type { AvailabilitySettings, Chapter, ChapterSubtopic, StudySession, Subject, TimeSlot } from "./types";
+import type {
+  AvailabilitySettings,
+  Chapter,
+  ChapterSubtopic,
+  StudySession,
+  Subject,
+  TimeSlot,
+  VocabItem,
+  VocabRange,
+} from "./types";
 
 const today = new Date(2026, 5, 29); // 2026-06-29
 
@@ -1241,6 +1259,242 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
         },
       ];
       expect(shouldSurfaceForecastForSubject(summary, sessions, otherChapters)).toBe(false);
+    });
+  });
+});
+
+describe("英単語暗記（確定設計 v2）", () => {
+  function vocabRange(overrides: Partial<VocabRange> = {}): VocabRange {
+    return {
+      id: "r1",
+      subjectId: "s1",
+      label: "ターゲット1900",
+      startNumber: 371,
+      endNumber: 670,
+      ...overrides,
+    };
+  }
+
+  function vocabItem(overrides: Partial<VocabItem> = {}): VocabItem {
+    return {
+      id: "r1-371",
+      rangeId: "r1",
+      number: 371,
+      introduced: false,
+      box: 0,
+      nextReviewDate: null,
+      ...overrides,
+    };
+  }
+
+  describe("generateVocabItemsForRange", () => {
+    it("startNumber〜endNumberの全番号分アイテムを生成する", () => {
+      const range = vocabRange({ startNumber: 371, endNumber: 670 });
+      const items = generateVocabItemsForRange(range);
+      expect(items).toHaveLength(300);
+      expect(items[0]).toMatchObject({ number: 371, introduced: false, box: 0, nextReviewDate: null });
+      expect(items[items.length - 1]).toMatchObject({ number: 670 });
+    });
+
+    it("生成された各アイテムのrangeIdが範囲のidと一致する", () => {
+      const range = vocabRange({ id: "r2", startNumber: 1, endNumber: 3 });
+      const items = generateVocabItemsForRange(range);
+      expect(items.every((item) => item.rangeId === "r2")).toBe(true);
+      expect(items.map((item) => item.number)).toEqual([1, 2, 3]);
+    });
+
+    it("startNumberとendNumberが同じ場合は1件だけ生成する", () => {
+      const range = vocabRange({ startNumber: 5, endNumber: 5 });
+      expect(generateVocabItemsForRange(range)).toHaveLength(1);
+    });
+  });
+
+  describe("advanceVocabItem", () => {
+    it("未着手アイテムに初めて正解した場合、箱1に入り、間隔1日後が次回復習日になる", () => {
+      const item = vocabItem({ introduced: false, box: 0, nextReviewDate: null });
+      const result = advanceVocabItem(item, true, today);
+      expect(result.introduced).toBe(true);
+      expect(result.box).toBe(1);
+      expect(result.nextReviewDate).toBe(toISODate(new Date(2026, 5, 30)));
+    });
+
+    it("未着手アイテムに初めて不正解でも、箱1からスタートする（初回は一律）", () => {
+      const item = vocabItem({ introduced: false, box: 0, nextReviewDate: null });
+      const result = advanceVocabItem(item, false, today);
+      expect(result.introduced).toBe(true);
+      expect(result.box).toBe(1);
+      expect(result.nextReviewDate).toBe(toISODate(new Date(2026, 5, 30)));
+    });
+
+    it("着手済みで正解した場合、箱を1つ上げて間隔もその箱のものになる", () => {
+      const item = vocabItem({ introduced: true, box: 2 });
+      const result = advanceVocabItem(item, true, today);
+      expect(result.box).toBe(3);
+      // 箱3の間隔は7日
+      expect(result.nextReviewDate).toBe(toISODate(new Date(2026, 6, 6)));
+    });
+
+    it("着手済みで不正解の場合、箱1に戻り間隔も1日になる", () => {
+      const item = vocabItem({ introduced: true, box: 4 });
+      const result = advanceVocabItem(item, false, today);
+      expect(result.box).toBe(1);
+      expect(result.nextReviewDate).toBe(toISODate(new Date(2026, 5, 30)));
+    });
+
+    it("箱5で正解しても箱5より上には上がらない（上限）", () => {
+      const item = vocabItem({ introduced: true, box: 5 });
+      const result = advanceVocabItem(item, true, today);
+      expect(result.box).toBe(5);
+      // 箱5の間隔は30日
+      expect(result.nextReviewDate).toBe(toISODate(new Date(2026, 6, 29)));
+    });
+
+    it("VOCAB_BOX_INTERVAL_DAYSは箱1〜5に対応する5要素の配列", () => {
+      expect(VOCAB_BOX_INTERVAL_DAYS).toEqual([1, 3, 7, 14, 30]);
+    });
+  });
+
+  describe("calculateDailyNewVocabPace", () => {
+    it("未着手数をテストまでの残り日数で割って切り上げる", () => {
+      const range = vocabRange({ id: "r1" });
+      // today = 2026-06-29, testDate = 2026-07-04 -> daysLeft = 5
+      const items = generateVocabItemsForRange(vocabRange({ id: "r1", startNumber: 1, endNumber: 12 }));
+      const pace = calculateDailyNewVocabPace(range, items, "2026-07-04", today);
+      expect(pace).toBe(Math.ceil(12 / 5));
+    });
+
+    it("他の範囲のアイテムは数えない", () => {
+      const range = vocabRange({ id: "r1" });
+      const items = [
+        ...generateVocabItemsForRange(vocabRange({ id: "r1", startNumber: 1, endNumber: 10 })),
+        ...generateVocabItemsForRange(vocabRange({ id: "other", startNumber: 1, endNumber: 100 })),
+      ];
+      const pace = calculateDailyNewVocabPace(range, items, "2026-07-04", today);
+      expect(pace).toBe(Math.ceil(10 / 5));
+    });
+
+    it("未着手アイテムが0件なら0を返す", () => {
+      const range = vocabRange({ id: "r1", startNumber: 1, endNumber: 3 });
+      const items = generateVocabItemsForRange(range).map((item) => ({ ...item, introduced: true }));
+      expect(calculateDailyNewVocabPace(range, items, "2026-07-04", today)).toBe(0);
+    });
+
+    it("テスト日が既に過ぎている場合は0を返す", () => {
+      const range = vocabRange({ id: "r1", startNumber: 1, endNumber: 10 });
+      const items = generateVocabItemsForRange(range);
+      expect(calculateDailyNewVocabPace(range, items, "2026-06-01", today)).toBe(0);
+    });
+  });
+
+  describe("getTodaysVocabItems", () => {
+    const subjects: Subject[] = [{ id: "s1", name: "英語", testDate: "2026-07-04" }];
+
+    it("未着手アイテムをその範囲のペース分だけ、番号の若い順に新規として選ぶ", () => {
+      const range = vocabRange({ id: "r1", subjectId: "s1", startNumber: 1, endNumber: 12 });
+      const items = generateVocabItemsForRange(range);
+      const result = getTodaysVocabItems([range], items, subjects, today);
+      // daysLeft("2026-07-04", 2026-06-29) = 5, 12/5 切り上げ = 3
+      expect(result.newItems.map((i) => i.number)).toEqual([1, 2, 3]);
+    });
+
+    it("nextReviewDateが今日以前の着手済みアイテムを復習対象にする", () => {
+      const range = vocabRange({ id: "r1", subjectId: "s1", startNumber: 1, endNumber: 3 });
+      const items: VocabItem[] = [
+        vocabItem({ id: "i1", rangeId: "r1", number: 1, introduced: true, box: 2, nextReviewDate: "2026-06-29" }),
+        vocabItem({ id: "i2", rangeId: "r1", number: 2, introduced: true, box: 2, nextReviewDate: "2026-06-20" }),
+        vocabItem({ id: "i3", rangeId: "r1", number: 3, introduced: true, box: 2, nextReviewDate: "2026-07-01" }),
+      ];
+      const result = getTodaysVocabItems([range], items, subjects, today);
+      expect(result.reviewItems.map((i) => i.id).sort()).toEqual(["i1", "i2"]);
+    });
+
+    it("復習日がまだ来ていないアイテムは復習対象に含めない", () => {
+      const range = vocabRange({ id: "r1", subjectId: "s1", startNumber: 1, endNumber: 1 });
+      const items: VocabItem[] = [
+        vocabItem({ id: "i1", rangeId: "r1", number: 1, introduced: true, box: 2, nextReviewDate: "2026-07-10" }),
+      ];
+      const result = getTodaysVocabItems([range], items, subjects, today);
+      expect(result.reviewItems).toHaveLength(0);
+    });
+
+    it("対応する教科のテスト日を過ぎている範囲は新規・復習どちらからも除外する", () => {
+      const pastSubjects: Subject[] = [{ id: "s1", name: "英語", testDate: "2026-06-01" }];
+      const range = vocabRange({ id: "r1", subjectId: "s1", startNumber: 1, endNumber: 5 });
+      const items: VocabItem[] = [
+        ...generateVocabItemsForRange(vocabRange({ id: "r1", startNumber: 2, endNumber: 5 })),
+        vocabItem({ id: "due", rangeId: "r1", number: 1, introduced: true, box: 2, nextReviewDate: "2026-06-20" }),
+      ];
+      const result = getTodaysVocabItems([range], items, pastSubjects, today);
+      expect(result.newItems).toHaveLength(0);
+      expect(result.reviewItems).toHaveLength(0);
+    });
+
+    it("対応する教科が存在しない範囲は無視する", () => {
+      const range = vocabRange({ id: "r1", subjectId: "unknown", startNumber: 1, endNumber: 5 });
+      const items = generateVocabItemsForRange(range);
+      const result = getTodaysVocabItems([range], items, subjects, today);
+      expect(result.newItems).toHaveLength(0);
+      expect(result.reviewItems).toHaveLength(0);
+    });
+
+    it("hasBacklog: 復習予定日をちょうど today に迎えたアイテムだけなら false（毎日きちんと取り組んでいる状態）", () => {
+      const range = vocabRange({ id: "r1", subjectId: "s1", startNumber: 1, endNumber: 1 });
+      const items: VocabItem[] = [
+        vocabItem({ id: "i1", rangeId: "r1", number: 1, introduced: true, box: 2, nextReviewDate: "2026-06-29" }),
+      ];
+      const result = getTodaysVocabItems([range], items, subjects, today);
+      expect(result.hasBacklog).toBe(false);
+    });
+
+    it("hasBacklog: 復習予定日を1日以上過ぎたアイテムがあれば true（間が空いて溜まった状態）", () => {
+      const range = vocabRange({ id: "r1", subjectId: "s1", startNumber: 1, endNumber: 1 });
+      const items: VocabItem[] = [
+        vocabItem({ id: "i1", rangeId: "r1", number: 1, introduced: true, box: 2, nextReviewDate: "2026-06-20" }),
+      ];
+      const result = getTodaysVocabItems([range], items, subjects, today);
+      expect(result.hasBacklog).toBe(true);
+    });
+  });
+
+  describe("validateVocabRangeDraft", () => {
+    it("ラベル・開始番号・終了番号がすべて正しければ null（エラー無し）を返す", () => {
+      expect(validateVocabRangeDraft({ label: "ターゲット1900", startNumber: 371, endNumber: 670 })).toBeNull();
+    });
+
+    it("ラベルが空欄だとエラーになる（開始・終了番号は入力済みでも黙って無視しない）", () => {
+      const error = validateVocabRangeDraft({ label: "", startNumber: 1, endNumber: 10 });
+      expect(error).toBe("単語帳のラベルを入力してください。");
+    });
+
+    it("開始・終了番号が未入力、または終了が開始より前だとエラーになる", () => {
+      expect(validateVocabRangeDraft({ label: "L", startNumber: null, endNumber: null })).toBe(
+        "単語帳の範囲（開始番号・終了番号）を正しく入力してください。",
+      );
+      expect(validateVocabRangeDraft({ label: "L", startNumber: 10, endNumber: 5 })).toBe(
+        "単語帳の範囲（開始番号・終了番号）を正しく入力してください。",
+      );
+    });
+
+    it("範囲サイズが MAX_VOCAB_RANGE_SIZE を超えるとエラーになる（入力ミスでの大量生成を防ぐ）", () => {
+      const error = validateVocabRangeDraft({ label: "L", startNumber: 1, endNumber: MAX_VOCAB_RANGE_SIZE + 1 });
+      expect(error).toContain(`${MAX_VOCAB_RANGE_SIZE}語`);
+    });
+
+    it("範囲サイズがちょうど MAX_VOCAB_RANGE_SIZE ならエラーにならない", () => {
+      const error = validateVocabRangeDraft({ label: "L", startNumber: 1, endNumber: MAX_VOCAB_RANGE_SIZE });
+      expect(error).toBeNull();
+    });
+  });
+
+  describe("estimateVocabMinutes", () => {
+    it("件数0のときは0分", () => {
+      expect(estimateVocabMinutes(0)).toEqual({ lowMinutes: 0, highMinutes: 0 });
+    });
+
+    it("件数が多いほど幅のある分数見積もりを返す（下限は1分以上）", () => {
+      const result = estimateVocabMinutes(30);
+      expect(result.lowMinutes).toBeGreaterThanOrEqual(1);
+      expect(result.highMinutes).toBeGreaterThanOrEqual(result.lowMinutes);
     });
   });
 });

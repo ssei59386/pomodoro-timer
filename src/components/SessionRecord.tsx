@@ -155,7 +155,7 @@ export function SessionRecord({
       </label>
 
       <label className="field">
-        <span>演習の正答率：{correctPercent}%</span>
+        <span>正答率：{correctPercent}%</span>
         <input
           type="range"
           min={0}

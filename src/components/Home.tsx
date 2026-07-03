@@ -1,6 +1,12 @@
 import { useMemo } from "react";
 import { useStore } from "../store";
-import { generateTodayPlan, daysLeft, availableMinutesForDate } from "../logic";
+import {
+  generateTodayPlan,
+  getTodaysVocabItems,
+  estimateVocabMinutes,
+  daysLeft,
+  availableMinutesForDate,
+} from "../logic";
 import type { Chapter, ChapterSubtopic } from "../types";
 
 // logic.ts の buildSubtopicReasons が生成するラベルと一致させる。
@@ -11,9 +17,11 @@ const HINT_REASON_LABEL = "先生のヒントあり";
 export function Home({
   onRecord,
   onGoSettings,
+  onVocabQuiz,
 }: {
   onRecord: (chapterId?: string, subtopicId?: string) => void;
   onGoSettings: () => void;
+  onVocabQuiz: () => void;
 }) {
   const { data } = useStore();
   const today = useMemo(() => new Date(), []);
@@ -29,6 +37,16 @@ export function Home({
   );
 
   const totalMinutes = plan.reduce((sum, p) => sum + p.allocatedMinutes, 0);
+
+  // 英単語（見通し docs/feature-memorization.md）: 既存の generateTodayPlan とは独立した
+  // 別ロジック系統なので、単語カードは plan 配列には混ぜず、表示側でリストの1項目として足す。
+  const todaysVocab = useMemo(
+    () => getTodaysVocabItems(data.vocabRanges, data.vocabItems, data.subjects, today),
+    [data.vocabRanges, data.vocabItems, data.subjects, today],
+  );
+  const vocabCount = todaysVocab.newItems.length + todaysVocab.reviewItems.length;
+  const hasVocab = vocabCount > 0;
+  const vocabMinutes = estimateVocabMinutes(vocabCount);
 
   // 小項目が対象のカードでは章全体のメタデータ（範囲・演習問題数・小項目一覧）を表示しない。
   // どの単位の情報か曖昧になり誤解を招くため。
@@ -56,7 +74,7 @@ export function Home({
         </p>
       </div>
 
-      {plan.length === 0 ? (
+      {plan.length === 0 && !hasVocab ? (
         <div className="empty">
           {data.chapters.length === 0 ? (
             <>
@@ -78,10 +96,41 @@ export function Home({
         </div>
       ) : (
         <>
-          <div className="summary-pill">
-            合計 {totalMinutes} 分 / {todayMinutes} 分・{plan.length} 件
-          </div>
+          {plan.length === 0 && (
+            <p className="muted">🎉 今日はすべての章が目標理解度に届いています。</p>
+          )}
+          {plan.length > 0 && (
+            <div className="summary-pill">
+              合計 {totalMinutes} 分 / {todayMinutes} 分・{plan.length} 件
+            </div>
+          )}
           <ul className="plan-list">
+            {hasVocab && (
+              <li className="plan-card vocab-plan-card">
+                <div className="plan-card-top">
+                  <div>
+                    <span className="subject-tag">英単語</span>
+                    <h3>今日の単語</h3>
+                    <p className="muted small">
+                      新規 {todaysVocab.newItems.length} 問・復習 {todaysVocab.reviewItems.length} 問
+                    </p>
+                    {todaysVocab.hasBacklog && (
+                      <p className="muted small vocab-backlog-note">
+                        間が空いたので、いつもより多めに出ています。焦らず少しずつで大丈夫です。
+                      </p>
+                    )}
+                  </div>
+                  <div className="plan-minutes">
+                    {vocabMinutes.lowMinutes === vocabMinutes.highMinutes
+                      ? `約${vocabMinutes.lowMinutes}分`
+                      : `約${vocabMinutes.lowMinutes}〜${vocabMinutes.highMinutes}分`}
+                  </div>
+                </div>
+                <button type="button" className="primary full" onClick={onVocabQuiz}>
+                  始める
+                </button>
+              </li>
+            )}
             {plan.map((item, index) => {
               const detailLine = buildDetailLine(item.chapter, item.subtopic);
               const previousItem = plan[index - 1];

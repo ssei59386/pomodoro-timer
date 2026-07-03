@@ -13,19 +13,28 @@ import type {
   Chapter,
   StudySession,
   Subject,
+  VocabItem,
+  VocabRange,
 } from "./types";
-import { applySessionToChapter, applySessionToSubtopic } from "./logic";
+import {
+  advanceVocabItem,
+  applySessionToChapter,
+  applySessionToSubtopic,
+  generateVocabItemsForRange,
+} from "./logic";
 import { clearData, initialData, loadData, saveData, uid } from "./storage";
 
 interface StoreValue {
   data: AppData;
   /** 直近の localStorage 保存に失敗したか（容量超過やプライベートブラウジング制限など） */
   saveError: boolean;
-  /** オンボーディングを確定する（教科・章・勉強時間をまとめて保存） */
+  /** オンボーディングを確定する（教科・章・勉強時間・単語帳の範囲をまとめて保存） */
   completeOnboarding: (input: {
     subjects: Subject[];
     chapters: Chapter[];
     availability: AvailabilitySettings;
+    vocabRanges?: VocabRange[];
+    vocabItems?: VocabItem[];
   }) => void;
   /** セッションを記録し、対象章の理解度を更新する（§6.1） */
   recordSession: (input: Omit<StudySession, "id">) => void;
@@ -34,6 +43,12 @@ interface StoreValue {
   addChapter: (chapter: Omit<Chapter, "id">) => void;
   removeChapter: (chapterId: string) => void;
   setAvailability: (availability: AvailabilitySettings) => void;
+  /** 単語1件の「わかった/わからなかった」を記録し、Leitner箱を更新する（見通し docs/feature-memorization.md） */
+  recordVocabAnswer: (itemId: string, wasCorrect: boolean) => void;
+  /** オンボーディング後に単語帳の範囲を追加する（Settings から利用。番号ごとの VocabItem も同時生成する） */
+  addVocabRange: (range: Omit<VocabRange, "id">) => void;
+  /** 単語帳の範囲とその番号アイテムをまとめて削除する */
+  removeVocabRange: (rangeId: string) => void;
   resetAll: () => void;
 }
 
@@ -54,12 +69,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       data,
       saveError,
 
-      completeOnboarding: ({ subjects, chapters, availability }) => {
+      completeOnboarding: ({ subjects, chapters, availability, vocabRanges = [], vocabItems = [] }) => {
         setData((prev) => ({
           ...prev,
           subjects,
           chapters,
           availability,
+          vocabRanges,
+          vocabItems,
           onboarded: true,
         }));
       },
@@ -109,6 +126,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       setAvailability: (availability) => {
         setData((prev) => ({ ...prev, availability }));
+      },
+
+      recordVocabAnswer: (itemId, wasCorrect) => {
+        setData((prev) => ({
+          ...prev,
+          vocabItems: prev.vocabItems.map((item) =>
+            item.id === itemId ? advanceVocabItem(item, wasCorrect, new Date()) : item,
+          ),
+        }));
+      },
+
+      addVocabRange: (range) => {
+        const newRange: VocabRange = { ...range, id: uid() };
+        const newItems = generateVocabItemsForRange(newRange);
+        setData((prev) => ({
+          ...prev,
+          vocabRanges: [...prev.vocabRanges, newRange],
+          vocabItems: [...prev.vocabItems, ...newItems],
+        }));
+      },
+
+      removeVocabRange: (rangeId) => {
+        setData((prev) => ({
+          ...prev,
+          vocabRanges: prev.vocabRanges.filter((r) => r.id !== rangeId),
+          vocabItems: prev.vocabItems.filter((i) => i.rangeId !== rangeId),
+        }));
       },
 
       resetAll: () => {

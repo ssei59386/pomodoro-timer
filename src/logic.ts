@@ -1,5 +1,14 @@
 // 仕様書 §6 コアロジック（最小版）。すべて純粋関数として実装する。
-import type { AvailabilitySettings, Chapter, ChapterSubtopic, StudySession, Subject, TimeSlot } from "./types";
+import type {
+  AvailabilitySettings,
+  Chapter,
+  ChapterSubtopic,
+  StudySession,
+  Subject,
+  TimeSlot,
+  VocabItem,
+  VocabRange,
+} from "./types";
 
 // ---- 調整可能な定数 ----------------------------------------------------
 
@@ -879,6 +888,193 @@ export function shouldSurfaceForecastForSubject(
   if (summary.totalShortfallMinutes <= FORECAST_SHORTFALL_THRESHOLD_MINUTES) return false;
   const chapterIds = new Set(chapters.filter((c) => c.subjectId === summary.subjectId).map((c) => c.id));
   return sessions.some((s) => !!s.subtopicId && chapterIds.has(s.chapterId));
+}
+
+// ---- 英単語暗記（確定設計 v2、docs/feature-memorization.md 参照） ----
+// 単語の意味テキストは一切保存せず、単語帳の見出し番号／教科書レッスン内の通し番号という
+// 「番号」だけで個々の単語を識別する。既存の Chapter/StudySession/generateTodayPlan とは
+// 完全に独立したロジック系統（章単位の理解度追跡ではなく、番号単位のLeitner間隔反復）。
+
+/**
+ * Leitnerの箱1〜5に対応する復習間隔（日数）。
+ * インデックス0が箱1、インデックス4が箱5に対応する（= VOCAB_BOX_INTERVAL_DAYS[box - 1]）。
+ * 箱が上がるほど間隔が伸びる（覚えている語ほど復習頻度を下げる）。
+ */
+export const VOCAB_BOX_INTERVAL_DAYS = [1, 3, 7, 14, 30];
+
+/**
+ * 範囲登録（VocabRange）から、startNumber〜endNumber の各番号に対応する未着手の
+ * VocabItem を生成する。id は `${range.id}-${number}` という決定的な値にする
+ * （logic.ts は純粋関数のみを置く方針のため、uid() のような非決定的なID生成は
+ * store/component 側の責務とし、ここでは同じ入力から常に同じ出力になるようにする）。
+ */
+/**
+ * 単語帳の範囲登録で一度に生成してよい上限語数。スマホでの入力ミス（371→3710など）で
+ * 数千〜数万件の VocabItem が生成され、保存失敗やフリーズに見える動作を防ぐためのガード
+ * （ux-reviewer指摘、2026-07-03）。Onboarding/Settings 両方の登録フォームで共有する。
+ */
+export const MAX_VOCAB_RANGE_SIZE = 1000;
+
+/** 単語帳の範囲登録フォームの入力値バリデーション対象（ドラフトの一部フィールドのみ参照する） */
+export interface VocabRangeDraftInput {
+  label: string;
+  startNumber: number | null;
+  endNumber: number | null;
+}
+
+/**
+ * 単語帳の範囲登録フォームの入力値を検証する。Onboarding/Settings で共通のバリデーションを
+ * 使うことで、片方だけラベル空欄チェックを忘れる、上限チェックが片方にしか無い、といった
+ * 実装の食い違いを防ぐ（ux-reviewer指摘、2026-07-03）。問題なければ null を返す。
+ */
+export function validateVocabRangeDraft(input: VocabRangeDraftInput): string | null {
+  if (input.label.trim() === "") {
+    return "単語帳のラベルを入力してください。";
+  }
+  if (
+    input.startNumber === null ||
+    input.endNumber === null ||
+    input.startNumber < 1 ||
+    input.endNumber < input.startNumber
+  ) {
+    return "単語帳の範囲（開始番号・終了番号）を正しく入力してください。";
+  }
+  if (input.endNumber - input.startNumber + 1 > MAX_VOCAB_RANGE_SIZE) {
+    return `単語帳の範囲は一度に${MAX_VOCAB_RANGE_SIZE}語までにしてください（入力ミスの可能性があります）。`;
+  }
+  return null;
+}
+
+export function generateVocabItemsForRange(range: VocabRange): VocabItem[] {
+  const items: VocabItem[] = [];
+  for (let number = range.startNumber; number <= range.endNumber; number++) {
+    items.push({
+      id: `${range.id}-${number}`,
+      rangeId: range.id,
+      number,
+      introduced: false,
+      box: 0,
+      nextReviewDate: null,
+    });
+  }
+  return items;
+}
+
+/**
+ * ある箱（1〜5）の次回復習日を、today から VOCAB_BOX_INTERVAL_DAYS だけ先の日付として計算する。
+ */
+function nextReviewDateForBox(box: 1 | 2 | 3 | 4 | 5, today: Date): string {
+  const intervalDays = VOCAB_BOX_INTERVAL_DAYS[box - 1];
+  const base = startOfDay(today);
+  const next = new Date(base.getFullYear(), base.getMonth(), base.getDate() + intervalDays);
+  return toISODate(next);
+}
+
+/**
+ * Leitner箱の状態遷移。
+ * - 未着手（introduced: false）のアイテムに初めて取り組んだ場合：箱1からスタートする
+ *   （不正解でも初回は箱1からスタートするのが自然。まだ「覚えていて箱を戻す」の対象ではないため、
+ *   wasCorrect の値に関わらず着手直後は一律で箱1に入れる）。
+ * - 既に着手済みのアイテムを復習した場合：正解なら箱を1つ上げる（最大5）、不正解なら箱1に戻す。
+ */
+export function advanceVocabItem(item: VocabItem, wasCorrect: boolean, today: Date): VocabItem {
+  if (!item.introduced) {
+    const box = 1;
+    return { ...item, introduced: true, box, nextReviewDate: nextReviewDateForBox(box, today) };
+  }
+
+  const currentBox = item.box > 0 ? item.box : 1;
+  const nextBox = (wasCorrect ? Math.min(currentBox + 1, 5) : 1) as 1 | 2 | 3 | 4 | 5;
+  return { ...item, box: nextBox, nextReviewDate: nextReviewDateForBox(nextBox, today) };
+}
+
+/**
+ * ある範囲の、今日の新規学習ペース（1日あたり何番まで新規着手すべきか）を自動計算する。
+ * 未着手アイテム数 ÷ テストまでの残り日数（切り上げ）。
+ * テスト日が既に過ぎている、または未着手アイテムが0件の場合は 0 を返す。
+ */
+export function calculateDailyNewVocabPace(
+  range: VocabRange,
+  items: VocabItem[],
+  testDate: string,
+  today: Date,
+): number {
+  if (isPastDate(testDate, today)) return 0;
+  const notIntroducedCount = items.filter((item) => item.rangeId === range.id && !item.introduced).length;
+  if (notIntroducedCount === 0) return 0;
+  return Math.ceil(notIntroducedCount / daysLeft(testDate, today));
+}
+
+export interface TodaysVocabItems {
+  newItems: VocabItem[];
+  reviewItems: VocabItem[];
+  /**
+   * 数日サボった後などで、復習期限（nextReviewDate）を過ぎたまま溜まっていたアイテムが
+   * 今日まとめて出てきているかどうか。true のとき、呼び出し側は「間が空いたのでまとめて
+   * 出ています」といった配慮のひと言を添えることが期待される（ux-reviewer指摘、2026-07-03。
+   * 見通し機能フェーズ5で徹底した「頑張りが足りないからではない」という配慮を単語機能にも
+   * 適用する）。毎日きちんと取り組んでいれば nextReviewDate=今日 のアイテムしか出ないため
+   * false のまま。
+   */
+  hasBacklog: boolean;
+}
+
+/**
+ * 今日取り組むべき単語アイテムを集める。
+ * - newItems: まだ未着手のアイテムのうち、その範囲の1日あたりペース分だけ、番号の若い順に選ぶ。
+ * - reviewItems: 着手済みで nextReviewDate が今日以前（due）のアイテム。
+ * 対応する教科のテスト日を過ぎている範囲は、新規・復習どちらの対象からも除外する。
+ */
+export function getTodaysVocabItems(
+  ranges: VocabRange[],
+  items: VocabItem[],
+  subjects: Subject[],
+  today: Date,
+): TodaysVocabItems {
+  const subjectById = new Map(subjects.map((s) => [s.id, s]));
+  const newItems: VocabItem[] = [];
+  const reviewItems: VocabItem[] = [];
+
+  for (const range of ranges) {
+    const subject = subjectById.get(range.subjectId);
+    if (!subject) continue;
+    if (isPastDate(subject.testDate, today)) continue;
+
+    const rangeItems = items.filter((item) => item.rangeId === range.id);
+
+    const pace = calculateDailyNewVocabPace(range, rangeItems, subject.testDate, today);
+    const notIntroduced = rangeItems.filter((item) => !item.introduced).sort((a, b) => a.number - b.number);
+    newItems.push(...notIntroduced.slice(0, pace));
+
+    const due = rangeItems.filter(
+      (item) => item.introduced && item.nextReviewDate !== null && daysSince(item.nextReviewDate, today) >= 0,
+    );
+    reviewItems.push(...due);
+  }
+
+  // 予定日ちょうど（daysSince === 0）は毎日普通に取り組んでいても起きる。
+  // 予定日を1日以上過ぎている（daysSince > 0）アイテムがあれば、間が空いて溜まった結果だと判断する。
+  const hasBacklog = reviewItems.some(
+    (item) => item.nextReviewDate !== null && daysSince(item.nextReviewDate, today) > 0,
+  );
+
+  return { newItems, reviewItems, hasBacklog };
+}
+
+/** 単語1件あたりの回答目安時間（秒）の下限・上限。Home画面の所要時間表示に使う概算値 */
+export const VOCAB_SECONDS_PER_ITEM_LOW = 10;
+export const VOCAB_SECONDS_PER_ITEM_HIGH = 15;
+
+/**
+ * 今日取り組む単語の件数から、概算の所要時間（分）を幅で見積もる。
+ * 章の演習と違って基礎/発展問題数のような入力が無いため、1件あたり固定の目安秒数のみで
+ * 概算する（ux-reviewer指摘：他の章カードには所要時間表示があるのに単語カードだけ無い）。
+ */
+export function estimateVocabMinutes(itemCount: number): { lowMinutes: number; highMinutes: number } {
+  if (itemCount <= 0) return { lowMinutes: 0, highMinutes: 0 };
+  const lowMinutes = Math.max(1, Math.round((itemCount * VOCAB_SECONDS_PER_ITEM_LOW) / 60));
+  const highMinutes = Math.max(lowMinutes, Math.round((itemCount * VOCAB_SECONDS_PER_ITEM_HIGH) / 60));
+  return { lowMinutes, highMinutes };
 }
 
 // ---- 小さなユーティリティ ---------------------------------------------

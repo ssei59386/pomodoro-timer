@@ -106,12 +106,47 @@ export interface AvailabilitySettings {
   dateOverrides: Record<string, TimeSlot[]>;
 }
 
+/**
+ * 英単語暗記の範囲登録（確定設計 v2、docs/feature-memorization.md 参照）。
+ * 単語の意味テキストは一切保存せず、単語帳の見出し番号／教科書レッスン内の通し番号という
+ * 「番号」だけで個々の単語を識別する。
+ */
+export interface VocabRange {
+  id: string;
+  subjectId: string;
+  /** 例:「ターゲット1900」 */
+  label: string;
+  /** 教科書レッスンに紐づく場合のみ設定（未設定なら単語帳扱い） */
+  chapterId?: string;
+  startNumber: number;
+  endNumber: number;
+}
+
+/**
+ * 単語帳・レッスン内の1つの番号に対応する学習アイテム。意味テキストは持たない。
+ * Leitner方式（箱1〜5、logic.ts の VOCAB_BOX_INTERVAL_DAYS）で個別に復習日を管理する。
+ */
+export interface VocabItem {
+  id: string;
+  rangeId: string;
+  /** 範囲内の通し番号 */
+  number: number;
+  /** 学習に着手済みか */
+  introduced: boolean;
+  /** 0=未着手、1〜5=Leitnerの箱 */
+  box: 0 | 1 | 2 | 3 | 4 | 5;
+  /** 次回の復習予定日（ISO日付）。未着手なら null */
+  nextReviewDate: string | null;
+}
+
 /** アプリ全体の永続化データ */
 export interface AppData {
   subjects: Subject[];
   chapters: Chapter[];
   sessions: StudySession[];
   availability: AvailabilitySettings;
+  vocabRanges: VocabRange[];
+  vocabItems: VocabItem[];
   /** オンボーディング完了フラグ */
   onboarded: boolean;
 }
