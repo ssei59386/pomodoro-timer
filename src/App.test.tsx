@@ -31,7 +31,7 @@ const onboardedData: AppData = {
     dateOverrides: {},
   },
   vocabRanges: [],
-  vocabItems: [],
+  vocabChunks: [],
   onboarded: true,
 };
 

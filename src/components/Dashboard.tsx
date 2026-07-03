@@ -126,14 +126,13 @@ export function Dashboard({
           <h3>単語帳の進捗</h3>
           <ul className="vocab-progress-list">
             {data.vocabRanges.map((range) => {
-              const items = data.vocabItems.filter((i) => i.rangeId === range.id);
-              const introducedCount = items.filter((i) => i.introduced).length;
-              const masteredCount = items.filter((i) => i.box === 5).length;
+              const chunks = data.vocabChunks.filter((c) => c.rangeId === range.id);
+              const completedCount = chunks.filter((c) => c.completed).length;
               return (
                 <li key={range.id} className="vocab-progress-row">
                   <span className="chapter-name">{range.label}</span>
                   <span className="muted small">
-                    {`${range.startNumber}〜${range.endNumber}番のうち、着手済み ${introducedCount}個・5回連続で正解した語 ${masteredCount}個`}
+                    {`${range.startNumber}〜${range.endNumber}番のうち、完了した枠 ${completedCount}／${chunks.length}枠`}
                   </span>
                 </li>
               );

@@ -257,7 +257,7 @@ describe("Onboarding（小項目の反映）", () => {
 });
 
 describe("Onboarding（単語帳の登録）", () => {
-  it("単語帳の範囲（開始〜終了番号）を登録すると、英語の教科として保存され、番号ごとの VocabItem が生成される", () => {
+  it("単語帳の範囲（開始〜終了番号）を登録すると、英語の教科として保存され、20語ずつの VocabChunk が生成される", () => {
     renderOnboarding();
 
     const mathDateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
@@ -294,9 +294,12 @@ describe("Onboarding（単語帳の登録）", () => {
     expect(range?.subjectId).toBe(englishSubject?.id);
     expect(range?.chapterId).toBeUndefined();
 
-    expect(latestData?.vocabItems).toHaveLength(3);
-    expect(latestData?.vocabItems.map((i) => i.number)).toEqual([371, 372, 373]);
-    expect(latestData?.vocabItems.every((i) => !i.introduced && i.box === 0)).toBe(true);
+    // 371〜373番は3語しかなくVOCAB_CHUNK_SIZE未満なので、1枠にまとまる
+    expect(latestData?.vocabChunks).toHaveLength(1);
+    expect(latestData?.vocabChunks[0]).toMatchObject({ startNumber: 371, endNumber: 373 });
+    expect(latestData?.vocabChunks.every((c) => !c.introduced && c.box === 0 && !c.completed)).toBe(
+      true,
+    );
   });
 
   it("対応する章を選択すると、VocabRange.chapterId にその章の実際の Chapter.id が反映される", () => {

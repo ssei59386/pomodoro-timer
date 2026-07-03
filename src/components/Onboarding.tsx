@@ -1,10 +1,10 @@
 import { useRef, useState } from "react";
-import type { Chapter, ChapterMetadata, Subject, TimeSlot, VocabItem, VocabRange } from "../types";
+import type { Chapter, ChapterMetadata, Subject, TimeSlot, VocabChunk, VocabRange } from "../types";
 import {
   DEFAULT_TARGET_UNDERSTANDING,
   computeInitialUnderstanding,
   averageInitialUnderstanding,
-  generateVocabItemsForRange,
+  generateChunksForRange,
   isPastDate,
   isValidTimeSlot,
   validateVocabRangeDraft,
@@ -75,6 +75,8 @@ const SUBJECT_LABELS: Record<SubjectKey, "数学" | "理科" | "英語"> = {
  * 単語帳の範囲登録（確定設計 v2、docs/feature-memorization.md 参照）。
  * 単語の意味は一切入力させず、番号の範囲だけを登録する。chapterKey は DraftChapter.key への参照
  * （実際の Chapter.id は送信時に採番されるため、送信時に id へ変換する）。
+ * 教科は常に英語（紙の単語帳・教科書に印をつける前提が英語特有のため、数学・理科は選べない。
+ * ux-reviewer指摘、2026-07-03）。
  */
 interface DraftVocabRange {
   key: string;
@@ -381,8 +383,8 @@ export function Onboarding() {
       startNumber: v.startNumber!,
       endNumber: v.endNumber!,
     }));
-    const builtVocabItems: VocabItem[] = builtVocabRanges.flatMap((range) =>
-      generateVocabItemsForRange(range),
+    const builtVocabChunks: VocabChunk[] = builtVocabRanges.flatMap((range) =>
+      generateChunksForRange(range),
     );
 
     completeOnboarding({
@@ -390,7 +392,7 @@ export function Onboarding() {
       chapters: builtChapters,
       availability: { weeklySchedule, dateOverrides },
       vocabRanges: builtVocabRanges,
-      vocabItems: builtVocabItems,
+      vocabChunks: builtVocabChunks,
     });
   };
 
@@ -750,29 +752,20 @@ export function Onboarding() {
           <span className="optional-badge">任意</span>
         </div>
         <p className="muted">
-          単語帳（例：ターゲット1900）の範囲（開始番号〜終了番号）を登録すると、番号ごとに新規学習・復習の進み具合を自動で管理します。単語の意味は入力不要です。
+          単語帳（例：ターゲット1900）の範囲（開始番号〜終了番号）を登録すると、20語ずつの「枠」単位で新規学習・復習の進み具合を自動で管理します。単語の意味は入力不要です。
         </p>
 
         {vocabRanges.map((v) => {
+          // 単語帳は「紙の単語帳・教科書で覚えて印をつける」という英語特有の前提のため、
+          // 対応する章も英語の章に固定する（ux-reviewer指摘：以前は数学・理科の教科も
+          // 選べてしまっていた。addVocabRange が subjectKey を常に "english" にするため
+          // ここでも "english" 固定でよい）。
           const chapterOptions = chapters.filter(
-            (c) => c.subjectKey === v.subjectKey && c.name.trim() !== "",
+            (c) => c.subjectKey === "english" && c.name.trim() !== "",
           );
           return (
             <div key={v.key} className="subtopic-row">
               <div className="chapter-draft-row">
-                <select
-                  value={v.subjectKey}
-                  onChange={(e) =>
-                    updateVocabRange(v.key, {
-                      subjectKey: e.target.value as SubjectKey,
-                      chapterKey: null,
-                    })
-                  }
-                >
-                  <option value="math">数学</option>
-                  <option value="science">理科</option>
-                  <option value="english">英語</option>
-                </select>
                 <input
                   type="text"
                   className="grow"

@@ -33,7 +33,7 @@ const onboardedData: AppData = {
     dateOverrides: {},
   },
   vocabRanges: [],
-  vocabItems: [],
+  vocabChunks: [],
   onboarded: true,
 };
 
@@ -224,7 +224,7 @@ describe("Settings", () => {
       startNumber: 371,
       endNumber: 670,
     });
-    expect(latestData?.vocabItems).toHaveLength(300);
+    expect(latestData?.vocabChunks).toHaveLength(300 / 20);
     expect(screen.getByText("ターゲット1900（371〜670番）")).toBeDefined();
   });
 
@@ -246,10 +246,17 @@ describe("Settings", () => {
       JSON.stringify({
         ...onboardedData,
         vocabRanges: [{ id: "r1", subjectId: "s1", label: "ターゲット1900", startNumber: 371, endNumber: 373 }],
-        vocabItems: [
-          { id: "r1-371", rangeId: "r1", number: 371, introduced: false, box: 0, nextReviewDate: null },
-          { id: "r1-372", rangeId: "r1", number: 372, introduced: false, box: 0, nextReviewDate: null },
-          { id: "r1-373", rangeId: "r1", number: 373, introduced: false, box: 0, nextReviewDate: null },
+        vocabChunks: [
+          {
+            id: "r1-371-373",
+            rangeId: "r1",
+            startNumber: 371,
+            endNumber: 373,
+            introduced: false,
+            box: 0,
+            nextReviewDate: null,
+            completed: false,
+          },
         ],
       }),
     );
@@ -259,7 +266,7 @@ describe("Settings", () => {
     fireEvent.click(screen.getByLabelText("単語帳の範囲を削除"));
 
     expect(latestData?.vocabRanges).toHaveLength(0);
-    expect(latestData?.vocabItems).toHaveLength(0);
+    expect(latestData?.vocabChunks).toHaveLength(0);
     expect(screen.queryByText("ターゲット1900（371〜373番）")).toBeNull();
   });
 });

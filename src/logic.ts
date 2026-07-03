@@ -6,7 +6,7 @@ import type {
   StudySession,
   Subject,
   TimeSlot,
-  VocabItem,
+  VocabChunk,
   VocabRange,
 } from "./types";
 
@@ -890,27 +890,26 @@ export function shouldSurfaceForecastForSubject(
   return sessions.some((s) => !!s.subtopicId && chapterIds.has(s.chapterId));
 }
 
-// ---- 英単語暗記（確定設計 v2、docs/feature-memorization.md 参照） ----
+// ---- 英単語暗記（確定設計 v3、docs/feature-memorization.md 参照） ----
 // 単語の意味テキストは一切保存せず、単語帳の見出し番号／教科書レッスン内の通し番号という
-// 「番号」だけで個々の単語を識別する。既存の Chapter/StudySession/generateTodayPlan とは
-// 完全に独立したロジック系統（章単位の理解度追跡ではなく、番号単位のLeitner間隔反復）。
+// 「番号」だけで学習範囲を識別する。ただし単語1つずつではなく、固定20語ずつの「枠」
+// （VocabChunk）を管理単位とする（300語以上を1語ずつ回答させるのは負担が大きすぎるため）。
+// 既存の Chapter/StudySession/generateTodayPlan とは完全に独立したロジック系統。
+// 枠の状態は連続値の理解度ではなく「復習継続中」か「完了（completed）」の二値のみで表す。
 
 /**
  * Leitnerの箱1〜5に対応する復習間隔（日数）。
  * インデックス0が箱1、インデックス4が箱5に対応する（= VOCAB_BOX_INTERVAL_DAYS[box - 1]）。
- * 箱が上がるほど間隔が伸びる（覚えている語ほど復習頻度を下げる）。
+ * 箱が上がるほど間隔が伸びる（復習を重ねた枠ほど頻度を下げる）。
  */
 export const VOCAB_BOX_INTERVAL_DAYS = [1, 3, 7, 14, 30];
 
-/**
- * 範囲登録（VocabRange）から、startNumber〜endNumber の各番号に対応する未着手の
- * VocabItem を生成する。id は `${range.id}-${number}` という決定的な値にする
- * （logic.ts は純粋関数のみを置く方針のため、uid() のような非決定的なID生成は
- * store/component 側の責務とし、ここでは同じ入力から常に同じ出力になるようにする）。
- */
+/** 単語帳の範囲を分割する1枠あたりの語数。 */
+export const VOCAB_CHUNK_SIZE = 20;
+
 /**
  * 単語帳の範囲登録で一度に生成してよい上限語数。スマホでの入力ミス（371→3710など）で
- * 数千〜数万件の VocabItem が生成され、保存失敗やフリーズに見える動作を防ぐためのガード
+ * 大量の枠が生成され、保存失敗やフリーズに見える動作を防ぐためのガード
  * （ux-reviewer指摘、2026-07-03）。Onboarding/Settings 両方の登録フォームで共有する。
  */
 export const MAX_VOCAB_RANGE_SIZE = 1000;
@@ -945,19 +944,37 @@ export function validateVocabRangeDraft(input: VocabRangeDraftInput): string | n
   return null;
 }
 
-export function generateVocabItemsForRange(range: VocabRange): VocabItem[] {
-  const items: VocabItem[] = [];
-  for (let number = range.startNumber; number <= range.endNumber; number++) {
-    items.push({
-      id: `${range.id}-${number}`,
+/**
+ * 範囲登録（VocabRange）から、startNumber〜endNumber を VOCAB_CHUNK_SIZE 語ずつに機械的に
+ * 分割した未着手の VocabChunk を生成する。最後の枠が5語未満になる場合は、極端に短い枠を
+ * 避けるため直前の枠と合算する（それ以外の端数（5〜19語）はそのまま独立した最後の枠にする）。
+ * id は `${range.id}-${startNumber}-${endNumber}` という決定的な値にする
+ * （logic.ts は純粋関数のみを置く方針のため、uid() のような非決定的なID生成は
+ * store/component 側の責務とし、ここでは同じ入力から常に同じ出力になるようにする）。
+ */
+export function generateChunksForRange(range: VocabRange): VocabChunk[] {
+  const chunks: VocabChunk[] = [];
+  let start = range.startNumber;
+  const end = range.endNumber;
+  while (start <= end) {
+    let chunkEnd = Math.min(start + VOCAB_CHUNK_SIZE - 1, end);
+    const remainingAfterChunk = end - chunkEnd;
+    if (remainingAfterChunk > 0 && remainingAfterChunk < 5) {
+      chunkEnd = end;
+    }
+    chunks.push({
+      id: `${range.id}-${start}-${chunkEnd}`,
       rangeId: range.id,
-      number,
+      startNumber: start,
+      endNumber: chunkEnd,
       introduced: false,
       box: 0,
       nextReviewDate: null,
+      completed: false,
     });
+    start = chunkEnd + 1;
   }
-  return items;
+  return chunks;
 }
 
 /**
@@ -971,109 +988,125 @@ function nextReviewDateForBox(box: 1 | 2 | 3 | 4 | 5, today: Date): string {
 }
 
 /**
- * Leitner箱の状態遷移。
- * - 未着手（introduced: false）のアイテムに初めて取り組んだ場合：箱1からスタートする
- *   （不正解でも初回は箱1からスタートするのが自然。まだ「覚えていて箱を戻す」の対象ではないため、
- *   wasCorrect の値に関わらず着手直後は一律で箱1に入れる）。
- * - 既に着手済みのアイテムを復習した場合：正解なら箱を1つ上げる（最大5）、不正解なら箱1に戻す。
+ * Leitner箱の状態遷移。生徒が「まだ完璧じゃない」と答えるたびに呼ばれる（確定設計 v3では
+ * 正誤の概念を持ち込まないため、旧設計にあった不正解時の箱リセットは無い。まだ復習を
+ * 続けているという申告そのものが、箱を1つ進めて次の復習間隔を伸ばす材料になる）。
+ * - 未着手（introduced: false）の枠に初めて取り組んだ場合：箱1からスタートする。
+ * - 既に着手済みの枠：箱を1つ上げる（最大5）。
  */
-export function advanceVocabItem(item: VocabItem, wasCorrect: boolean, today: Date): VocabItem {
-  if (!item.introduced) {
-    const box = 1;
-    return { ...item, introduced: true, box, nextReviewDate: nextReviewDateForBox(box, today) };
-  }
-
-  const currentBox = item.box > 0 ? item.box : 1;
-  const nextBox = (wasCorrect ? Math.min(currentBox + 1, 5) : 1) as 1 | 2 | 3 | 4 | 5;
-  return { ...item, box: nextBox, nextReviewDate: nextReviewDateForBox(nextBox, today) };
+export function advanceVocabChunk(chunk: VocabChunk, today: Date): VocabChunk {
+  const nextBox = (chunk.introduced ? Math.min((chunk.box > 0 ? chunk.box : 1) + 1, 5) : 1) as
+    | 1
+    | 2
+    | 3
+    | 4
+    | 5;
+  return { ...chunk, introduced: true, box: nextBox, nextReviewDate: nextReviewDateForBox(nextBox, today) };
 }
 
 /**
- * ある範囲の、今日の新規学習ペース（1日あたり何番まで新規着手すべきか）を自動計算する。
- * 未着手アイテム数 ÷ テストまでの残り日数（切り上げ）。
- * テスト日が既に過ぎている、または未着手アイテムが0件の場合は 0 を返す。
+ * 生徒が「完璧になった」と明示的に報告した枠を完了扱いにする。box/nextReviewDate は
+ * そのまま残す（ローテーションから外すのは出題対象を集める側で completed をフィルタする）。
+ */
+export function completeVocabChunk(chunk: VocabChunk): VocabChunk {
+  return { ...chunk, completed: true };
+}
+
+/**
+ * ある範囲の、今日の新規学習ペース（1日あたり何枠まで新規着手すべきか）を自動計算する。
+ * 未着手の枠数 ÷ テストまでの残り日数（切り上げ）。
+ * テスト日が既に過ぎている、または未着手の枠が0件の場合は 0 を返す。
  */
 export function calculateDailyNewVocabPace(
   range: VocabRange,
-  items: VocabItem[],
+  chunks: VocabChunk[],
   testDate: string,
   today: Date,
 ): number {
   if (isPastDate(testDate, today)) return 0;
-  const notIntroducedCount = items.filter((item) => item.rangeId === range.id && !item.introduced).length;
+  const notIntroducedCount = chunks.filter((chunk) => chunk.rangeId === range.id && !chunk.introduced).length;
   if (notIntroducedCount === 0) return 0;
   return Math.ceil(notIntroducedCount / daysLeft(testDate, today));
 }
 
-export interface TodaysVocabItems {
-  newItems: VocabItem[];
-  reviewItems: VocabItem[];
+export interface TodaysVocabChunks {
+  newChunks: VocabChunk[];
+  reviewChunks: VocabChunk[];
   /**
-   * 数日サボった後などで、復習期限（nextReviewDate）を過ぎたまま溜まっていたアイテムが
+   * 数日サボった後などで、復習期限（nextReviewDate）を過ぎたまま溜まっていた枠が
    * 今日まとめて出てきているかどうか。true のとき、呼び出し側は「間が空いたのでまとめて
    * 出ています」といった配慮のひと言を添えることが期待される（ux-reviewer指摘、2026-07-03。
    * 見通し機能フェーズ5で徹底した「頑張りが足りないからではない」という配慮を単語機能にも
-   * 適用する）。毎日きちんと取り組んでいれば nextReviewDate=今日 のアイテムしか出ないため
-   * false のまま。
+   * 適用する）。毎日きちんと取り組んでいれば nextReviewDate=今日 の枠しか出ないため false のまま。
    */
   hasBacklog: boolean;
 }
 
 /**
- * 今日取り組むべき単語アイテムを集める。
- * - newItems: まだ未着手のアイテムのうち、その範囲の1日あたりペース分だけ、番号の若い順に選ぶ。
- * - reviewItems: 着手済みで nextReviewDate が今日以前（due）のアイテム。
+ * 今日取り組むべき単語の枠を集める。
+ * - newChunks: まだ未着手の枠のうち、その範囲の1日あたりペース分だけ、番号の若い順に選ぶ。
+ * - reviewChunks: 着手済み・未完了で nextReviewDate が今日以前（due）の枠。
+ * completed な枠は新規・復習どちらの対象にも絶対に含めない（生徒が「完璧になった」と
+ * 報告した枠をローテーションから外すのが今回の設計の肝）。
  * 対応する教科のテスト日を過ぎている範囲は、新規・復習どちらの対象からも除外する。
  */
-export function getTodaysVocabItems(
+export function getTodaysVocabChunks(
   ranges: VocabRange[],
-  items: VocabItem[],
+  chunks: VocabChunk[],
   subjects: Subject[],
   today: Date,
-): TodaysVocabItems {
+): TodaysVocabChunks {
   const subjectById = new Map(subjects.map((s) => [s.id, s]));
-  const newItems: VocabItem[] = [];
-  const reviewItems: VocabItem[] = [];
+  const newChunks: VocabChunk[] = [];
+  const reviewChunks: VocabChunk[] = [];
 
   for (const range of ranges) {
     const subject = subjectById.get(range.subjectId);
     if (!subject) continue;
     if (isPastDate(subject.testDate, today)) continue;
 
-    const rangeItems = items.filter((item) => item.rangeId === range.id);
+    const rangeChunks = chunks.filter((chunk) => chunk.rangeId === range.id);
 
-    const pace = calculateDailyNewVocabPace(range, rangeItems, subject.testDate, today);
-    const notIntroduced = rangeItems.filter((item) => !item.introduced).sort((a, b) => a.number - b.number);
-    newItems.push(...notIntroduced.slice(0, pace));
+    const pace = calculateDailyNewVocabPace(range, rangeChunks, subject.testDate, today);
+    const notIntroduced = rangeChunks
+      .filter((chunk) => !chunk.introduced)
+      .sort((a, b) => a.startNumber - b.startNumber);
+    newChunks.push(...notIntroduced.slice(0, pace));
 
-    const due = rangeItems.filter(
-      (item) => item.introduced && item.nextReviewDate !== null && daysSince(item.nextReviewDate, today) >= 0,
+    const due = rangeChunks.filter(
+      (chunk) =>
+        chunk.introduced &&
+        !chunk.completed &&
+        chunk.nextReviewDate !== null &&
+        daysSince(chunk.nextReviewDate, today) >= 0,
     );
-    reviewItems.push(...due);
+    reviewChunks.push(...due);
   }
 
   // 予定日ちょうど（daysSince === 0）は毎日普通に取り組んでいても起きる。
-  // 予定日を1日以上過ぎている（daysSince > 0）アイテムがあれば、間が空いて溜まった結果だと判断する。
-  const hasBacklog = reviewItems.some(
-    (item) => item.nextReviewDate !== null && daysSince(item.nextReviewDate, today) > 0,
+  // 予定日を1日以上過ぎている（daysSince > 0）枠があれば、間が空いて溜まった結果だと判断する。
+  const hasBacklog = reviewChunks.some(
+    (chunk) => chunk.nextReviewDate !== null && daysSince(chunk.nextReviewDate, today) > 0,
   );
 
-  return { newItems, reviewItems, hasBacklog };
+  return { newChunks, reviewChunks, hasBacklog };
 }
 
-/** 単語1件あたりの回答目安時間（秒）の下限・上限。Home画面の所要時間表示に使う概算値 */
+/** 単語1語あたりの回答目安時間（秒）の下限・上限。Home画面の所要時間表示に使う概算値 */
 export const VOCAB_SECONDS_PER_ITEM_LOW = 10;
 export const VOCAB_SECONDS_PER_ITEM_HIGH = 15;
 
 /**
- * 今日取り組む単語の件数から、概算の所要時間（分）を幅で見積もる。
- * 章の演習と違って基礎/発展問題数のような入力が無いため、1件あたり固定の目安秒数のみで
- * 概算する（ux-reviewer指摘：他の章カードには所要時間表示があるのに単語カードだけ無い）。
+ * 今日取り組む単語の枠数から、概算の所要時間（分）を幅で見積もる。1枠 = VOCAB_CHUNK_SIZE 語
+ * 相当として、章の演習と違って基礎/発展問題数のような入力が無いため、1語あたり固定の
+ * 目安秒数のみで概算する（ux-reviewer指摘：他の章カードには所要時間表示があるのに
+ * 単語カードだけ無い）。
  */
-export function estimateVocabMinutes(itemCount: number): { lowMinutes: number; highMinutes: number } {
-  if (itemCount <= 0) return { lowMinutes: 0, highMinutes: 0 };
-  const lowMinutes = Math.max(1, Math.round((itemCount * VOCAB_SECONDS_PER_ITEM_LOW) / 60));
-  const highMinutes = Math.max(lowMinutes, Math.round((itemCount * VOCAB_SECONDS_PER_ITEM_HIGH) / 60));
+export function estimateVocabMinutes(chunkCount: number): { lowMinutes: number; highMinutes: number } {
+  if (chunkCount <= 0) return { lowMinutes: 0, highMinutes: 0 };
+  const wordCount = chunkCount * VOCAB_CHUNK_SIZE;
+  const lowMinutes = Math.max(1, Math.round((wordCount * VOCAB_SECONDS_PER_ITEM_LOW) / 60));
+  const highMinutes = Math.max(lowMinutes, Math.round((wordCount * VOCAB_SECONDS_PER_ITEM_HIGH) / 60));
   return { lowMinutes, highMinutes };
 }
 

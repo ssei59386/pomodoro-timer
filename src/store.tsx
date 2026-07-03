@@ -13,14 +13,15 @@ import type {
   Chapter,
   StudySession,
   Subject,
-  VocabItem,
+  VocabChunk,
   VocabRange,
 } from "./types";
 import {
-  advanceVocabItem,
+  advanceVocabChunk as advanceVocabChunkPure,
   applySessionToChapter,
   applySessionToSubtopic,
-  generateVocabItemsForRange,
+  completeVocabChunk as completeVocabChunkPure,
+  generateChunksForRange,
 } from "./logic";
 import { clearData, initialData, loadData, saveData, uid } from "./storage";
 
@@ -34,7 +35,7 @@ interface StoreValue {
     chapters: Chapter[];
     availability: AvailabilitySettings;
     vocabRanges?: VocabRange[];
-    vocabItems?: VocabItem[];
+    vocabChunks?: VocabChunk[];
   }) => void;
   /** セッションを記録し、対象章の理解度を更新する（§6.1） */
   recordSession: (input: Omit<StudySession, "id">) => void;
@@ -43,11 +44,13 @@ interface StoreValue {
   addChapter: (chapter: Omit<Chapter, "id">) => void;
   removeChapter: (chapterId: string) => void;
   setAvailability: (availability: AvailabilitySettings) => void;
-  /** 単語1件の「わかった/わからなかった」を記録し、Leitner箱を更新する（見通し docs/feature-memorization.md） */
-  recordVocabAnswer: (itemId: string, wasCorrect: boolean) => void;
-  /** オンボーディング後に単語帳の範囲を追加する（Settings から利用。番号ごとの VocabItem も同時生成する） */
+  /** 単語帳の枠1つの「まだ完璧じゃない」を記録し、Leitner箱を進める（docs/feature-memorization.md） */
+  advanceVocabChunk: (chunkId: string) => void;
+  /** 単語帳の枠1つを「完璧になった」として完了扱いにする。出題対象から外れる */
+  completeVocabChunk: (chunkId: string) => void;
+  /** オンボーディング後に単語帳の範囲を追加する（Settings から利用。枠ごとの VocabChunk も同時生成する） */
   addVocabRange: (range: Omit<VocabRange, "id">) => void;
-  /** 単語帳の範囲とその番号アイテムをまとめて削除する */
+  /** 単語帳の範囲とその枠をまとめて削除する */
   removeVocabRange: (rangeId: string) => void;
   resetAll: () => void;
 }
@@ -69,14 +72,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       data,
       saveError,
 
-      completeOnboarding: ({ subjects, chapters, availability, vocabRanges = [], vocabItems = [] }) => {
+      completeOnboarding: ({ subjects, chapters, availability, vocabRanges = [], vocabChunks = [] }) => {
         setData((prev) => ({
           ...prev,
           subjects,
           chapters,
           availability,
           vocabRanges,
-          vocabItems,
+          vocabChunks,
           onboarded: true,
         }));
       },
@@ -128,22 +131,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setData((prev) => ({ ...prev, availability }));
       },
 
-      recordVocabAnswer: (itemId, wasCorrect) => {
+      advanceVocabChunk: (chunkId) => {
         setData((prev) => ({
           ...prev,
-          vocabItems: prev.vocabItems.map((item) =>
-            item.id === itemId ? advanceVocabItem(item, wasCorrect, new Date()) : item,
+          vocabChunks: prev.vocabChunks.map((chunk) =>
+            chunk.id === chunkId ? advanceVocabChunkPure(chunk, new Date()) : chunk,
+          ),
+        }));
+      },
+
+      completeVocabChunk: (chunkId) => {
+        setData((prev) => ({
+          ...prev,
+          vocabChunks: prev.vocabChunks.map((chunk) =>
+            chunk.id === chunkId ? completeVocabChunkPure(chunk) : chunk,
           ),
         }));
       },
 
       addVocabRange: (range) => {
         const newRange: VocabRange = { ...range, id: uid() };
-        const newItems = generateVocabItemsForRange(newRange);
+        const newChunks = generateChunksForRange(newRange);
         setData((prev) => ({
           ...prev,
           vocabRanges: [...prev.vocabRanges, newRange],
-          vocabItems: [...prev.vocabItems, ...newItems],
+          vocabChunks: [...prev.vocabChunks, ...newChunks],
         }));
       },
 
@@ -151,7 +163,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setData((prev) => ({
           ...prev,
           vocabRanges: prev.vocabRanges.filter((r) => r.id !== rangeId),
-          vocabItems: prev.vocabItems.filter((i) => i.rangeId !== rangeId),
+          vocabChunks: prev.vocabChunks.filter((c) => c.rangeId !== rangeId),
         }));
       },
 

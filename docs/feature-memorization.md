@@ -98,3 +98,39 @@ interface VocabItem {
 **教科書の長文読解・文法ワークの章**：既存の数学と同じ章モデルをそのまま使う設計は当初通り、変更なし（Onboardingで英語科目の章として登録すれば動く）。
 
 **未実施**：国語・社会への展開は今回のスコープ外（英語の実運用結果を見てから判断）。
+
+## 確定設計 v3（2026-07-03）— 単語単位から「固定20語ずつの枠」単位へ移行
+
+実際の単語帳は300語以上あり、v2（単語1つずつをVocabItem/Leitner箱で個別管理）のまま実装すると、生徒が単語1つずつ「わかった/わからなかった」をタップする必要があり、負担が大きすぎるとユーザーが判断した。cto相談済み（実装コストは半日〜1日規模、コード量はむしろ減る方向という評価）。
+
+### 変更内容
+- 単語1つずつではなく、範囲を**固定20語ずつの「枠」**（`VocabChunk`、`VOCAB_CHUNK_SIZE = 20`）に分割し、枠単位でLeitner管理する。端数処理：最後の枠が5語未満になる場合は直前の枠と合算（極端に短い枠を避ける）。5〜19語の端数はそのまま独立した最後の枠にする。
+- 生徒は実際の勉強（単語帳・教科書を見て覚える）を紙の上で行い、わからなかった単語には自分で単語帳の余白に印をつける（アプリには単語の中身を一切入力させない、という v2 からの方針は維持）。
+- アプリの役目は「この枠（例：381〜400番）は今日が復習のタイミングです」と枠単位で思い出させることだけ。
+- 理解度の段階評価（0〜1の連続値、自己申告5段階、正答率）は一切持ち込まない。**枠の状態は「復習継続中（まだ完璧じゃないと仮定）」か「完了（生徒が完璧になったと明示的に報告）」の二値だけ**（`completed: boolean`）。
+- 復習継続中の枠は、既存のLeitner箱の間隔（`VOCAB_BOX_INTERVAL_DAYS`、箱1〜5）をそのまま流用する。生徒が「まだ完璧じゃない」と答えるたびに箱を1つ進めて次の復習間隔を伸ばす（v2にあった「不正解なら箱1に戻す」という正誤判定に基づくリセットは廃止——v3では正誤の概念自体を持ち込まない）。「完璧になった」と答えた枠だけ `completed: true` になり、ローテーションから外れる（出題対象を集める `getTodaysVocabChunks` 側で `completed` をフィルタする。box/nextReviewDateは完了後もそのまま残す）。
+- 個々の単語番号ごとのbox/nextReviewDateは廃止。**枠（chunk）ごとに1つのbox/nextReviewDate**を持つ。
+- 新規の枠を1日に何枠ずつ導入するかは、既存の考え方（残り未着手枠数 ÷ テストまでの残り日数）をそのまま流用（`calculateDailyNewVocabPace`、母数が「単語数」から「枠数」に変わっただけ）。
+
+### 実装
+- `src/types.ts`：`VocabItem` を削除し `VocabChunk`（`startNumber`/`endNumber`/`introduced`/`box`/`nextReviewDate`/`completed`）に置き換え。`AppData.vocabItems` → `AppData.vocabChunks`。
+- `src/logic.ts`：`generateVocabItemsForRange` → `generateChunksForRange`（20語ずつ分割＋端数合算）。`advanceVocabItem` → `advanceVocabChunk`（正誤判定を持たず、常に箱を1つ進める設計に変更）。新規に `completeVocabChunk`（completedをtrueにするだけ）。`calculateDailyNewVocabPace`／`getTodaysVocabItems`（→`getTodaysVocabChunks`）は枠ベースに書き換え、`completed` な枠を新規・復習どちらの出題対象からも除外するガードを追加。`estimateVocabMinutes` は「枠数」を受け取り、内部で `VOCAB_CHUNK_SIZE` 倍して語数換算してから見積もる。
+- `src/components/VocabQuiz.tsx`：全面書き換え。ボタンを「わかった/わからなかった」（正誤フレーミング）から「まだ完璧じゃない/完璧になった」（達成度合いの自己申告フレーミング）に変更。表示も番号1つではなく範囲（開始〜終了番号）単位。
+- `src/store.tsx`：`recordVocabAnswer` を削除し、`advanceVocabChunk`/`completeVocabChunk` の2アクションに置き換え。`addVocabRange`/`removeVocabRange` は内部で扱うデータが枠に変わっただけで責務は変わらず。
+- `src/components/Home.tsx`／`Dashboard.tsx`：件数表示を「問」から「枠」に変更。Dashboardの単語帳進捗は「5回連続正解した語の数」から「完了した枠の数／全枠数」に変更（枠単位・二値設計に合わせる）。
+- 章単位で管理する教科書の長文読解・文法ワーク（既存の `Chapter` モデルをそのまま使う設計）は今回無変更。
+
+### テスト
+`src/logic.test.ts` の英単語暗記まわりのテスト（生成・箱の遷移・ペース計算・今日の出題対象選定）を枠単位の仕様に合わせて全面書き換え。`VocabQuiz.test.tsx`／`store.test.tsx`／`Home.test.tsx`／`Settings.test.tsx`／`Onboarding.test.tsx`／`Dashboard.test.tsx` のvocab関連フィクスチャも `VocabChunk` 形状に更新。既存の章/理解度ロジック（数学・理科側）のテストは無変更。`npx tsc --noEmit`／`npm test`（294件）／`npm run build` すべてパス。
+
+### ux-reviewerレビュー・修正（2026-07-03）
+v3実装直後にux-reviewerへレビュー依頼、重大指摘4件が出て即修正済み（`npm test` 295件パス）。
+1. クイズ画面のボタンが44px未満だった → `.vocab-quiz-actions button { min-height: 44px }` を追加。
+2. 「完璧になった」が誤タップ即確定・取り消し手段が「範囲ごと削除」しかなかった → 2段階確認方式に変更（1回目タップでボタンが「本当に完璧？もう一度タップで確定」という警告色の表示に変わり、2回目タップで確定。他ボタン操作か3秒無操作で確認状態を解除）。`window.confirm`は使わずローカルstateのみで実装。
+3. 「紙に印をつけて勉強する」という設計の大前提がクイズ画面に入るまで説明されていなかった → Home画面の単語カードに「始める」ボタンの前に一言説明を追加。
+4. Onboarding/Settingsの単語帳セクションの説明文がv2（単語1つずつ管理）時代のコピーのまま → 「20語ずつの『枠』単位で…」に修正。
+5. （ついでの修正）単語帳登録で数学・理科が選べてしまっていた → Onboardingの単語帳セクションから教科選択そのものを削除（常に英語固定、`addVocabRange`の実装と一致させた）。**Settings.tsx側は同じ問題が残っている**（数学・理科の教科でも単語帳サブセクションが表示される）。修正すると既存の3テストが壊れる（math科目フィクスチャで単語帳を登録する既存テスト）ため今回は見送り。次にSettings.tsxを触る機会に対応するかどうかユーザー判断待ち。
+
+中程度・軽微の指摘（「完璧」判断基準の手がかりが画面に無い、単語帳が複数ある場合にHomeカードが合算表示になる、Dashboardの進捗表示にバーが無い、クイズに「一つ前に戻す」導線が無い）は今回対応せず、バックログ扱い。
+
+修正後、Playwright（`npx playwright install chromium`でscratchpad配下に一時導入、プロジェクトのpackage.jsonは触っていない）でオンボーディング→単語帳登録→Home→クイズ→2段階確認完了までの実機相当のフローを目視確認済み。ボタン高さ44px・説明文の表示・2段階確認の遷移とも意図通り動作することをスクリーンショットで確認した。

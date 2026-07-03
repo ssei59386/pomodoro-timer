@@ -326,7 +326,7 @@ export function Settings() {
 
             <h4 className="sub-head">単語帳</h4>
             <p className="muted small">
-              単語帳（例：ターゲット1900）の範囲を登録すると、番号ごとに新規学習・復習の進み具合を自動で管理します。単語の意味は入力不要です。
+              単語帳（例：ターゲット1900）の範囲を登録すると、20語ずつの「枠」単位で新規学習・復習の進み具合を自動で管理します。単語の意味は入力不要です。
             </p>
             {data.vocabRanges
               .filter((r) => r.subjectId === subject.id)

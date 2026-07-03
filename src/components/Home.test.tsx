@@ -33,7 +33,7 @@ const chapterOnlyData: AppData = {
   sessions: [],
   availability: { weeklySchedule: everydaySchedule, dateOverrides: {} },
   vocabRanges: [],
-  vocabItems: [],
+  vocabChunks: [],
   onboarded: true,
 };
 
@@ -58,7 +58,7 @@ const subtopicChapterData: AppData = {
   sessions: [],
   availability: { weeklySchedule: everydaySchedule, dateOverrides: {} },
   vocabRanges: [],
-  vocabItems: [],
+  vocabChunks: [],
   onboarded: true,
 };
 
@@ -171,10 +171,19 @@ describe("Home", () => {
         { id: "s2", name: "英語", testDate: futureTestDate },
       ],
       vocabRanges: [
-        { id: "r1", subjectId: "s2", label: "ターゲット1900", startNumber: 1, endNumber: 2 },
+        { id: "r1", subjectId: "s2", label: "ターゲット1900", startNumber: 1, endNumber: 20 },
       ],
-      vocabItems: [
-        { id: "r1-1", rangeId: "r1", number: 1, introduced: false, box: 0, nextReviewDate: null },
+      vocabChunks: [
+        {
+          id: "r1-1-20",
+          rangeId: "r1",
+          startNumber: 1,
+          endNumber: 20,
+          introduced: false,
+          box: 0,
+          nextReviewDate: null,
+          completed: false,
+        },
       ],
     };
     localStorage.setItem("study-planner-data-v1", JSON.stringify(vocabData));
@@ -194,7 +203,7 @@ describe("Home", () => {
     expect(vocabCard.querySelector(".plan-minutes")?.textContent).toMatch(/約\d+(〜\d+)?分/);
   });
 
-  it("復習の予定日を1日以上過ぎたアイテムがあるとき、間が空いたことへの配慮メッセージが表示される", () => {
+  it("復習の予定日を1日以上過ぎた枠があるとき、間が空いたことへの配慮メッセージが表示される", () => {
     const backlogData: AppData = {
       ...chapterOnlyData,
       subjects: [
@@ -202,16 +211,18 @@ describe("Home", () => {
         { id: "s2", name: "英語", testDate: futureTestDate },
       ],
       vocabRanges: [
-        { id: "r1", subjectId: "s2", label: "ターゲット1900", startNumber: 1, endNumber: 1 },
+        { id: "r1", subjectId: "s2", label: "ターゲット1900", startNumber: 1, endNumber: 20 },
       ],
-      vocabItems: [
+      vocabChunks: [
         {
-          id: "r1-1",
+          id: "r1-1-20",
           rangeId: "r1",
-          number: 1,
+          startNumber: 1,
+          endNumber: 20,
           introduced: true,
           box: 2,
           nextReviewDate: "2020-01-01", // 十分に過去の日付＝復習がかなり溜まっている想定
+          completed: false,
         },
       ],
     };

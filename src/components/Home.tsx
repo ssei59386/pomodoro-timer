@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useStore } from "../store";
 import {
   generateTodayPlan,
-  getTodaysVocabItems,
+  getTodaysVocabChunks,
   estimateVocabMinutes,
   daysLeft,
   availableMinutesForDate,
@@ -41,12 +41,12 @@ export function Home({
   // 英単語（見通し docs/feature-memorization.md）: 既存の generateTodayPlan とは独立した
   // 別ロジック系統なので、単語カードは plan 配列には混ぜず、表示側でリストの1項目として足す。
   const todaysVocab = useMemo(
-    () => getTodaysVocabItems(data.vocabRanges, data.vocabItems, data.subjects, today),
-    [data.vocabRanges, data.vocabItems, data.subjects, today],
+    () => getTodaysVocabChunks(data.vocabRanges, data.vocabChunks, data.subjects, today),
+    [data.vocabRanges, data.vocabChunks, data.subjects, today],
   );
-  const vocabCount = todaysVocab.newItems.length + todaysVocab.reviewItems.length;
-  const hasVocab = vocabCount > 0;
-  const vocabMinutes = estimateVocabMinutes(vocabCount);
+  const vocabChunkCount = todaysVocab.newChunks.length + todaysVocab.reviewChunks.length;
+  const hasVocab = vocabChunkCount > 0;
+  const vocabMinutes = estimateVocabMinutes(vocabChunkCount);
 
   // 小項目が対象のカードでは章全体のメタデータ（範囲・演習問題数・小項目一覧）を表示しない。
   // どの単位の情報か曖昧になり誤解を招くため。
@@ -112,7 +112,7 @@ export function Home({
                     <span className="subject-tag">英単語</span>
                     <h3>今日の単語</h3>
                     <p className="muted small">
-                      新規 {todaysVocab.newItems.length} 問・復習 {todaysVocab.reviewItems.length} 問
+                      新規 {todaysVocab.newChunks.length} 枠・復習 {todaysVocab.reviewChunks.length} 枠
                     </p>
                     {todaysVocab.hasBacklog && (
                       <p className="muted small vocab-backlog-note">
@@ -126,6 +126,11 @@ export function Home({
                       : `約${vocabMinutes.lowMinutes}〜${vocabMinutes.highMinutes}分`}
                   </div>
                 </div>
+                {/* この前提を知らないままクイズ画面に入ってしまうと戸惑うため、「始める」を
+                    押す前にここで伝える（ux-reviewer指摘）。 */}
+                <p className="muted small vocab-plan-note">
+                  ※単語の意味はここには出ません。単語帳・教科書を見ながら勉強し、わからなかった語に印をつけてください。
+                </p>
                 <button type="button" className="primary full" onClick={onVocabQuiz}>
                   始める
                 </button>

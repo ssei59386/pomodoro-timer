@@ -9,7 +9,7 @@ export const initialData: AppData = {
   sessions: [],
   availability: { weeklySchedule: {}, dateOverrides: {} },
   vocabRanges: [],
-  vocabItems: [],
+  vocabChunks: [],
   onboarded: false,
 };
 

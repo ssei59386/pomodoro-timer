@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import { StoreProvider, useStore } from "./store";
 import { initialData } from "./storage";
-import type { AvailabilitySettings, Chapter, ChapterSubtopic, Subject, VocabItem, VocabRange } from "./types";
+import type { AvailabilitySettings, Chapter, ChapterSubtopic, Subject, VocabChunk, VocabRange } from "./types";
 
 // StoreContext を直接テストするための小さなプローブコンポーネント。
 // 専用の renderHook ユーティリティは導入していないため、useStore() の値を
@@ -214,7 +214,7 @@ describe("StoreProvider / useStore", () => {
     expect(getStore().data).toEqual(initialData);
   });
 
-  it("completeOnboarding に vocabRanges/vocabItems を渡すと保存される（省略時は空配列のまま）", () => {
+  it("completeOnboarding に vocabRanges/vocabChunks を渡すと保存される（省略時は空配列のまま）", () => {
     renderStore();
 
     const vocabRange: VocabRange = {
@@ -224,8 +224,17 @@ describe("StoreProvider / useStore", () => {
       startNumber: 371,
       endNumber: 373,
     };
-    const vocabItems: VocabItem[] = [
-      { id: "r1-371", rangeId: "r1", number: 371, introduced: false, box: 0, nextReviewDate: null },
+    const vocabChunks: VocabChunk[] = [
+      {
+        id: "r1-371-373",
+        rangeId: "r1",
+        startNumber: 371,
+        endNumber: 373,
+        introduced: false,
+        box: 0,
+        nextReviewDate: null,
+        completed: false,
+      },
     ];
 
     act(() => {
@@ -234,15 +243,15 @@ describe("StoreProvider / useStore", () => {
         chapters: [chapter()],
         availability,
         vocabRanges: [vocabRange],
-        vocabItems,
+        vocabChunks,
       });
     });
 
     expect(getStore().data.vocabRanges).toEqual([vocabRange]);
-    expect(getStore().data.vocabItems).toEqual(vocabItems);
+    expect(getStore().data.vocabChunks).toEqual(vocabChunks);
   });
 
-  it("recordVocabAnswer: 未着手の単語に回答すると着手済みになり箱1に入る、既に着手済みなら正誤で箱が上下する", () => {
+  it("advanceVocabChunk: 未着手の枠に回答すると着手済みになり箱1に入る、既に着手済みならさらに箱が1つ上がる", () => {
     renderStore();
 
     const vocabRange: VocabRange = {
@@ -250,11 +259,29 @@ describe("StoreProvider / useStore", () => {
       subjectId: "s1",
       label: "ターゲット1900",
       startNumber: 1,
-      endNumber: 2,
+      endNumber: 40,
     };
-    const vocabItems: VocabItem[] = [
-      { id: "r1-1", rangeId: "r1", number: 1, introduced: false, box: 0, nextReviewDate: null },
-      { id: "r1-2", rangeId: "r1", number: 2, introduced: true, box: 2, nextReviewDate: "2020-01-01" },
+    const vocabChunks: VocabChunk[] = [
+      {
+        id: "r1-1-20",
+        rangeId: "r1",
+        startNumber: 1,
+        endNumber: 20,
+        introduced: false,
+        box: 0,
+        nextReviewDate: null,
+        completed: false,
+      },
+      {
+        id: "r1-21-40",
+        rangeId: "r1",
+        startNumber: 21,
+        endNumber: 40,
+        introduced: true,
+        box: 2,
+        nextReviewDate: "2020-01-01",
+        completed: false,
+      },
     ];
 
     act(() => {
@@ -263,22 +290,64 @@ describe("StoreProvider / useStore", () => {
         chapters: [chapter()],
         availability,
         vocabRanges: [vocabRange],
-        vocabItems,
+        vocabChunks,
       });
     });
 
     act(() => {
-      getStore().recordVocabAnswer("r1-1", false);
+      getStore().advanceVocabChunk("r1-1-20");
     });
-    const item1 = getStore().data.vocabItems.find((i) => i.id === "r1-1");
-    expect(item1?.introduced).toBe(true);
-    expect(item1?.box).toBe(1);
+    const chunk1 = getStore().data.vocabChunks.find((c) => c.id === "r1-1-20");
+    expect(chunk1?.introduced).toBe(true);
+    expect(chunk1?.box).toBe(1);
 
     act(() => {
-      getStore().recordVocabAnswer("r1-2", true);
+      getStore().advanceVocabChunk("r1-21-40");
     });
-    const item2 = getStore().data.vocabItems.find((i) => i.id === "r1-2");
-    expect(item2?.box).toBe(3);
+    const chunk2 = getStore().data.vocabChunks.find((c) => c.id === "r1-21-40");
+    expect(chunk2?.box).toBe(3);
+  });
+
+  it("completeVocabChunk: 指定した枠の completed を true にする（box/nextReviewDateは変えない）", () => {
+    renderStore();
+
+    const vocabRange: VocabRange = {
+      id: "r1",
+      subjectId: "s1",
+      label: "ターゲット1900",
+      startNumber: 1,
+      endNumber: 20,
+    };
+    const vocabChunks: VocabChunk[] = [
+      {
+        id: "r1-1-20",
+        rangeId: "r1",
+        startNumber: 1,
+        endNumber: 20,
+        introduced: true,
+        box: 3,
+        nextReviewDate: "2026-07-10",
+        completed: false,
+      },
+    ];
+
+    act(() => {
+      getStore().completeOnboarding({
+        subjects: [subject],
+        chapters: [chapter()],
+        availability,
+        vocabRanges: [vocabRange],
+        vocabChunks,
+      });
+    });
+
+    act(() => {
+      getStore().completeVocabChunk("r1-1-20");
+    });
+    const chunk = getStore().data.vocabChunks.find((c) => c.id === "r1-1-20");
+    expect(chunk?.completed).toBe(true);
+    expect(chunk?.box).toBe(3);
+    expect(chunk?.nextReviewDate).toBe("2026-07-10");
   });
 
   it("saveError: 保存失敗時に true、成功に戻れば false に戻る", () => {

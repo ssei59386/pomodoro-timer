@@ -123,20 +123,27 @@ export interface VocabRange {
 }
 
 /**
- * 単語帳・レッスン内の1つの番号に対応する学習アイテム。意味テキストは持たない。
- * Leitner方式（箱1〜5、logic.ts の VOCAB_BOX_INTERVAL_DAYS）で個別に復習日を管理する。
+ * 単語帳・レッスン内の固定20語ずつの「枠」に対応する学習アイテム（確定設計 v3、
+ * docs/feature-memorization.md 参照）。意味テキストは持たない。
+ * 単語1つずつではなく枠単位でLeitner方式（箱1〜5、logic.ts の VOCAB_BOX_INTERVAL_DAYS）を
+ * 適用する。理解度の段階評価は持ち込まず、枠の状態は「復習継続中」か「完了（completed）」の
+ * 二値のみで管理する。
  */
-export interface VocabItem {
+export interface VocabChunk {
   id: string;
   rangeId: string;
-  /** 範囲内の通し番号 */
-  number: number;
+  /** 枠の開始番号（範囲内の通し番号） */
+  startNumber: number;
+  /** 枠の終了番号（範囲内の通し番号） */
+  endNumber: number;
   /** 学習に着手済みか */
   introduced: boolean;
   /** 0=未着手、1〜5=Leitnerの箱 */
   box: 0 | 1 | 2 | 3 | 4 | 5;
   /** 次回の復習予定日（ISO日付）。未着手なら null */
   nextReviewDate: string | null;
+  /** 生徒が「完璧になった」と明示的に報告したか。true になった枠は出題対象から外れる */
+  completed: boolean;
 }
 
 /** アプリ全体の永続化データ */
@@ -146,7 +153,7 @@ export interface AppData {
   sessions: StudySession[];
   availability: AvailabilitySettings;
   vocabRanges: VocabRange[];
-  vocabItems: VocabItem[];
+  vocabChunks: VocabChunk[];
   /** オンボーディング完了フラグ */
   onboarded: boolean;
 }

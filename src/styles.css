@@ -1216,8 +1216,18 @@ input[type="range"] {
 /* .primary.full 相当の効果を両ボタンに与える。以前は「わかった」側にだけ .full を
    足していたため、.secondary.full が未定義で「わからなかった」ボタンが潰れて見えた
    （ux-reviewer指摘）。flex:1 で両方を確実に等幅にする。 */
+/* このクイズ画面は1セッションで何十回も連続タップするため、既存の .secondary/.primary の
+   実測サイズ（35〜38px程度）ではタップ領域として不足する（ux-reviewer指摘）。他画面の
+   慣習（subtopic-toggle-btn 等）に合わせ min-height: 44px を個別に足す。 */
 .vocab-quiz-actions button {
   flex: 1;
+  min-height: 44px;
+}
+
+/* 「完璧になった」誤タップ即確定を防ぐ2段階確認の一時状態（ux-reviewer指摘）。
+   確定操作であることが伝わるよう warning 色に切り替える。 */
+.vocab-quiz-actions button.vocab-confirm-pending {
+  background: var(--warning);
 }
 
 .vocab-progress-list {
