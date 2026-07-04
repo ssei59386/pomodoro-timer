@@ -37,6 +37,13 @@ const onboardedData: AppData = {
   onboarded: true,
 };
 
+// 暗記範囲（旧・単語帳）セクションは数学・理科の教科カードには出さない設計（社会・国語への展開に
+// 伴う仕様変更）ため、暗記範囲まわりのテストは数学ではなく英語の教科で行う。
+const englishOnboardedData: AppData = {
+  ...onboardedData,
+  subjects: [{ id: "s1", name: "英語", testDate: "2026-08-01" }],
+};
+
 // data を画面外から検証するためのプローブ。SessionRecord.test.tsx と同じ手法。
 let latestData: AppData | null = null;
 
@@ -207,7 +214,7 @@ describe("Settings", () => {
   });
 
   it("単語帳の範囲を追加できる（オンボーディング後に追加する運用ができなかった問題の修正）", () => {
-    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(englishOnboardedData));
     renderSettings();
 
     fireEvent.change(screen.getByPlaceholderText("ラベル（例：ターゲット1900）"), {
@@ -215,7 +222,7 @@ describe("Settings", () => {
     });
     fireEvent.change(screen.getByPlaceholderText("例：371"), { target: { value: "371" } });
     fireEvent.change(screen.getByPlaceholderText("例：670"), { target: { value: "670" } });
-    fireEvent.click(screen.getByText("＋ 単語帳の範囲を追加"));
+    fireEvent.click(screen.getByText("＋ 暗記範囲を追加"));
 
     expect(latestData?.vocabRanges).toHaveLength(1);
     expect(latestData?.vocabRanges[0]).toMatchObject({
@@ -229,14 +236,14 @@ describe("Settings", () => {
   });
 
   it("ラベルが空欄のまま追加しようとするとエラーが表示され追加されない", () => {
-    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(englishOnboardedData));
     renderSettings();
 
     fireEvent.change(screen.getByPlaceholderText("例：371"), { target: { value: "1" } });
     fireEvent.change(screen.getByPlaceholderText("例：670"), { target: { value: "10" } });
-    fireEvent.click(screen.getByText("＋ 単語帳の範囲を追加"));
+    fireEvent.click(screen.getByText("＋ 暗記範囲を追加"));
 
-    expect(screen.getByText("単語帳のラベルを入力してください。")).toBeDefined();
+    expect(screen.getByText("暗記範囲のラベルを入力してください。")).toBeDefined();
     expect(latestData?.vocabRanges).toHaveLength(0);
   });
 
@@ -244,7 +251,7 @@ describe("Settings", () => {
     localStorage.setItem(
       "study-planner-data-v1",
       JSON.stringify({
-        ...onboardedData,
+        ...englishOnboardedData,
         vocabRanges: [{ id: "r1", subjectId: "s1", label: "ターゲット1900", startNumber: 371, endNumber: 373 }],
         vocabChunks: [
           {
@@ -263,10 +270,66 @@ describe("Settings", () => {
     renderSettings();
 
     expect(screen.getByText("ターゲット1900（371〜373番）")).toBeDefined();
-    fireEvent.click(screen.getByLabelText("単語帳の範囲を削除"));
+    fireEvent.click(screen.getByLabelText("暗記範囲を削除"));
 
     expect(latestData?.vocabRanges).toHaveLength(0);
     expect(latestData?.vocabChunks).toHaveLength(0);
     expect(screen.queryByText("ターゲット1900（371〜373番）")).toBeNull();
+  });
+
+  it("数学・理科の教科カードには暗記範囲セクションが表示されない", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSettings();
+
+    expect(screen.queryByText("暗記範囲")).toBeNull();
+  });
+
+  it("社会・国語の教科カードには暗記範囲セクションが表示され、それぞれ登録・削除できる", () => {
+    const socialJapaneseData: AppData = {
+      ...onboardedData,
+      subjects: [
+        { id: "s2", name: "社会", testDate: "2026-08-01" },
+        { id: "s3", name: "国語", testDate: "2026-08-01" },
+      ],
+      chapters: [],
+      vocabRanges: [
+        { id: "r-social", subjectId: "s2", label: "一問一答 歴史", startNumber: 1, endNumber: 20 },
+        { id: "r-japanese", subjectId: "s3", label: "漢字ドリル", startNumber: 1, endNumber: 20 },
+      ],
+      vocabChunks: [
+        {
+          id: "r-social-1-20",
+          rangeId: "r-social",
+          startNumber: 1,
+          endNumber: 20,
+          introduced: false,
+          box: 0,
+          nextReviewDate: null,
+          completed: false,
+        },
+        {
+          id: "r-japanese-1-20",
+          rangeId: "r-japanese",
+          startNumber: 1,
+          endNumber: 20,
+          introduced: false,
+          box: 0,
+          nextReviewDate: null,
+          completed: false,
+        },
+      ],
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(socialJapaneseData));
+    renderSettings();
+
+    expect(screen.getAllByText("暗記範囲")).toHaveLength(2);
+    expect(screen.getByText("一問一答 歴史（1〜20番）")).toBeDefined();
+    expect(screen.getByText("漢字ドリル（1〜20番）")).toBeDefined();
+
+    const removeButtons = screen.getAllByLabelText("暗記範囲を削除");
+    fireEvent.click(removeButtons[0]);
+
+    expect(latestData?.vocabRanges).toHaveLength(1);
+    expect(latestData?.vocabRanges[0].id).toBe("r-japanese");
   });
 });

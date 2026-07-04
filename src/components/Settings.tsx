@@ -148,8 +148,10 @@ export function Settings() {
               <p className="error-inline">テスト日が過去の日付になっています。</p>
             )}
 
-            <h4 className="sub-head">章 / 配点</h4>
-            {chapters.map((c) => (
+            {subject.name !== "社会" && subject.name !== "国語" && (
+              <>
+                <h4 className="sub-head">章 / 配点</h4>
+                {chapters.map((c) => (
               <div key={c.id}>
                 <div className="settings-chapter-row">
                   <div className="chapter-name-field">
@@ -323,91 +325,99 @@ export function Settings() {
             >
               ＋ 章を追加
             </button>
+              </>
+            )}
 
-            <h4 className="sub-head">単語帳</h4>
-            <p className="muted small">
-              単語帳（例：ターゲット1900）の範囲を登録すると、20語ずつの「枠」単位で新規学習・復習の進み具合を自動で管理します。単語の意味は入力不要です。
-            </p>
-            {data.vocabRanges
-              .filter((r) => r.subjectId === subject.id)
-              .map((range) => (
-                <div key={range.id} className="settings-chapter-row">
-                  <span className="grow">
-                    {range.label}（{range.startNumber}〜{range.endNumber}番）
-                  </span>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    aria-label="単語帳の範囲を削除"
-                    onClick={() => removeVocabRange(range.id)}
-                  >
-                    ✕
+            {subject.name !== "数学" && subject.name !== "理科" && (
+              <>
+                <h4 className="sub-head">暗記範囲</h4>
+                <p className="muted small">
+                  暗記範囲を登録すると、20語ずつの「枠」単位で新規学習・復習の進み具合を自動で管理します。意味・読み方などの中身は入力不要です。
+                </p>
+                {data.vocabRanges
+                  .filter((r) => r.subjectId === subject.id)
+                  .map((range) => (
+                    <div key={range.id} className="settings-chapter-row">
+                      <span className="grow">
+                        {range.label}（{range.startNumber}〜{range.endNumber}番）
+                      </span>
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        aria-label="暗記範囲を削除"
+                        onClick={() => removeVocabRange(range.id)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                <div className="subtopic-row vocab-range-draft">
+                  <input
+                    type="text"
+                    className="grow"
+                    placeholder="ラベル（例：ターゲット1900）"
+                    value={getVocabDraft(subject.id).label}
+                    onChange={(e) => updateVocabDraft(subject.id, { label: e.target.value })}
+                  />
+                  <div className="subtopic-problem-row">
+                    <label className="field inline">
+                      <span className="muted small">開始番号</span>
+                      <input
+                        type="number"
+                        min={1}
+                        placeholder="例：371"
+                        value={getVocabDraft(subject.id).startNumber ?? ""}
+                        onChange={(e) =>
+                          updateVocabDraft(subject.id, {
+                            startNumber:
+                              e.target.value === "" ? null : Math.max(1, Number(e.target.value)),
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="field inline">
+                      <span className="muted small">終了番号</span>
+                      <input
+                        type="number"
+                        min={1}
+                        placeholder="例：670"
+                        value={getVocabDraft(subject.id).endNumber ?? ""}
+                        onChange={(e) =>
+                          updateVocabDraft(subject.id, {
+                            endNumber:
+                              e.target.value === "" ? null : Math.max(1, Number(e.target.value)),
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                  <label className="field">
+                    <span className="muted small">対応する章（任意・教科書レッスンに紐づける場合のみ）</span>
+                    <select
+                      value={getVocabDraft(subject.id).chapterId ?? ""}
+                      onChange={(e) =>
+                        updateVocabDraft(subject.id, {
+                          chapterId: e.target.value === "" ? null : e.target.value,
+                        })
+                      }
+                    >
+                      <option value="">なし</option>
+                      {chapters.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {vocabErrorBySubject[subject.id] && (
+                    <p className="error-inline">{vocabErrorBySubject[subject.id]}</p>
+                  )}
+                  <button type="button" className="secondary" onClick={() => submitVocabDraft(subject)}>
+                    ＋ 暗記範囲を追加
                   </button>
                 </div>
-              ))}
-            <div className="subtopic-row vocab-range-draft">
-              <input
-                type="text"
-                className="grow"
-                placeholder="ラベル（例：ターゲット1900）"
-                value={getVocabDraft(subject.id).label}
-                onChange={(e) => updateVocabDraft(subject.id, { label: e.target.value })}
-              />
-              <div className="subtopic-problem-row">
-                <label className="field inline">
-                  <span className="muted small">開始番号</span>
-                  <input
-                    type="number"
-                    min={1}
-                    placeholder="例：371"
-                    value={getVocabDraft(subject.id).startNumber ?? ""}
-                    onChange={(e) =>
-                      updateVocabDraft(subject.id, {
-                        startNumber: e.target.value === "" ? null : Math.max(1, Number(e.target.value)),
-                      })
-                    }
-                  />
-                </label>
-                <label className="field inline">
-                  <span className="muted small">終了番号</span>
-                  <input
-                    type="number"
-                    min={1}
-                    placeholder="例：670"
-                    value={getVocabDraft(subject.id).endNumber ?? ""}
-                    onChange={(e) =>
-                      updateVocabDraft(subject.id, {
-                        endNumber: e.target.value === "" ? null : Math.max(1, Number(e.target.value)),
-                      })
-                    }
-                  />
-                </label>
-              </div>
-              <label className="field">
-                <span className="muted small">対応する章（任意・教科書レッスンに紐づける場合のみ）</span>
-                <select
-                  value={getVocabDraft(subject.id).chapterId ?? ""}
-                  onChange={(e) =>
-                    updateVocabDraft(subject.id, {
-                      chapterId: e.target.value === "" ? null : e.target.value,
-                    })
-                  }
-                >
-                  <option value="">なし（単語帳のみ）</option>
-                  {chapters.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {vocabErrorBySubject[subject.id] && (
-                <p className="error-inline">{vocabErrorBySubject[subject.id]}</p>
-              )}
-              <button type="button" className="secondary" onClick={() => submitVocabDraft(subject)}>
-                ＋ 単語帳の範囲を追加
-              </button>
-            </div>
+              </>
+            )}
           </section>
         );
       })}

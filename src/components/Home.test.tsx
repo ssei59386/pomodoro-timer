@@ -64,7 +64,7 @@ const subtopicChapterData: AppData = {
 
 function renderHome(
   onRecord: (chapterId?: string, subtopicId?: string) => void = () => {},
-  onVocabQuiz: () => void = () => {},
+  onVocabQuiz: (subjectId: string) => void = () => {},
 ) {
   return render(
     <StoreProvider>
@@ -187,8 +187,8 @@ describe("Home", () => {
       ],
     };
     localStorage.setItem("study-planner-data-v1", JSON.stringify(vocabData));
-    let vocabQuizOpened = false;
-    renderHome(() => {}, () => (vocabQuizOpened = true));
+    let openedSubjectId: string | null = null;
+    renderHome(() => {}, (subjectId) => (openedSubjectId = subjectId));
 
     expect(screen.getByText("今日の単語")).toBeDefined();
     const cards = document.querySelectorAll(".plan-card");
@@ -196,7 +196,8 @@ describe("Home", () => {
     expect(cards[0].classList.contains("vocab-plan-card")).toBe(true);
 
     fireEvent.click(screen.getByText("始める"));
-    expect(vocabQuizOpened).toBe(true);
+    // 修正1：どの教科カードの「始める」を押したかが onVocabQuiz に伝わる（教科IDで絞り込むため）
+    expect(openedSubjectId).toBe("s2");
 
     // 他の章カードと同様、概算所要時間が表示される（件数のみだった旧表示の修正確認）
     const vocabCard = cards[0];
@@ -237,5 +238,73 @@ describe("Home", () => {
     renderHome();
 
     expect(screen.queryByText("今日の単語")).toBeNull();
+  });
+
+  it("英語・社会・国語の暗記範囲がそれぞれあるとき、教科ごとに別カード（今日の単語／今日の重要語／今日の漢字・古文単語）に分かれて表示される", () => {
+    const multiSubjectVocabData: AppData = {
+      ...chapterOnlyData,
+      subjects: [
+        ...chapterOnlyData.subjects,
+        { id: "s2", name: "英語", testDate: futureTestDate },
+        { id: "s3", name: "社会", testDate: futureTestDate },
+        { id: "s4", name: "国語", testDate: futureTestDate },
+      ],
+      vocabRanges: [
+        { id: "r-en", subjectId: "s2", label: "ターゲット1900", startNumber: 1, endNumber: 20 },
+        { id: "r-so", subjectId: "s3", label: "一問一答 歴史", startNumber: 1, endNumber: 20 },
+        { id: "r-ja", subjectId: "s4", label: "漢字ドリル", startNumber: 1, endNumber: 20 },
+      ],
+      vocabChunks: [
+        {
+          id: "r-en-1-20",
+          rangeId: "r-en",
+          startNumber: 1,
+          endNumber: 20,
+          introduced: false,
+          box: 0,
+          nextReviewDate: null,
+          completed: false,
+        },
+        {
+          id: "r-so-1-20",
+          rangeId: "r-so",
+          startNumber: 1,
+          endNumber: 20,
+          introduced: false,
+          box: 0,
+          nextReviewDate: null,
+          completed: false,
+        },
+        {
+          id: "r-ja-1-20",
+          rangeId: "r-ja",
+          startNumber: 1,
+          endNumber: 20,
+          introduced: false,
+          box: 0,
+          nextReviewDate: null,
+          completed: false,
+        },
+      ],
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(multiSubjectVocabData));
+    const openedSubjectIds: string[] = [];
+    renderHome(() => {}, (subjectId) => openedSubjectIds.push(subjectId));
+
+    expect(screen.getByText("今日の単語")).toBeDefined();
+    expect(screen.getByText("今日の重要語")).toBeDefined();
+    expect(screen.getByText("今日の漢字・古文単語")).toBeDefined();
+
+    const vocabCards = document.querySelectorAll(".vocab-plan-card");
+    expect(vocabCards).toHaveLength(3);
+
+    const badges = Array.from(vocabCards).map((card) => card.querySelector(".subject-tag")?.textContent);
+    expect(badges).toEqual(["英語", "社会", "国語"]);
+
+    // 修正1：どのカードの「始める」を押しても、そのカードの教科IDだけが onVocabQuiz に渡る
+    // （社会カードを押したのに英語・国語が混ざる設計矛盾の再発防止）
+    const startButtons = screen.getAllByText("始める");
+    fireEvent.click(startButtons[1]);
+    expect(openedSubjectIds).toEqual(["s3"]);
   });
 });

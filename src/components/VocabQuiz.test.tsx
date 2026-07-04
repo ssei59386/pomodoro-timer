@@ -52,7 +52,7 @@ const dataWithVocab: AppData = {
 };
 
 const emptyVocabData: AppData = {
-  subjects: [],
+  subjects: [{ id: "s1", name: "英語", testDate: tomorrow }],
   chapters: [],
   sessions: [],
   availability: { weeklySchedule: {}, dateOverrides: {} },
@@ -61,10 +61,10 @@ const emptyVocabData: AppData = {
   onboarded: true,
 };
 
-function renderQuiz(onDone: () => void = () => {}) {
+function renderQuiz(onDone: () => void = () => {}, subjectId: string = "s1") {
   return render(
     <StoreProvider>
-      <VocabQuiz onDone={onDone} />
+      <VocabQuiz subjectId={subjectId} onDone={onDone} />
     </StoreProvider>,
   );
 }
@@ -149,5 +149,97 @@ describe("VocabQuiz", () => {
     expect(chunk1?.completed).toBe(false);
     expect(chunk1?.introduced).toBe(true);
     expect(chunk1?.box).toBe(1);
+  });
+
+  it("英語・社会など複数教科の枠が今日の対象にあっても、開いた教科カードの枠だけが出題される（修正1：教科ごとに絞り込む設計）", () => {
+    const multiSubjectData: AppData = {
+      subjects: [
+        { id: "s1", name: "英語", testDate: tomorrow },
+        { id: "s2", name: "社会", testDate: tomorrow },
+      ],
+      chapters: [],
+      sessions: [],
+      availability: { weeklySchedule: {}, dateOverrides: {} },
+      vocabRanges: [
+        { id: "r1", subjectId: "s1", label: "ターゲット1900", startNumber: 1, endNumber: 20 },
+        { id: "r2", subjectId: "s2", label: "一問一答 歴史", startNumber: 1, endNumber: 20 },
+      ],
+      vocabChunks: [
+        {
+          id: "r1-1-20",
+          rangeId: "r1",
+          startNumber: 1,
+          endNumber: 20,
+          introduced: false,
+          box: 0,
+          nextReviewDate: null,
+          completed: false,
+        },
+        {
+          id: "r2-1-20",
+          rangeId: "r2",
+          startNumber: 1,
+          endNumber: 20,
+          introduced: false,
+          box: 0,
+          nextReviewDate: null,
+          completed: false,
+        },
+      ],
+      onboarded: true,
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(multiSubjectData));
+    renderQuiz(() => {}, "s1");
+
+    // 英語（s1）のカードから開いたので、英語の1枠だけがキューに入り、社会の枠は混ざらない
+    expect(screen.getByText("1 / 1 枠目")).toBeDefined();
+    expect(screen.getByText("ターゲット1900")).toBeDefined();
+    expect(screen.queryByText("一問一答 歴史")).toBeNull();
+  });
+
+  it("社会カード（s2）から開いた場合は社会の枠だけが出題され、見出しも「今日の重要語」になる", () => {
+    const multiSubjectData: AppData = {
+      subjects: [
+        { id: "s1", name: "英語", testDate: tomorrow },
+        { id: "s2", name: "社会", testDate: tomorrow },
+      ],
+      chapters: [],
+      sessions: [],
+      availability: { weeklySchedule: {}, dateOverrides: {} },
+      vocabRanges: [
+        { id: "r1", subjectId: "s1", label: "ターゲット1900", startNumber: 1, endNumber: 20 },
+        { id: "r2", subjectId: "s2", label: "一問一答 歴史", startNumber: 1, endNumber: 20 },
+      ],
+      vocabChunks: [
+        {
+          id: "r1-1-20",
+          rangeId: "r1",
+          startNumber: 1,
+          endNumber: 20,
+          introduced: false,
+          box: 0,
+          nextReviewDate: null,
+          completed: false,
+        },
+        {
+          id: "r2-1-20",
+          rangeId: "r2",
+          startNumber: 1,
+          endNumber: 20,
+          introduced: false,
+          box: 0,
+          nextReviewDate: null,
+          completed: false,
+        },
+      ],
+      onboarded: true,
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(multiSubjectData));
+    renderQuiz(() => {}, "s2");
+
+    expect(screen.getByText("今日の重要語")).toBeDefined();
+    expect(screen.getByText("1 / 1 枠目")).toBeDefined();
+    expect(screen.getByText("一問一答 歴史")).toBeDefined();
+    expect(screen.queryByText("ターゲット1900")).toBeNull();
   });
 });

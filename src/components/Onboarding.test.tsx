@@ -68,7 +68,11 @@ describe("Onboarding（App経由の統合テスト）", () => {
 
     fireEvent.click(screen.getByText("この内容で始める"));
 
-    expect(screen.getByText("章または単語帳の範囲を1つ以上登録してください。")).toBeDefined();
+    expect(
+      screen.getByText(
+        "章または暗記範囲を1つ以上登録してください（下の「暗記範囲の登録」からも登録できます）。",
+      ),
+    ).toBeDefined();
     expect(screen.getByRole("heading", { name: "はじめの設定" })).toBeDefined();
 
     const saved = JSON.parse(localStorage.getItem("study-planner-data-v1") ?? "{}") as AppData;
@@ -265,7 +269,7 @@ describe("Onboarding（単語帳の登録）", () => {
     const chapterNameInput = screen.getByPlaceholderText("章名（例：二次関数）");
     fireEvent.change(chapterNameInput, { target: { value: "二次関数" } });
 
-    fireEvent.click(screen.getByText("＋ 単語帳の範囲を追加"));
+    fireEvent.click(screen.getByText("＋ 暗記範囲を追加"));
 
     fireEvent.change(screen.getByPlaceholderText("ラベル（例：ターゲット1900）"), {
       target: { value: "ターゲット1900" },
@@ -309,7 +313,7 @@ describe("Onboarding（単語帳の登録）", () => {
     const chapterNameInputs = screen.getAllByPlaceholderText("章名（例：二次関数）");
     fireEvent.change(chapterNameInputs[1], { target: { value: "Lesson 5 単語" } });
 
-    fireEvent.click(screen.getByText("＋ 単語帳の範囲を追加"));
+    fireEvent.click(screen.getByText("＋ 暗記範囲を追加"));
     fireEvent.change(screen.getByPlaceholderText("ラベル（例：ターゲット1900）"), {
       target: { value: "教科書 Lesson 5" },
     });
@@ -344,7 +348,7 @@ describe("Onboarding（単語帳の登録）", () => {
     const chapterNameInput = screen.getByPlaceholderText("章名（例：二次関数）");
     fireEvent.change(chapterNameInput, { target: { value: "二次関数" } });
 
-    fireEvent.click(screen.getByText("＋ 単語帳の範囲を追加"));
+    fireEvent.click(screen.getByText("＋ 暗記範囲を追加"));
     fireEvent.change(screen.getByPlaceholderText("ラベル（例：ターゲット1900）"), {
       target: { value: "ターゲット1900" },
     });
@@ -357,7 +361,7 @@ describe("Onboarding（単語帳の登録）", () => {
     fireEvent.click(screen.getByText("この内容で始める"));
 
     expect(
-      screen.getByText("単語帳の範囲（開始番号・終了番号）を正しく入力してください。"),
+      screen.getByText("暗記範囲（開始番号・終了番号）を正しく入力してください。"),
     ).toBeDefined();
     expect(latestData?.onboarded).toBe(false);
   });
@@ -365,7 +369,7 @@ describe("Onboarding（単語帳の登録）", () => {
   it("章を1つも登録せず、単語帳の範囲だけを登録しても送信できる（章 or 単語帳のどちらかがあればよい）", () => {
     renderOnboarding();
 
-    fireEvent.click(screen.getByText("＋ 単語帳の範囲を追加"));
+    fireEvent.click(screen.getByText("＋ 暗記範囲を追加"));
     fireEvent.change(screen.getByPlaceholderText("ラベル（例：ターゲット1900）"), {
       target: { value: "ターゲット1900" },
     });
@@ -394,7 +398,7 @@ describe("Onboarding（単語帳の登録）", () => {
     const chapterNameInput = screen.getByPlaceholderText("章名（例：二次関数）");
     fireEvent.change(chapterNameInput, { target: { value: "二次関数" } });
 
-    fireEvent.click(screen.getByText("＋ 単語帳の範囲を追加"));
+    fireEvent.click(screen.getByText("＋ 暗記範囲を追加"));
     // ラベルは空欄のまま、開始・終了番号だけ入力する
     fireEvent.change(screen.getByPlaceholderText("例：371"), { target: { value: "371" } });
     fireEvent.change(screen.getByPlaceholderText("例：670"), { target: { value: "670" } });
@@ -405,7 +409,7 @@ describe("Onboarding（単語帳の登録）", () => {
 
     fireEvent.click(screen.getByText("この内容で始める"));
 
-    expect(screen.getByText("単語帳のラベルを入力してください。")).toBeDefined();
+    expect(screen.getByText("暗記範囲のラベルを入力してください。")).toBeDefined();
     expect(latestData?.onboarded).toBe(false);
   });
 
@@ -417,7 +421,7 @@ describe("Onboarding（単語帳の登録）", () => {
     const chapterNameInput = screen.getByPlaceholderText("章名（例：二次関数）");
     fireEvent.change(chapterNameInput, { target: { value: "二次関数" } });
 
-    fireEvent.click(screen.getByText("＋ 単語帳の範囲を追加"));
+    fireEvent.click(screen.getByText("＋ 暗記範囲を追加"));
     fireEvent.change(screen.getByPlaceholderText("ラベル（例：ターゲット1900）"), {
       target: { value: "ターゲット1900" },
     });
@@ -432,6 +436,82 @@ describe("Onboarding（単語帳の登録）", () => {
     fireEvent.click(screen.getByText("この内容で始める"));
 
     expect(screen.getByText(/1000語までにしてください/)).toBeDefined();
+    expect(latestData?.onboarded).toBe(false);
+  });
+});
+
+describe("Onboarding（社会・国語の暗記範囲）", () => {
+  it("暗記範囲の教科を社会に変更して登録すると、社会の教科として保存され章は作られない", () => {
+    renderOnboarding();
+
+    fireEvent.click(screen.getByText("＋ 暗記範囲を追加"));
+
+    const subjectSelect = screen.getByLabelText("暗記範囲の教科") as HTMLSelectElement;
+    fireEvent.change(subjectSelect, { target: { value: "social" } });
+
+    fireEvent.change(screen.getByPlaceholderText("ラベル（例：ターゲット1900）"), {
+      target: { value: "一問一答 歴史" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("例：371"), { target: { value: "1" } });
+    fireEvent.change(screen.getByPlaceholderText("例：670"), { target: { value: "50" } });
+
+    const socialDateInput = screen.getByLabelText("社会のテスト日") as HTMLInputElement;
+    fireEvent.change(socialDateInput, { target: { value: "2099-08-01" } });
+
+    const timeInputs = document.querySelectorAll('input[type="time"]') as NodeListOf<HTMLInputElement>;
+    fireEvent.change(timeInputs[0], { target: { value: "18:00" } });
+    fireEvent.change(timeInputs[1], { target: { value: "19:00" } });
+
+    fireEvent.click(screen.getByText("この内容で始める"));
+
+    expect(latestData?.onboarded).toBe(true);
+    const socialSubject = latestData?.subjects.find((s) => s.name === "社会");
+    expect(socialSubject).toBeDefined();
+    expect(socialSubject?.testDate).toBe("2099-08-01");
+    expect(latestData?.vocabRanges[0].subjectId).toBe(socialSubject?.id);
+    // 社会は暗記専用教科で章を持たない設計（docs/feature-memorization.md 確定設計v4）
+    expect(latestData?.chapters).toHaveLength(0);
+  });
+
+  it("社会・国語には章追加ボタンが存在しない（暗記範囲のみの教科）", () => {
+    renderOnboarding();
+
+    expect(screen.queryByText("＋ 社会の章")).toBeNull();
+    expect(screen.queryByText("＋ 国語の章")).toBeNull();
+  });
+
+  it("暗記範囲の教科を国語に変更すると「対応する章」欄自体が表示されない（国語は章を持たないため）", () => {
+    renderOnboarding();
+
+    fireEvent.click(screen.getByText("＋ 暗記範囲を追加"));
+    const subjectSelect = screen.getByLabelText("暗記範囲の教科") as HTMLSelectElement;
+    fireEvent.change(subjectSelect, { target: { value: "japanese" } });
+
+    expect(
+      screen.queryByLabelText("対応する章（任意・教科書レッスンに紐づける場合のみ）"),
+    ).toBeNull();
+  });
+
+  it("国語の暗記範囲を登録しても国語のテスト日が未入力だと送信できない", () => {
+    renderOnboarding();
+
+    fireEvent.click(screen.getByText("＋ 暗記範囲を追加"));
+    const subjectSelect = screen.getByLabelText("暗記範囲の教科") as HTMLSelectElement;
+    fireEvent.change(subjectSelect, { target: { value: "japanese" } });
+
+    fireEvent.change(screen.getByPlaceholderText("ラベル（例：ターゲット1900）"), {
+      target: { value: "漢字ドリル" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("例：371"), { target: { value: "1" } });
+    fireEvent.change(screen.getByPlaceholderText("例：670"), { target: { value: "50" } });
+
+    const timeInputs = document.querySelectorAll('input[type="time"]') as NodeListOf<HTMLInputElement>;
+    fireEvent.change(timeInputs[0], { target: { value: "18:00" } });
+    fireEvent.change(timeInputs[1], { target: { value: "19:00" } });
+
+    fireEvent.click(screen.getByText("この内容で始める"));
+
+    expect(screen.getByText("国語のテスト日を入力してください。")).toBeDefined();
     expect(latestData?.onboarded).toBe(false);
   });
 });

@@ -23,9 +23,12 @@ export function App() {
   // 「記録する」ボタンから記録画面へ来たときに章・小項目を事前選択するための受け渡し
   const [preselectChapterId, setPreselectChapterId] = useState<string | null>(null);
   const [preselectSubtopicId, setPreselectSubtopicId] = useState<string | null>(null);
-  // 「今日の単語」カードから開く単語クイズ。新しいタブは増やさず、ホームの中の一時的な
-  // サブ画面として扱う（記録画面への遷移と同じ「プリセレクトして画面を切り替える」流儀）。
-  const [showVocabQuiz, setShowVocabQuiz] = useState(false);
+  // 暗記カード（今日の単語／今日の重要語／今日の漢字・古文単語）から開く暗記クイズ。
+  // 新しいタブは増やさず、ホームの中の一時的なサブ画面として扱う（記録画面への遷移と同じ
+  // 「プリセレクトして画面を切り替える」流儀）。どの教科カードから開いたかを保持し、
+  // VocabQuiz 側でその教科の暗記範囲だけに出題を絞り込めるようにする（修正1、
+  // docs/feature-memorization.md。以前は教科を問わず全ての VocabRange を混ぜて出題していた）。
+  const [vocabQuizSubjectId, setVocabQuizSubjectId] = useState<string | null>(null);
 
   // 仕様書 §7.1: 未オンボーディングなら初期設定画面を全画面で表示
   if (!data.onboarded) {
@@ -54,13 +57,16 @@ export function App() {
 
       <main className="app-main">
         {tab === "home" &&
-          (showVocabQuiz ? (
-            <VocabQuiz onDone={() => setShowVocabQuiz(false)} />
+          (vocabQuizSubjectId ? (
+            <VocabQuiz
+              subjectId={vocabQuizSubjectId}
+              onDone={() => setVocabQuizSubjectId(null)}
+            />
           ) : (
             <Home
               onRecord={goRecord}
               onGoSettings={goSettings}
-              onVocabQuiz={() => setShowVocabQuiz(true)}
+              onVocabQuiz={(subjectId) => setVocabQuizSubjectId(subjectId)}
             />
           ))}
         {tab === "record" && (
@@ -82,7 +88,7 @@ export function App() {
             className={t.id === tab ? "tab active" : "tab"}
             onClick={() => {
               setTab(t.id);
-              setShowVocabQuiz(false);
+              setVocabQuizSubjectId(null);
             }}
           >
             <span className="tab-icon">{t.icon}</span>

@@ -145,6 +145,51 @@ describe("Dashboard（単語帳の進捗）", () => {
 
     expect(screen.queryByText("単語帳の進捗")).toBeNull();
   });
+
+  it("社会・国語の暗記範囲も、英語と同じ「単語帳の進捗」セクションにまとめて表示される", () => {
+    const multiSubjectVocabData: AppData = {
+      ...vocabData,
+      subjects: [
+        ...vocabData.subjects,
+        { id: "s2", name: "社会", testDate: "2026-08-01" },
+        { id: "s3", name: "国語", testDate: "2026-08-01" },
+      ],
+      vocabRanges: [
+        ...vocabData.vocabRanges,
+        { id: "r2", subjectId: "s2", label: "一問一答 歴史", startNumber: 1, endNumber: 20 },
+        { id: "r3", subjectId: "s3", label: "漢字ドリル", startNumber: 1, endNumber: 20 },
+      ],
+      vocabChunks: [
+        ...vocabData.vocabChunks,
+        {
+          id: "r2-1-20",
+          rangeId: "r2",
+          startNumber: 1,
+          endNumber: 20,
+          introduced: false,
+          box: 0,
+          nextReviewDate: null,
+          completed: false,
+        },
+        {
+          id: "r3-1-20",
+          rangeId: "r3",
+          startNumber: 1,
+          endNumber: 20,
+          introduced: false,
+          box: 0,
+          nextReviewDate: null,
+          completed: false,
+        },
+      ],
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(multiSubjectVocabData));
+    renderDashboard();
+
+    expect(screen.getByText("ターゲット1900")).toBeDefined();
+    expect(screen.getByText("一問一答 歴史")).toBeDefined();
+    expect(screen.getByText("漢字ドリル")).toBeDefined();
+  });
 });
 
 describe("Dashboard", () => {
@@ -157,6 +202,27 @@ describe("Dashboard", () => {
     fireEvent.click(screen.getByText("設定で章を登録する"));
 
     expect(called).toBe(true);
+  });
+
+  it("社会・国語（章を持たない教科）では「章がありません」という行き止まりの空状態を表示しない（修正2）", () => {
+    const chapterlessSubjectsData: AppData = {
+      subjects: [
+        { id: "s2", name: "社会", testDate: "2026-08-01" },
+        { id: "s3", name: "国語", testDate: "2026-08-01" },
+      ],
+      chapters: [],
+      sessions: [],
+      availability: { weeklySchedule: {}, dateOverrides: {} },
+      vocabRanges: [],
+      vocabChunks: [],
+      onboarded: true,
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(chapterlessSubjectsData));
+    renderDashboard();
+
+    expect(screen.queryByText("章がありません。")).toBeNull();
+    expect(screen.queryByText("設定で章を登録する")).toBeNull();
+    expect(screen.getAllByText(/単語帳の進捗/).length).toBeGreaterThan(0);
   });
 
   it("章があるとき、章名・理解度・目標・配点・テストまでの日数が表示される", () => {

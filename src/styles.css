@@ -1190,6 +1190,15 @@ input[type="range"] {
   margin-bottom: 12px;
 }
 
+/* 「意味はここには出ません」という大前提の注意書きは、読み飛ばされやすい .muted.small
+   （12px・低コントラスト）のままだと見落とされるため、通常サイズ・通常色に格上げする
+   （ux-reviewer指摘、2026-07-03、修正6）。 */
+.vocab-plan-note {
+  color: var(--text);
+  font-size: 14px;
+  margin: 8px 0;
+}
+
 .vocab-quiz-card {
   text-align: center;
   padding: 32px 16px;

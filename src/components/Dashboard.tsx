@@ -16,6 +16,11 @@ import {
 } from "../logic";
 import type { Chapter, StudySession, Subject } from "../types";
 
+// 社会・国語は暗記専用教科で章を持たない設計（docs/feature-memorization.md 確定設計v4）。
+// この2教科では「章がありません→章を登録」という空状態を出さない（押しても章を追加する
+// 手段が無い行き止まりになるため）。この教科の進捗は下の「単語帳の進捗」セクションで見る前提。
+const CHAPTERLESS_SUBJECTS = new Set(["社会", "国語"]);
+
 // 仕様書 §7.4 理解度ダッシュボード
 // 教科ごとに章を一覧、理解度をバーで可視化（現在 vs 目標）、テストまでの残り日数を表示。
 // フェーズ5：Phase4のペースバッジの下に「見通し（前向きシミュレーション）＋切る候補（トリアージ）」を
@@ -89,12 +94,18 @@ export function Dashboard({
             </span>
           </div>
           {chapters.length === 0 ? (
-            <div className="empty">
-              <p className="muted">章がありません。</p>
-              <button className="secondary" onClick={onGoSettings}>
-                設定で章を登録する
-              </button>
-            </div>
+            CHAPTERLESS_SUBJECTS.has(subject.name) ? (
+              <p className="muted small">
+                この教科は下の「単語帳の進捗」で確認できます。
+              </p>
+            ) : (
+              <div className="empty">
+                <p className="muted">章がありません。</p>
+                <button className="secondary" onClick={onGoSettings}>
+                  設定で章を登録する
+                </button>
+              </div>
+            )
           ) : (
             <ul className="understanding-list">
               {chapters.map((c) => (

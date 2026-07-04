@@ -18,7 +18,8 @@ import { ChapterCurriculumSuggest } from "./ChapterCurriculumSuggest";
 import { CurriculumSubtopicPicker } from "./CurriculumSubtopicPicker";
 
 // 仕様書 §7.1 初期設定 / オンボーディング
-// 数学・理科・英語（暗記科目v1）の3教科と各教科のテスト日、章（名前・配点・自己申告）、勉強可能時間を登録。
+// 数学・理科・英語・社会・国語の5教科と各教科のテスト日、章（名前・配点・自己申告）、勉強可能時間を登録。
+// 社会・国語は暗記専用教科（章を持たず、暗記範囲のみ）— docs/feature-memorization.md 確定設計v4。
 
 // 初期理解度確認用は曖昧な手応えラベルではなく、行動レベルの具体的な指標にする
 const INITIAL_UNDERSTANDING_LABELS = [
@@ -29,11 +30,11 @@ const INITIAL_UNDERSTANDING_LABELS = [
   "人に教えられる",
 ];
 
-type SubjectKey = "math" | "science" | "english";
+type SubjectKey = "math" | "science" | "english" | "social" | "japanese";
 
 // カリキュラムサジェスト機能（ChapterCurriculumSuggest/CurriculumSuggest/CurriculumSubtopicPicker）は
-// 数学・理科向け参考データ専用（著作権上の理由で英語向けデータは作らない方針）。英語の章では
-// これらのコンポーネントを呼ばないよう、対象教科のときだけ絞り込んだ subject 値を返す。
+// 数学・理科向け参考データ専用（著作権上の理由で英語・社会・国語向けデータは作らない方針）。
+// これらの教科の章ではこれらのコンポーネントを呼ばないよう、対象教科のときだけ絞り込んだ subject 値を返す。
 function curriculumSubjectFor(subjectKey: SubjectKey): "数学" | "理科" | null {
   if (subjectKey === "math") return "数学";
   if (subjectKey === "science") return "理科";
@@ -65,18 +66,27 @@ interface DraftSubtopic {
   teacherHinted: boolean; // 先生からテストに出るヒントがあったかどうか
 }
 
-const SUBJECT_LABELS: Record<SubjectKey, "数学" | "理科" | "英語"> = {
+const SUBJECT_LABELS: Record<SubjectKey, "数学" | "理科" | "英語" | "社会" | "国語"> = {
   math: "数学",
   science: "理科",
   english: "英語",
+  social: "社会",
+  japanese: "国語",
 };
 
+/** 暗記範囲登録セクションで選べる教科（数学・理科は暗記対象外）とその選択肢の並び順 */
+const VOCAB_SUBJECT_KEYS: SubjectKey[] = ["english", "social", "japanese"];
+
+/** 章を持てる教科（社会・国語は暗記専用教科で章を持たない、docs/feature-memorization.md 確定設計v4） */
+const CHAPTER_CAPABLE_SUBJECT_KEYS: SubjectKey[] = ["math", "science", "english"];
+
 /**
- * 単語帳の範囲登録（確定設計 v2、docs/feature-memorization.md 参照）。
- * 単語の意味は一切入力させず、番号の範囲だけを登録する。chapterKey は DraftChapter.key への参照
- * （実際の Chapter.id は送信時に採番されるため、送信時に id へ変換する）。
- * 教科は常に英語（紙の単語帳・教科書に印をつける前提が英語特有のため、数学・理科は選べない。
- * ux-reviewer指摘、2026-07-03）。
+ * 暗記範囲の登録（確定設計 v2〜v4、docs/feature-memorization.md 参照）。
+ * 単語・重要語・漢字/古文単語の意味は一切入力させず、番号の範囲だけを登録する。chapterKey は
+ * DraftChapter.key への参照（実際の Chapter.id は送信時に採番されるため、送信時に id へ変換する）。
+ * 章を持てるのは数学・理科・英語のみ（社会・国語は暗記専用教科で章を持たない設計、
+ * docs/feature-memorization.md 確定設計v4）なので、社会・国語を選んだ場合は「対応する章」は
+ * 常に「なし」のみになる。
  */
 interface DraftVocabRange {
   key: string;
@@ -93,6 +103,8 @@ export function Onboarding() {
   const [mathDate, setMathDate] = useState("");
   const [scienceDate, setScienceDate] = useState("");
   const [englishDate, setEnglishDate] = useState("");
+  const [socialDate, setSocialDate] = useState("");
+  const [japaneseDate, setJapaneseDate] = useState("");
   const [weeklySchedule, setWeeklySchedule] = useState<Partial<Record<number, TimeSlot[]>>>({});
   const [dateOverrides, setDateOverrides] = useState<Record<string, TimeSlot[]>>({});
   const [showDateOverrides, setShowDateOverrides] = useState(false);
@@ -226,7 +238,9 @@ export function Onboarding() {
     // 章と単語帳はどちらも「学習する範囲」の登録手段なので、どちらか1つでもあれば送信できる
     // （単語帳のみで使いたい生徒が、意味のない章を1つ登録させられるのを防ぐ。ux-reviewer指摘）。
     if (named.length === 0 && attemptedVocabRanges.length === 0) {
-      setError("章または単語帳の範囲を1つ以上登録してください。");
+      setError(
+        "章または暗記範囲を1つ以上登録してください（下の「暗記範囲の登録」からも登録できます）。",
+      );
       scrollToSection(chaptersSectionRef);
       return;
     }
@@ -247,6 +261,12 @@ export function Onboarding() {
     const usedEnglish =
       named.some((c) => c.subjectKey === "english") ||
       attemptedVocabRanges.some((v) => v.subjectKey === "english");
+    const usedSocial =
+      named.some((c) => c.subjectKey === "social") ||
+      attemptedVocabRanges.some((v) => v.subjectKey === "social");
+    const usedJapanese =
+      named.some((c) => c.subjectKey === "japanese") ||
+      attemptedVocabRanges.some((v) => v.subjectKey === "japanese");
     if (usedMath && !mathDate) {
       setError("数学のテスト日を入力してください。");
       scrollToSection(testDateSectionRef);
@@ -259,6 +279,16 @@ export function Onboarding() {
     }
     if (usedEnglish && !englishDate) {
       setError("英語のテスト日を入力してください。");
+      scrollToSection(testDateSectionRef);
+      return;
+    }
+    if (usedSocial && !socialDate) {
+      setError("社会のテスト日を入力してください。");
+      scrollToSection(testDateSectionRef);
+      return;
+    }
+    if (usedJapanese && !japaneseDate) {
+      setError("国語のテスト日を入力してください。");
       scrollToSection(testDateSectionRef);
       return;
     }
@@ -275,6 +305,16 @@ export function Onboarding() {
     }
     if (usedEnglish && isPastDate(englishDate, today)) {
       setError("英語のテスト日は今日以降の日付にしてください。");
+      scrollToSection(testDateSectionRef);
+      return;
+    }
+    if (usedSocial && isPastDate(socialDate, today)) {
+      setError("社会のテスト日は今日以降の日付にしてください。");
+      scrollToSection(testDateSectionRef);
+      return;
+    }
+    if (usedJapanese && isPastDate(japaneseDate, today)) {
+      setError("国語のテスト日は今日以降の日付にしてください。");
       scrollToSection(testDateSectionRef);
       return;
     }
@@ -323,6 +363,16 @@ export function Onboarding() {
       const id = uid();
       subjectIdByKey.english = id;
       subjects.push({ id, name: SUBJECT_LABELS.english, testDate: englishDate });
+    }
+    if (usedSocial) {
+      const id = uid();
+      subjectIdByKey.social = id;
+      subjects.push({ id, name: SUBJECT_LABELS.social, testDate: socialDate });
+    }
+    if (usedJapanese) {
+      const id = uid();
+      subjectIdByKey.japanese = id;
+      subjects.push({ id, name: SUBJECT_LABELS.japanese, testDate: japaneseDate });
     }
 
     // 単語帳の範囲がどの章（教科書レッスン）に紐づくかは DraftChapter.key で参照しているため、
@@ -401,7 +451,7 @@ export function Onboarding() {
       <header className="onboarding-header">
         <h1>はじめの設定</h1>
         <p className="muted">
-          数学・理科・英語のテスト日と、勉強する章を登録しましょう。あとから設定で変更できます。
+          数学・理科・英語・社会・国語のテスト日と、勉強する章や暗記範囲を登録しましょう。あとから設定で変更できます。
         </p>
       </header>
 
@@ -429,6 +479,22 @@ export function Onboarding() {
             type="date"
             value={englishDate}
             onChange={(e) => setEnglishDate(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          <span>社会のテスト日</span>
+          <input
+            type="date"
+            value={socialDate}
+            onChange={(e) => setSocialDate(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          <span>国語のテスト日</span>
+          <input
+            type="date"
+            value={japaneseDate}
+            onChange={(e) => setJapaneseDate(e.target.value)}
           />
         </label>
       </section>
@@ -747,25 +813,37 @@ export function Onboarding() {
       </section>
 
       <section className="card" ref={vocabSectionRef}>
-        <div className="section-head-row">
-          <h2>単語帳の登録</h2>
-          <span className="optional-badge">任意</span>
-        </div>
+        <h2>暗記範囲の登録</h2>
         <p className="muted">
-          単語帳（例：ターゲット1900）の範囲（開始番号〜終了番号）を登録すると、20語ずつの「枠」単位で新規学習・復習の進み具合を自動で管理します。単語の意味は入力不要です。
+          暗記範囲（開始番号〜終了番号）を登録すると、20語ずつの「枠」単位で新規学習・復習の進み具合を自動で管理します（例：ターゲット1900 / 一問一答 歴史 / 漢字ドリル）。意味・読み方などの中身は入力不要です。
         </p>
 
         {vocabRanges.map((v) => {
-          // 単語帳は「紙の単語帳・教科書で覚えて印をつける」という英語特有の前提のため、
-          // 対応する章も英語の章に固定する（ux-reviewer指摘：以前は数学・理科の教科も
-          // 選べてしまっていた。addVocabRange が subjectKey を常に "english" にするため
-          // ここでも "english" 固定でよい）。
+          // 対応する章に紐づけられるのは、章を持つ教科（数学・理科・英語）のうち、
+          // 今この範囲で選んでいる教科と同じ章だけ（社会・国語は章を持たない教科のため、
+          // 選ぶと自動的に「なし」のみになる。docs/feature-memorization.md 確定設計v4）。
           const chapterOptions = chapters.filter(
-            (c) => c.subjectKey === "english" && c.name.trim() !== "",
+            (c) => c.subjectKey === v.subjectKey && c.name.trim() !== "",
           );
           return (
             <div key={v.key} className="subtopic-row">
               <div className="chapter-draft-row">
+                <select
+                  aria-label="暗記範囲の教科"
+                  value={v.subjectKey}
+                  onChange={(e) =>
+                    updateVocabRange(v.key, {
+                      subjectKey: e.target.value as SubjectKey,
+                      chapterKey: null,
+                    })
+                  }
+                >
+                  {VOCAB_SUBJECT_KEYS.map((key) => (
+                    <option key={key} value={key}>
+                      {SUBJECT_LABELS[key]}
+                    </option>
+                  ))}
+                </select>
                 <input
                   type="text"
                   className="grow"
@@ -776,7 +854,7 @@ export function Onboarding() {
                 <button
                   type="button"
                   className="icon-btn"
-                  aria-label="単語帳の範囲を削除"
+                  aria-label="暗記範囲を削除"
                   onClick={() => removeVocabRange(v.key)}
                 >
                   ✕
@@ -812,31 +890,38 @@ export function Onboarding() {
                   />
                 </label>
               </div>
-              <label className="field">
-                <span className="muted small">対応する章（任意・教科書レッスンに紐づける場合のみ）</span>
-                <select
-                  value={v.chapterKey ?? ""}
-                  onChange={(e) =>
-                    updateVocabRange(v.key, { chapterKey: e.target.value === "" ? null : e.target.value })
-                  }
-                >
-                  <option value="">なし（単語帳のみ）</option>
-                  {chapterOptions.map((c) => (
-                    <option key={c.key} value={c.key}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {CHAPTER_CAPABLE_SUBJECT_KEYS.includes(v.subjectKey) && (
+                <label className="field">
+                  <span className="muted small">対応する章（任意・教科書レッスンに紐づける場合のみ）</span>
+                  <select
+                    value={v.chapterKey ?? ""}
+                    onChange={(e) =>
+                      updateVocabRange(v.key, {
+                        chapterKey: e.target.value === "" ? null : e.target.value,
+                      })
+                    }
+                  >
+                    <option value="">なし</option>
+                    {chapterOptions.map((c) => (
+                      <option key={c.key} value={c.key}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
           );
         })}
 
         <button type="button" className="secondary" onClick={addVocabRange}>
-          ＋ 単語帳の範囲を追加
+          ＋ 暗記範囲を追加
         </button>
       </section>
 
+      <p className="muted small">
+        章か暗記範囲のどちらか一方は登録してください（両方登録してもかまいません）。
+      </p>
       {error && <p className="error">{error}</p>}
 
       <button type="button" className="primary big" onClick={handleSubmit}>

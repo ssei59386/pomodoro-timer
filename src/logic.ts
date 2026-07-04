@@ -928,7 +928,7 @@ export interface VocabRangeDraftInput {
  */
 export function validateVocabRangeDraft(input: VocabRangeDraftInput): string | null {
   if (input.label.trim() === "") {
-    return "単語帳のラベルを入力してください。";
+    return "暗記範囲のラベルを入力してください。";
   }
   if (
     input.startNumber === null ||
@@ -936,10 +936,10 @@ export function validateVocabRangeDraft(input: VocabRangeDraftInput): string | n
     input.startNumber < 1 ||
     input.endNumber < input.startNumber
   ) {
-    return "単語帳の範囲（開始番号・終了番号）を正しく入力してください。";
+    return "暗記範囲（開始番号・終了番号）を正しく入力してください。";
   }
   if (input.endNumber - input.startNumber + 1 > MAX_VOCAB_RANGE_SIZE) {
-    return `単語帳の範囲は一度に${MAX_VOCAB_RANGE_SIZE}語までにしてください（入力ミスの可能性があります）。`;
+    return `暗記範囲は一度に${MAX_VOCAB_RANGE_SIZE}語までにしてください（入力ミスの可能性があります）。`;
   }
   return null;
 }

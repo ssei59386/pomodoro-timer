@@ -1568,15 +1568,15 @@ describe("英単語暗記（確定設計 v3：枠単位）", () => {
 
     it("ラベルが空欄だとエラーになる（開始・終了番号は入力済みでも黙って無視しない）", () => {
       const error = validateVocabRangeDraft({ label: "", startNumber: 1, endNumber: 10 });
-      expect(error).toBe("単語帳のラベルを入力してください。");
+      expect(error).toBe("暗記範囲のラベルを入力してください。");
     });
 
     it("開始・終了番号が未入力、または終了が開始より前だとエラーになる", () => {
       expect(validateVocabRangeDraft({ label: "L", startNumber: null, endNumber: null })).toBe(
-        "単語帳の範囲（開始番号・終了番号）を正しく入力してください。",
+        "暗記範囲（開始番号・終了番号）を正しく入力してください。",
       );
       expect(validateVocabRangeDraft({ label: "L", startNumber: 10, endNumber: 5 })).toBe(
-        "単語帳の範囲（開始番号・終了番号）を正しく入力してください。",
+        "暗記範囲（開始番号・終了番号）を正しく入力してください。",
       );
     });
 

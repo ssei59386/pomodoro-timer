@@ -8,10 +8,13 @@ import {
   availableMinutesForDate,
 } from "../logic";
 import type { Chapter, ChapterSubtopic } from "../types";
+import { VOCAB_HEADING_BY_SUBJECT, VOCAB_ITEM_WORD_BY_SUBJECT } from "./vocabLabels";
 
 // logic.ts の buildSubtopicReasons が生成するラベルと一致させる。
 // 通常の理由チップ列からは除外し、カード上部の独立したバッジとして目立たせる表示専用の分岐。
 const HINT_REASON_LABEL = "先生のヒントあり";
+
+// VOCAB_HEADING_BY_SUBJECT に無い教科（数学・理科）は暗記カードの対象外。
 
 // 仕様書 §7.2 ホーム（今日やること）
 export function Home({
@@ -21,7 +24,7 @@ export function Home({
 }: {
   onRecord: (chapterId?: string, subtopicId?: string) => void;
   onGoSettings: () => void;
-  onVocabQuiz: () => void;
+  onVocabQuiz: (subjectId: string) => void;
 }) {
   const { data } = useStore();
   const today = useMemo(() => new Date(), []);
@@ -38,15 +41,22 @@ export function Home({
 
   const totalMinutes = plan.reduce((sum, p) => sum + p.allocatedMinutes, 0);
 
-  // 英単語（見通し docs/feature-memorization.md）: 既存の generateTodayPlan とは独立した
-  // 別ロジック系統なので、単語カードは plan 配列には混ぜず、表示側でリストの1項目として足す。
-  const todaysVocab = useMemo(
-    () => getTodaysVocabChunks(data.vocabRanges, data.vocabChunks, data.subjects, today),
-    [data.vocabRanges, data.vocabChunks, data.subjects, today],
-  );
-  const vocabChunkCount = todaysVocab.newChunks.length + todaysVocab.reviewChunks.length;
-  const hasVocab = vocabChunkCount > 0;
-  const vocabMinutes = estimateVocabMinutes(vocabChunkCount);
+  // 暗記科目（英語・社会・国語、docs/feature-memorization.md）: 既存の generateTodayPlan とは
+  // 独立した別ロジック系統なので、暗記カードは plan 配列には混ぜず、表示側でリストの項目として足す。
+  // 教科ごとに1枚のカードへ分ける（ux要件：1教科に複数の暗記範囲があっても合算表示にはしない）ため、
+  // 教科ごとに範囲を絞ってから getTodaysVocabChunks を呼ぶ。
+  const vocabBySubject = useMemo(() => {
+    return data.subjects
+      .filter((subject) => VOCAB_HEADING_BY_SUBJECT[subject.name])
+      .map((subject) => {
+        const rangesForSubject = data.vocabRanges.filter((r) => r.subjectId === subject.id);
+        const todaysChunks = getTodaysVocabChunks(rangesForSubject, data.vocabChunks, [subject], today);
+        const chunkCount = todaysChunks.newChunks.length + todaysChunks.reviewChunks.length;
+        return { subject, todaysChunks, chunkCount, minutes: estimateVocabMinutes(chunkCount) };
+      })
+      .filter((v) => v.chunkCount > 0);
+  }, [data.subjects, data.vocabRanges, data.vocabChunks, today]);
+  const hasVocab = vocabBySubject.length > 0;
 
   // 小項目が対象のカードでは章全体のメタデータ（範囲・演習問題数・小項目一覧）を表示しない。
   // どの単位の情報か曖昧になり誤解を招くため。
@@ -105,37 +115,50 @@ export function Home({
             </div>
           )}
           <ul className="plan-list">
-            {hasVocab && (
-              <li className="plan-card vocab-plan-card">
-                <div className="plan-card-top">
-                  <div>
-                    <span className="subject-tag">英単語</span>
-                    <h3>今日の単語</h3>
-                    <p className="muted small">
-                      新規 {todaysVocab.newChunks.length} 枠・復習 {todaysVocab.reviewChunks.length} 枠
-                    </p>
-                    {todaysVocab.hasBacklog && (
-                      <p className="muted small vocab-backlog-note">
-                        間が空いたので、いつもより多めに出ています。焦らず少しずつで大丈夫です。
+            {vocabBySubject.map(({ subject, todaysChunks, minutes }) => {
+              const heading = VOCAB_HEADING_BY_SUBJECT[subject.name];
+              const itemWord = VOCAB_ITEM_WORD_BY_SUBJECT[subject.name];
+              return (
+                <li key={`vocab-${subject.id}`} className="plan-card vocab-plan-card">
+                  <div className="plan-card-top">
+                    <div>
+                      <span className="subject-tag">{subject.name}</span>
+                      <h3>{heading}</h3>
+                      <p className="muted small">
+                        新規 {todaysChunks.newChunks.length} 枠・復習 {todaysChunks.reviewChunks.length} 枠
                       </p>
-                    )}
+                      {todaysChunks.hasBacklog && (
+                        <p className="muted small vocab-backlog-note">
+                          間が空いたので、いつもより多めに出ています。焦らず少しずつで大丈夫です。
+                        </p>
+                      )}
+                    </div>
+                    <div className="plan-minutes">
+                      {minutes.lowMinutes === minutes.highMinutes
+                        ? `約${minutes.lowMinutes}分`
+                        : `約${minutes.lowMinutes}〜${minutes.highMinutes}分`}
+                    </div>
                   </div>
-                  <div className="plan-minutes">
-                    {vocabMinutes.lowMinutes === vocabMinutes.highMinutes
-                      ? `約${vocabMinutes.lowMinutes}分`
-                      : `約${vocabMinutes.lowMinutes}〜${vocabMinutes.highMinutes}分`}
-                  </div>
-                </div>
-                {/* この前提を知らないままクイズ画面に入ってしまうと戸惑うため、「始める」を
-                    押す前にここで伝える（ux-reviewer指摘）。 */}
-                <p className="muted small vocab-plan-note">
-                  ※単語の意味はここには出ません。単語帳・教科書を見ながら勉強し、わからなかった語に印をつけてください。
-                </p>
-                <button type="button" className="primary full" onClick={onVocabQuiz}>
-                  始める
-                </button>
-              </li>
-            )}
+                  {/* この前提を知らないままクイズ画面に入ってしまうと戸惑うため、「始める」を
+                      押す前にここで伝える（ux-reviewer指摘）。読み飛ばされやすい muted small
+                      ではなく通常サイズ・通常色に格上げする（ux-reviewer指摘、2026-07-03）。 */}
+                  <p className="vocab-plan-note">
+                    ※{itemWord}の意味はここには出ません。単語帳・教科書・プリントなどを見ながら勉強し、わからなかった{itemWord}に印をつけてください。
+                  </p>
+                  {/* どの教科カードの「始める」を押したかで、クイズの出題対象をその教科の暗記範囲
+                      だけに絞り込む（修正1、docs/feature-memorization.md）。以前は全教科の
+                      VocabRange を1つのキューに混ぜて出題しており、社会カードを押しても英語・
+                      国語が混ざる設計矛盾があった。 */}
+                  <button
+                    type="button"
+                    className="primary full"
+                    onClick={() => onVocabQuiz(subject.id)}
+                  >
+                    始める
+                  </button>
+                </li>
+              );
+            })}
             {plan.map((item, index) => {
               const detailLine = buildDetailLine(item.chapter, item.subtopic);
               const previousItem = plan[index - 1];
