@@ -50,6 +50,14 @@ import {
   MAX_VOCAB_RANGE_SIZE,
   estimateVocabMinutes,
   toISODate,
+  estimateChapterRemainingMinutes,
+  MINUTES_PER_PROBLEM_CHAPTER_ESTIMATE,
+  CHAPTER_ESTIMATE_GAP_INCREMENT,
+  subjectPaceMultiplier,
+  MIN_SESSIONS_FOR_PACE_MULTIPLIER,
+  PACE_MULTIPLIER_MIN,
+  PACE_MULTIPLIER_MAX,
+  BASELINE_UNDERSTANDING_GAIN_PER_MINUTE,
 } from "./logic";
 import type { ForwardSimulationResult, SubjectForecastSummary } from "./logic";
 import type {
@@ -342,6 +350,88 @@ describe("§6.3 計画生成（フェーズ4.5・小項目単位）", () => {
     const plan = generateTodayPlan(chapters, subjects, 60, today);
     expect(plan.every((p) => p.subtopic === null)).toBe(true);
     expect(plan.every((p) => p.allocatedMinutes === 45 || p.allocatedMinutes <= 60)).toBe(true);
+  });
+});
+
+describe("§6.3 フェーズ6：シミュレーションに基づく除外・安全策（generateTodayPlan）", () => {
+  // テストまで3日（today, +1, +2の3日分）× 45分/日 = 135分しか使えない、というタイトな設定
+  const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-01" }];
+
+  function flatAvailability(minutesPerDay: number): AvailabilitySettings {
+    const h = String(Math.floor(minutesPerDay / 60)).padStart(2, "0");
+    const m = String(minutesPerDay % 60).padStart(2, "0");
+    const slot: TimeSlot = { start: "00:00", end: `${h}:${m}` };
+    const weeklySchedule: Partial<Record<number, TimeSlot[]>> = {};
+    for (let day = 0; day <= 6; day++) weeklySchedule[day] = [slot];
+    return { weeklySchedule, dateOverrides: {} };
+  }
+
+  it("availability を渡さない場合は従来通り除外を行わない（後方互換）", () => {
+    // 伸びしろが大きく、タイトな時間では絶対に間に合わない章
+    const hopeless = chapter({ id: "a", subjectId: "s1", pointWeight: 20, understanding: 0, targetUnderstanding: 0.8 });
+    const easy = chapter({ id: "b", subjectId: "s1", pointWeight: 20, understanding: 0.75, targetUnderstanding: 0.8 });
+    const plan = generateTodayPlan([hopeless, easy], subjects, 200, today);
+    expect(plan.map((p) => p.chapter.id).sort()).toEqual(["a", "b"]);
+  });
+
+  it("availability を渡すと、まとまった不足が出る章は候補から除外され、間に合う章が優先的に時間を確保する", () => {
+    // 伸びしろ0.8 → 見積もり360分必要。1日45分×3日=135分では全く足りない
+    const hopeless = chapter({ id: "a", subjectId: "s1", pointWeight: 20, understanding: 0, targetUnderstanding: 0.8 });
+    // 伸びしろ0.05 → 見積もり約22.5分。相手が割当を独占してもこの章自身の不足は閾値未満に収まる
+    const easy = chapter({ id: "b", subjectId: "s1", pointWeight: 20, understanding: 0.75, targetUnderstanding: 0.8 });
+
+    const withoutAvailability = generateTodayPlan([hopeless, easy], subjects, 200, today);
+    expect(withoutAvailability.map((p) => p.chapter.id).sort()).toEqual(["a", "b"]);
+
+    // 間に合う章（easy）が先に割り当てられ、なお余った時間はスピルオーバーで間に合わない章（hopeless）にも回る
+    const withAvailability = generateTodayPlan([hopeless, easy], subjects, 200, today, [], flatAvailability(45));
+    expect(withAvailability.map((p) => p.chapter.id)).toEqual(["b", "a"]);
+  });
+
+  it("除外後の候補だけでは dailyMinutes を使い切れない場合、除外された項目がスピルオーバー（2周目）で埋まる", () => {
+    const hopeless = chapter({ id: "a", subjectId: "s1", pointWeight: 20, understanding: 0, targetUnderstanding: 0.8 });
+    const easy = chapter({ id: "b", subjectId: "s1", pointWeight: 20, understanding: 0.75, targetUnderstanding: 0.8 });
+
+    // easy 1件（45分）だけでは埋まらない90分を渡す → 余り45分がスピルオーバーで hopeless に回る
+    const plan = generateTodayPlan([hopeless, easy], subjects, 90, today, [], flatAvailability(45));
+    expect(plan.map((p) => p.chapter.id)).toEqual(["b", "a"]);
+    expect(plan.reduce((sum, p) => sum + p.allocatedMinutes, 0)).toBe(90);
+  });
+
+  it("候補だけで dailyMinutes を使い切れる場合はスピルオーバーが発生しない（除外された項目は入らない）", () => {
+    const hopeless = chapter({ id: "a", subjectId: "s1", pointWeight: 20, understanding: 0, targetUnderstanding: 0.8 });
+    const easy = chapter({ id: "b", subjectId: "s1", pointWeight: 20, understanding: 0.75, targetUnderstanding: 0.8 });
+
+    // easy 1件（45分）ちょうどしか渡さない → 余りが無いのでスピルオーバーは起きない
+    const plan = generateTodayPlan([hopeless, easy], subjects, 45, today, [], flatAvailability(45));
+    expect(plan.map((p) => p.chapter.id)).toEqual(["b"]);
+  });
+
+  it("スピルオーバーは除外された項目の中でもスコアの高い順に埋める", () => {
+    // 配点30・5どちらも同じ伸びしろ0.8（＝同じ見積もり所要時間）で除外されるが、優先度スコアは配点差で異なる
+    const hopelessHighWeight = chapter({ id: "a", subjectId: "s1", pointWeight: 30, understanding: 0, targetUnderstanding: 0.8 });
+    const hopelessLowWeight = chapter({ id: "b", subjectId: "s1", pointWeight: 5, understanding: 0, targetUnderstanding: 0.8 });
+    const easy = chapter({ id: "c", subjectId: "s1", pointWeight: 20, understanding: 0.75, targetUnderstanding: 0.8 });
+
+    // easy(45分) + スピルオーバー1件分(45分)しか入らない90分。2件とも間に合わない見込みだが、
+    // スコアが高い hopelessHighWeight が優先してスピルオーバーに入るはず
+    const plan = generateTodayPlan(
+      [hopelessHighWeight, hopelessLowWeight, easy],
+      subjects,
+      90,
+      today,
+      [],
+      flatAvailability(45),
+    );
+    expect(plan.map((p) => p.chapter.id)).toEqual(["c", "a"]);
+  });
+
+  it("除外の結果、候補が0件になってしまう場合は最優先1件を必ず残す（安全策。スピルオーバー導入後も引き続き成立する）", () => {
+    // 唯一の章が間に合わない見込みでも、プランが0件にはならない
+    const hopeless = chapter({ id: "a", subjectId: "s1", pointWeight: 20, understanding: 0, targetUnderstanding: 0.8 });
+    const plan = generateTodayPlan([hopeless], subjects, 200, today, [], flatAvailability(45));
+    expect(plan).toHaveLength(1);
+    expect(plan[0].chapter.id).toBe("a");
   });
 });
 
@@ -794,6 +884,139 @@ describe("小項目の所要時間見積もり（estimateSubtopicRemainingMinute
     expect(estimate.basicMinutes).toBeCloseTo(10 * MINUTES_PER_BASIC_PROBLEM * remainingRatio);
     expect(estimate.advancedMinutes).toBeCloseTo(4 * MINUTES_PER_ADVANCED_PROBLEM * remainingRatio);
   });
+
+  it("フェーズ6：paceMultiplier を省略した場合は1（補正なし）として扱われる", () => {
+    const st = subtopic({ understanding: 0.5, lastStudiedDate: null, basicProblems: 10, advancedProblems: 4 });
+    const withoutMultiplier = estimateSubtopicRemainingMinutes(st, today);
+    const withMultiplierOne = estimateSubtopicRemainingMinutes(
+      st,
+      today,
+      { basicMinutesPerProblem: MINUTES_PER_BASIC_PROBLEM, advancedMinutesPerProblem: MINUTES_PER_ADVANCED_PROBLEM },
+      1,
+    );
+    expect(withMultiplierOne.totalMinutes).toBeCloseTo(withoutMultiplier.totalMinutes);
+  });
+
+  it("フェーズ6：paceMultiplier で全体を割った値が返る（速いペースほど短く見積もる）", () => {
+    const st = subtopic({ understanding: 0.5, lastStudiedDate: null, basicProblems: 10, advancedProblems: 4 });
+    const base = estimateSubtopicRemainingMinutes(st, today);
+    const faster = estimateSubtopicRemainingMinutes(
+      st,
+      today,
+      { basicMinutesPerProblem: MINUTES_PER_BASIC_PROBLEM, advancedMinutesPerProblem: MINUTES_PER_ADVANCED_PROBLEM },
+      2,
+    );
+    expect(faster.totalMinutes).toBeCloseTo(base.totalMinutes / 2);
+    expect(faster.basicMinutes).toBeCloseTo(base.basicMinutes / 2);
+    expect(faster.advancedMinutes).toBeCloseTo(base.advancedMinutes / 2);
+  });
+});
+
+describe("小項目を持たない章の所要時間見積もり（estimateChapterRemainingMinutes、フェーズ6）", () => {
+  it("metadata.exerciseCount がある場合：演習数 × MINUTES_PER_PROBLEM_CHAPTER_ESTIMATE × 伸びしろ で見積もる", () => {
+    const c = chapter({
+      understanding: 0.4,
+      targetUnderstanding: 0.8,
+      lastStudiedDate: null,
+      metadata: { exerciseCount: 20 },
+    });
+    const gap = 0.4; // 0.8 - 0.4
+    expect(estimateChapterRemainingMinutes(c, today)).toBeCloseTo(20 * MINUTES_PER_PROBLEM_CHAPTER_ESTIMATE * gap);
+  });
+
+  it("metadata.exerciseCount が無い場合：伸びしろに比例した粗い見積もりにフォールバックする", () => {
+    const c = chapter({ understanding: 0.4, targetUnderstanding: 0.8, lastStudiedDate: null });
+    const gap = 0.4;
+    expect(estimateChapterRemainingMinutes(c, today)).toBeCloseTo((gap / CHAPTER_ESTIMATE_GAP_INCREMENT) * SESSION_MINUTES);
+  });
+
+  it("既に目標理解度に到達している場合は0を返す", () => {
+    const c = chapter({ understanding: 0.9, targetUnderstanding: 0.8, lastStudiedDate: null });
+    expect(estimateChapterRemainingMinutes(c, today)).toBe(0);
+  });
+
+  it("減衰後の理解度を使う（lastStudiedDate から日数が経つほど残り時間が増える）", () => {
+    const recentlyStudied = chapter({ understanding: 0.7, targetUnderstanding: 0.8, lastStudiedDate: "2026-06-29" });
+    const longAgoStudied = chapter({ understanding: 0.7, targetUnderstanding: 0.8, lastStudiedDate: "2026-05-18" }); // 42日前
+    expect(estimateChapterRemainingMinutes(longAgoStudied, today)).toBeGreaterThan(
+      estimateChapterRemainingMinutes(recentlyStudied, today),
+    );
+  });
+
+  it("paceMultiplier で割った値が返る（速いペースほど短く見積もる）", () => {
+    const c = chapter({ understanding: 0.4, targetUnderstanding: 0.8, lastStudiedDate: null });
+    const base = estimateChapterRemainingMinutes(c, today);
+    expect(estimateChapterRemainingMinutes(c, today, 2)).toBeCloseTo(base / 2);
+  });
+});
+
+describe("教科ごとの学習ペース倍率（subjectPaceMultiplier、フェーズ6）", () => {
+  function paceSession(chapterId: string, date: string, observedValue: number, minutes = 1): StudySession {
+    // computeObserved(V, 5V) = 0.7V + 0.3V = V という性質を使い、observed が厳密に
+    // observedValue になるよう correctRate・selfReport を逆算する（テスト用の作為的な値）。
+    return {
+      id: `${chapterId}-${date}`,
+      chapterId,
+      date,
+      minutes,
+      correctRate: observedValue,
+      selfReport: 5 * observedValue,
+    };
+  }
+
+  function makeChapters(ids: string[]): Chapter[] {
+    return ids.map((id) => chapter({ id, subjectId: "s1" }));
+  }
+
+  // 2セッション/entity = 1サンプル/entity なので、entity数を MIN_SESSIONS_FOR_PACE_MULTIPLIER に
+  // 合わせればちょうど閾値ぴったりのサンプル数になる（境界のentity数を動的に作る）
+  const idsAtThreshold = Array.from({ length: MIN_SESSIONS_FOR_PACE_MULTIPLIER }, (_, i) => `c${i}`);
+  const idsBelowThreshold = idsAtThreshold.slice(0, -1);
+
+  it("サンプル数が MIN_SESSIONS_FOR_PACE_MULTIPLIER 未満なら倍率は1.0（補正なし）", () => {
+    const chapters = makeChapters(idsBelowThreshold);
+    const sessions = idsBelowThreshold.flatMap((id) => [
+      paceSession(id, "2026-06-01", 0),
+      paceSession(id, "2026-06-02", 1),
+    ]);
+    expect(subjectPaceMultiplier(sessions, chapters, "s1")).toBe(1.0);
+  });
+
+  it("実測ペースが基準より大幅に速ければ倍率は上限 PACE_MULTIPLIER_MAX にクランプされる", () => {
+    const chapters = makeChapters(idsAtThreshold);
+    const sessions = idsAtThreshold.flatMap((id) => [
+      paceSession(id, "2026-06-01", 0),
+      paceSession(id, "2026-06-02", 1),
+    ]);
+    expect(subjectPaceMultiplier(sessions, chapters, "s1")).toBeCloseTo(PACE_MULTIPLIER_MAX, 5);
+  });
+
+  it("実測ペースが基準より大幅に遅ければ（マイナスでも）倍率は下限 PACE_MULTIPLIER_MIN にクランプされる", () => {
+    const chapters = makeChapters(idsAtThreshold);
+    const sessions = idsAtThreshold.flatMap((id) => [
+      paceSession(id, "2026-06-01", 1),
+      paceSession(id, "2026-06-02", 0),
+    ]);
+    expect(subjectPaceMultiplier(sessions, chapters, "s1")).toBeCloseTo(PACE_MULTIPLIER_MIN, 5);
+  });
+
+  it("中央値を使うため、1件だけ極端な外れ値があっても引きずられない", () => {
+    const ids = idsAtThreshold;
+    const chapters = makeChapters(ids);
+    const baseline = BASELINE_UNDERSTANDING_GAIN_PER_MINUTE;
+    const perGroupDelta = [baseline * 0.5, baseline * 0.8, baseline, baseline * 1.2, baseline * 20]; // 最後だけ極端な外れ値
+    const sessions = ids.flatMap((id, i) => [
+      paceSession(id, "2026-06-01", 0),
+      paceSession(id, "2026-06-02", perGroupDelta[i]),
+    ]);
+    expect(subjectPaceMultiplier(sessions, chapters, "s1")).toBeCloseTo(1.0, 2);
+  });
+
+  it("他教科のセッションは対象に含めない（対象セッションが無ければ1.0にフォールバック）", () => {
+    const chapters = [chapter({ id: "c1", subjectId: "s1" }), chapter({ id: "cOther", subjectId: "s2" })];
+    const sessions = [paceSession("cOther", "2026-06-01", 0), paceSession("cOther", "2026-06-02", 1)];
+    expect(subjectPaceMultiplier(sessions, chapters, "s1")).toBe(1.0);
+  });
 });
 
 describe("演習時間の実測値学習（learnedProblemRates）", () => {
@@ -1151,7 +1374,7 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
       expect(forecastB.projectedCompletionDate).toBe("2026-07-02");
     });
 
-    it("小項目を持たない章は完全に対象外（同じ教科に小項目ありの章が無くても結果に含まれない）", () => {
+    it("フェーズ6：小項目を持たない章も対象に含まれる（subtopicIdはnull）", () => {
       const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-08-15" }];
       const withSubtopics = chapter({
         id: "a",
@@ -1160,14 +1383,23 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
       });
       const withoutSubtopics = chapter({ id: "b", subjectId: "s1", pointWeight: 100, understanding: 0 });
       const result = simulateForward([withSubtopics, withoutSubtopics], subjects, dailyAvailability(200), today);
-      expect(result.subtopics).toHaveLength(1);
-      expect(result.subtopics[0].chapterId).toBe("a");
+      expect(result.subtopics).toHaveLength(2);
+      const withSubtopicsForecast = result.subtopics.find((f) => f.chapterId === "a")!;
+      expect(withSubtopicsForecast.subtopicId).toBe("st1");
+      const plainChapterForecast = result.subtopics.find((f) => f.chapterId === "b")!;
+      expect(plainChapterForecast.subtopicId).toBeNull();
+      expect(plainChapterForecast.totalMinutesNeeded).toBeGreaterThan(0);
     });
 
-    it("対象の小項目が1件も無ければ空の結果を返す（クラッシュしない）", () => {
-      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-08-15" }];
-      const c = chapter({ id: "a", subjectId: "s1" }); // subtopics 無し
-      const result = simulateForward([c], subjects, dailyAvailability(200), today);
+    it("章も教科も無ければ空の結果を返す（クラッシュしない）", () => {
+      const result = simulateForward([], [], dailyAvailability(200), today);
+      expect(result.subtopics).toEqual([]);
+      expect(result.subjects).toEqual([]);
+    });
+
+    it("該当する教科が見つからない章は対象外（クラッシュしない）", () => {
+      const c = chapter({ id: "a", subjectId: "missing-subject" });
+      const result = simulateForward([c], [], dailyAvailability(200), today);
       expect(result.subtopics).toEqual([]);
       expect(result.subjects).toEqual([]);
     });
@@ -1335,12 +1567,12 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
       expect(shouldSurfaceForecastForSubject(summary, [], chapters)).toBe(false);
     });
 
-    it("章全体としてのセッション（subtopicId未指定）は「小項目のセッション」として数えない", () => {
+    it("フェーズ6：章全体としてのセッション（subtopicId未指定）も「取り組み始めている」証拠として数える（小項目を持たない章もシミュレーション対象になったため）", () => {
       const summary = makeSummary({ totalShortfallMinutes: FORECAST_SHORTFALL_THRESHOLD_MINUTES + 100 });
       const sessions: StudySession[] = [
         { id: "sess1", chapterId: "a", date: "2026-06-28", minutes: 30, correctRate: 0.8, selfReport: 4 },
       ];
-      expect(shouldSurfaceForecastForSubject(summary, sessions, chapters)).toBe(false);
+      expect(shouldSurfaceForecastForSubject(summary, sessions, chapters)).toBe(true);
     });
 
     it("他教科の小項目セッションは数えない", () => {

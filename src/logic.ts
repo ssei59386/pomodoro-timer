@@ -161,10 +161,22 @@ export interface PlanItem {
 export const MIN_SUBTOPIC_SESSION_MINUTES = 10;
 
 /**
- * 「今日やること」を生成する（§6.3、フェーズ4.5で小項目単位にも対応）。
+ * 「今日やること」を生成する（§6.3、フェーズ4.5で小項目単位、フェーズ6でシミュレーションに
+ * 基づく除外＋スピルオーバーに対応）。
  * 1. 全章・小項目の優先度スコアを scoreChapterOrSubtopics で計算（デュアルパス）
  * 2. スコアの高い順に並べる
- * 3. dailyMinutes を上から消化するよう割り当てる
+ * 3. availability が渡されていれば、simulateForward で「まとまった不足」が出ている章/小項目を
+ *    候補集合（candidates）から除外する（間に合わない見込みの項目より、間に合う項目を優先する。
+ *    優先度の計算式自体は変えない）。availability を省略した場合（シミュレーション不能）は除外を
+ *    一切行わず、従来通りの貪欲割当のみ行う（既存呼び出し元・既存テストとの後方互換のため）。
+ * 4. dailyMinutes を candidates から上位順に消化する（1周目）。
+ * 5. 1周目で dailyMinutes を使い切れなかった場合（除外後の候補が少なすぎて余り時間が出た場合）、
+ *    除外された項目（spillover、こちらも元のスコア降順）で残り時間を埋める2周目を行う。
+ *    「除外」を完全なフィルタではなく「優先順位を下げる」という意味に変えることで、テスト直前など
+ *    間に合わない章だらけの状況でも時間が無駄にならないようにする（ある教科の章が全部除外されても
+ *    他教科の消費で埋まらなかった余りがあればスピルオーバーで拾われるため、教科が丸ごと計画から
+ *    消える事故も減る）。割当ロジック（小項目ありなら estimateSubtopicRemainingMinutes のクランプ、
+ *    小項目無しなら SESSION_MINUTES 固定）は1周目・2周目で完全に同じものを使う（allocate 参照）。
  *    - 小項目を持たない章：従来通り章単位で1個・SESSION_MINUTES固定（回帰ゼロを保証するため既存ロジックと完全一致させる）
  *    - 小項目を持つ章：小項目単位で複数個（同じ章の小項目が同日プランに複数並んでよい）、
  *      割当時間は estimateSubtopicRemainingMinutes の見積もりを
@@ -178,6 +190,7 @@ export function generateTodayPlan(
   dailyMinutes: number,
   today: Date,
   sessions: StudySession[] = [],
+  availability?: AvailabilitySettings,
 ): PlanItem[] {
   const subjectById = new Map(subjects.map((s) => [s.id, s]));
 
@@ -196,13 +209,17 @@ export function generateTodayPlan(
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score);
 
+  const candidates = excludeUnlikelyToFinish(scored, chapters, subjects, availability, today, sessions);
+  // 除外された項目（スピルオーバー用に元のスコア降順のまま保持しておく）
+  const candidateKeys = new Set(candidates.map((c) => `${c.chapter.id}:${c.subtopic?.id ?? ""}`));
+  const spillover = scored.filter((item) => !candidateKeys.has(`${item.chapter.id}:${item.subtopic?.id ?? ""}`));
+
   const plan: PlanItem[] = [];
   let remaining = dailyMinutes;
   const ratesCache = new Map<string, LearnedProblemRates>();
 
-  for (const { chapter, subtopic, subject, score } of scored) {
-    if (remaining <= 0) break;
-
+  function allocate(item: { chapter: Chapter; subtopic: ChapterSubtopic | null; subject: Subject; score: number }): void {
+    const { chapter, subtopic, subject, score } = item;
     let allocatedMinutes: number;
     let reasons: string[];
 
@@ -224,7 +241,48 @@ export function generateTodayPlan(
     remaining -= allocatedMinutes;
   }
 
+  for (const item of candidates) {
+    if (remaining <= 0) break;
+    allocate(item);
+  }
+
+  // スピルオーバー（2周目）：間に合う見込みの項目だけでは dailyMinutes を使い切れなかった場合、
+  // 除外された項目（間に合わない見込み）でも他に使う道のない余り時間を埋める
+  for (const item of spillover) {
+    if (remaining <= 0) break;
+    allocate(item);
+  }
+
   return plan;
+}
+
+/**
+ * フェーズ6：前向きシミュレーション（simulateForward）で「まとまった不足」が出ている章/小項目を
+ * 候補集合から除外する。availability が渡されない場合（シミュレーション不能。既存呼び出し元との
+ * 後方互換のため任意引数）は何もせず候補をそのまま返す。
+ * 除外した結果、候補が1件も残らなくなる場合は、除外前の最優先1件（scored は既にスコア降順）を
+ * 必ず1件戻す（テスト直前に「間に合わない章」が一斉脱落して0件プランになる事故の防止策）。
+ */
+function excludeUnlikelyToFinish<T extends { chapter: Chapter; subtopic: ChapterSubtopic | null; score: number }>(
+  scored: T[],
+  chapters: Chapter[],
+  subjects: Subject[],
+  availability: AvailabilitySettings | undefined,
+  today: Date,
+  sessions: StudySession[],
+): T[] {
+  if (!availability || scored.length === 0) return scored;
+
+  const forecast = simulateForward(chapters, subjects, availability, today, sessions);
+  const excludedKeys = new Set(
+    forecast.subtopics
+      .filter((f) => f.shortfallMinutes > FORECAST_SHORTFALL_THRESHOLD_MINUTES)
+      .map((f) => `${f.chapterId}:${f.subtopicId ?? ""}`),
+  );
+  if (excludedKeys.size === 0) return scored;
+
+  const filtered = scored.filter((item) => !excludedKeys.has(`${item.chapter.id}:${item.subtopic?.id ?? ""}`));
+  return filtered.length > 0 ? filtered : [scored[0]];
 }
 
 /** 「今日の計画」の固定スナップショットが指す1件（章IDと、任意の小項目ID） */
@@ -538,12 +596,89 @@ export function learnedProblemRates(
   };
 }
 
+// ---- 「見通し」機能フェーズ6：教科ごとの学習ペース倍率 ----
+
+/** 学習ペース倍率の算出に必要な最小限のサンプル数（未満なら補正なしの1.0にフォールバック、暫定値） */
+export const MIN_SESSIONS_FOR_PACE_MULTIPLIER = 5;
+
+/** 学習ペース倍率の下限・上限（cto提案）。少数の絶好調/絶不調セッションで極端な補正がかかるのを防ぐ */
+export const PACE_MULTIPLIER_MIN = 0.5;
+export const PACE_MULTIPLIER_MAX = 2.0;
+
+/**
+ * 「標準的なペース」とみなす、1分あたりの理解度の伸びの基準値（暫定値）。
+ * SESSION_MINUTES（45分）のセッション1回で理解度0.5相当伸びるくらいを標準とみなし、実測ペース
+ * （subjectPaceMultiplier が算出する中央値）をこの基準値と比較して倍率を決める。
+ */
+export const BASELINE_UNDERSTANDING_GAIN_PER_MINUTE = 0.5 / SESSION_MINUTES;
+
+function clampRange(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+/**
+ * 教科ごとの「学習ペース倍率」。実測の理解度の伸び方が基準より速い教科は残り所要時間の見積もりを
+ * 短く、遅い教科は長くするための補正係数。章/小項目単位では算出しない
+ * （learnedProblemRates と同じ理由で、データが疎になりすぎて信頼できないため必ず教科単位で集計する）。
+ *
+ * 各セッションについて「(そのセッションの観測理解度 − 直前の理解度) ÷ 分」を1分あたりの伸びの
+ * サンプルとみなす。「直前の理解度」は、同じ章/小項目（subtopicId があればそれ、無ければ
+ * chapterId）のセッションを日付順に並べ、updateUnderstanding と同じ平滑化式でその場で再現する
+ * （グループの最初のセッションだけは「直前」が無いためサンプルを作らず、平滑化の起点にする）。
+ * サンプルは単純平均ではなく中央値で集計する（1回の絶好調/絶不調セッションに引きずられないため）。
+ * サンプル数が MIN_SESSIONS_FOR_PACE_MULTIPLIER 未満なら、まだ信頼できないとして補正なし（1.0）を返す。
+ * 最終的な倍率は PACE_MULTIPLIER_MIN 〜 PACE_MULTIPLIER_MAX にクランプする。
+ * UI表示（「あなたはこの教科が速い/遅い」の可視化）は今回のスコープ外（作らない）。
+ */
+export function subjectPaceMultiplier(
+  sessions: StudySession[],
+  chapters: Chapter[],
+  subjectId: string,
+): number {
+  const chapterIds = new Set(chapters.filter((c) => c.subjectId === subjectId).map((c) => c.id));
+  const relevant = sessions.filter((s) => chapterIds.has(s.chapterId));
+
+  const groups = new Map<string, StudySession[]>();
+  for (const session of relevant) {
+    const key = session.subtopicId ? `${session.chapterId}:${session.subtopicId}` : session.chapterId;
+    const list = groups.get(key);
+    if (list) list.push(session);
+    else groups.set(key, [session]);
+  }
+
+  const samples: number[] = [];
+  for (const list of groups.values()) {
+    const sorted = [...list].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    let running: number | null = null;
+    for (const session of sorted) {
+      const observed = computeObserved(session.correctRate, session.selfReport);
+      if (running !== null && session.minutes > 0) {
+        samples.push((observed - running) / session.minutes);
+      }
+      running = running === null ? observed : updateUnderstanding(running, observed);
+    }
+  }
+
+  if (samples.length < MIN_SESSIONS_FOR_PACE_MULTIPLIER) return 1.0;
+
+  const rate = median(samples);
+  return clampRange(rate / BASELINE_UNDERSTANDING_GAIN_PER_MINUTE, PACE_MULTIPLIER_MIN, PACE_MULTIPLIER_MAX);
+}
+
 /**
  * 小項目の残り所要時間を見積もる。
  * remainingRatio（1 − 減衰後理解度）を基礎/発展それぞれの問題数に掛けて按分する。
  * difficultyLevel はここでは使わない（問題数ベースの見積もりと混在させると二重計上になるため、
  * 今は候補提示用の付随情報にとどめる）。
  * rates を省略した場合はデフォルト値（MINUTES_PER_BASIC_PROBLEM / MINUTES_PER_ADVANCED_PROBLEM）を使う。
+ * paceMultiplier（フェーズ6、教科ごとの学習ペース倍率）を省略した場合は 1（補正なし）。
+ * 速い教科（倍率>1）ほど短く、遅い教科（倍率<1）ほど長く見積もる。
  */
 export function estimateSubtopicRemainingMinutes(
   subtopic: ChapterSubtopic,
@@ -552,6 +687,7 @@ export function estimateSubtopicRemainingMinutes(
     basicMinutesPerProblem: MINUTES_PER_BASIC_PROBLEM,
     advancedMinutesPerProblem: MINUTES_PER_ADVANCED_PROBLEM,
   },
+  paceMultiplier: number = 1,
 ): SubtopicTimeEstimate {
   const currentUnderstanding = decayedSubtopicUnderstanding(subtopic, today);
   const remainingRatio = 1 - currentUnderstanding;
@@ -559,11 +695,40 @@ export function estimateSubtopicRemainingMinutes(
   const basicMinutes = (subtopic.basicProblems ?? 0) * rates.basicMinutesPerProblem * remainingRatio;
   const advancedMinutes = (subtopic.advancedProblems ?? 0) * rates.advancedMinutesPerProblem * remainingRatio;
   return {
-    conceptMinutes,
-    basicMinutes,
-    advancedMinutes,
-    totalMinutes: conceptMinutes + basicMinutes + advancedMinutes,
+    conceptMinutes: conceptMinutes / paceMultiplier,
+    basicMinutes: basicMinutes / paceMultiplier,
+    advancedMinutes: advancedMinutes / paceMultiplier,
+    totalMinutes: (conceptMinutes + basicMinutes + advancedMinutes) / paceMultiplier,
   };
+}
+
+/** 小項目を持たない章の、演習1問あたりの「基礎/発展の中間値」的な目安分数（cto提案の暫定値） */
+export const MINUTES_PER_PROBLEM_CHAPTER_ESTIMATE = 18;
+
+/** metadata.exerciseCount が無い章の粗い見積もりで使う、伸びしろどれだけにつき SESSION_MINUTES 1ブロック分とみなすか（暫定値） */
+export const CHAPTER_ESTIMATE_GAP_INCREMENT = 0.1;
+
+/**
+ * 小項目を持たない章の残り所要時間を見積もる（フェーズ6、estimateSubtopicRemainingMinutes の章版）。
+ * chapter.metadata.exerciseCount（任意項目。Onboardingで未入力のことが多い）があれば
+ * 「演習数 × 1問あたり目安分数 × 伸びしろ」で見積もり、無ければ伸びしろに比例した粗い見積もり
+ * （伸びしろ CHAPTER_ESTIMATE_GAP_INCREMENT につき SESSION_MINUTES 1ブロック相当）にフォールバックする。
+ * 小項目版と違い基礎/発展の内訳を持たないため、厳密さは求めない設計（ドキュメント準拠）。
+ * paceMultiplier（教科ごとの学習ペース倍率）で最後に割ってから返す。
+ */
+export function estimateChapterRemainingMinutes(
+  chapter: Chapter,
+  today: Date,
+  paceMultiplier: number = 1,
+): number {
+  const currentUnderstanding = decayedUnderstanding(chapter, today);
+  const gap = Math.max(chapter.targetUnderstanding - currentUnderstanding, 0);
+  const exerciseCount = chapter.metadata?.exerciseCount;
+  const rawMinutes =
+    exerciseCount !== undefined
+      ? exerciseCount * MINUTES_PER_PROBLEM_CHAPTER_ESTIMATE * gap
+      : (gap / CHAPTER_ESTIMATE_GAP_INCREMENT) * SESSION_MINUTES;
+  return rawMinutes / paceMultiplier;
 }
 
 // ---- 「見通し」機能フェーズ4：実績ベースのペース判定 ----
@@ -728,21 +893,23 @@ export function worstProgressTier(tiers: (ProgressTier | null)[]): ProgressTier 
   return present.reduce((worst, t) => (severity[t] > severity[worst] ? t : worst));
 }
 
-// ---- 「見通し」機能フェーズ5：前向きシミュレーション・トリアージ ----
-// 小項目を持たない章は対象外（残り所要分という概念が無いため。generateTodayPlan は
-// そういう章を固定45分/日の繰り返しとしてモデル化しており、代用値を作ると
-// デュアルパス設計が壊れ「一生終わらない章」が常にトリアージ最下位に居座るノイズになる）。
-// 内部状態は各小項目の「残り所要分（分）」というスカラーのみ。today 時点で一度だけ
-// estimateSubtopicRemainingMinutes を評価してスナップショットし、以降は日ごとに
-// 割り当てた分を引くだけ。未来日で decayedSubtopicUnderstanding を再計算・再見積もりは
-// 絶対にしない（勉強しない日ほど decay で残り所要分が増える、という負のフィードバックループを
-// 避けるため）。これは generateTodayPlan が未来日の decay を一切見ないことと一貫している。
+// ---- 「見通し」機能フェーズ5〜6：前向きシミュレーション・トリアージ ----
+// フェーズ5では小項目を持つ章のみが対象だったが、フェーズ6で小項目を持たない「普通の章」も
+// 同じ枠組みに載せた。scoreChapterOrSubtopics と同じデュアルパスで、小項目が無い章は
+// subtopic: null の1件として扱い、estimateChapterRemainingMinutes で残り所要分を見積もる
+// （小項目がある章は従来通り estimateSubtopicRemainingMinutes）。
+// 内部状態は各項目（章 or 小項目）の「残り所要分（分）」というスカラーのみ。today 時点で一度だけ
+// 見積もりを評価してスナップショットし、以降は日ごとに割り当てた分を引くだけ。未来日で
+// decayedUnderstanding/decayedSubtopicUnderstanding を再計算・再見積もりは絶対にしない
+// （勉強しない日ほど decay で残り所要分が増える、という負のフィードバックループを避けるため）。
+// これは generateTodayPlan が未来日の decay を一切見ないことと一貫している。
 
 export interface SubtopicForecast {
   chapterId: string;
-  subtopicId: string;
+  /** null なら章レベル（小項目を持たない章、フェーズ6で追加） */
+  subtopicId: string | null;
   subjectId: string;
-  /** day 0（today）時点で見積もった、この小項目を終えるのに必要な総分数 */
+  /** day 0（today）時点で見積もった、この章/小項目を終えるのに必要な総分数 */
   totalMinutesNeeded: number;
   /** テスト日までに終わる見込みの日付（ISO 8601）。間に合わない場合は null */
   projectedCompletionDate: string | null;
@@ -754,7 +921,7 @@ export interface SubtopicForecast {
 export interface SubjectForecastSummary {
   subjectId: string;
   totalShortfallMinutes: number;
-  atRiskSubtopicIds: string[];
+  atRiskSubtopicIds: (string | null)[];
 }
 
 export interface ForwardSimulationResult {
@@ -765,7 +932,8 @@ export interface ForwardSimulationResult {
 /** シミュレーション内部だけで使う可変ワーキングオブジェクト（外部には公開しない） */
 interface ForecastTrackedItem {
   chapter: Chapter;
-  subtopic: ChapterSubtopic;
+  /** null なら章レベル（小項目を持たない章、フェーズ6で追加） */
+  subtopic: ChapterSubtopic | null;
   subject: Subject;
   totalMinutesNeeded: number;
   remainingMinutes: number;
@@ -774,7 +942,7 @@ interface ForecastTrackedItem {
 
 /**
  * 今日から最も遅いテスト日まで、日ごとに貪欲割当をシミュレートし、
- * 各小項目（小項目を持つ章のみ対象）がいつ終わるか／テスト日に間に合うかを予測する。
+ * 各章/小項目がいつ終わるか／テスト日に間に合うかを予測する。
  * 本質的には generateTodayPlan の貪欲ループを、もう1段の日ループで包んだだけ
  * （汎用シミュレーションエンジンの抽象化は作らない）。
  * 教科をまたいで1つの候補集合として優先度順に割り当てるが、ある教科は自分の
@@ -789,21 +957,39 @@ export function simulateForward(
 ): ForwardSimulationResult {
   const subjectById = new Map(subjects.map((s) => [s.id, s]));
   const ratesCache = new Map<string, LearnedProblemRates>();
+  const paceCache = new Map<string, number>();
 
   const items: ForecastTrackedItem[] = [];
   for (const chapter of chapters) {
     const subject = subjectById.get(chapter.subjectId);
     if (!subject) continue;
-    const subtopics = chapter.subtopics ?? [];
-    if (subtopics.length === 0) continue; // 小項目を持たない章は対象外
 
     if (!ratesCache.has(subject.id)) {
       ratesCache.set(subject.id, learnedProblemRates(sessions, chapters, subject.id));
     }
     const rates = ratesCache.get(subject.id)!;
 
+    if (!paceCache.has(subject.id)) {
+      paceCache.set(subject.id, subjectPaceMultiplier(sessions, chapters, subject.id));
+    }
+    const paceMultiplier = paceCache.get(subject.id)!;
+
+    const subtopics = chapter.subtopics ?? [];
+    if (subtopics.length === 0) {
+      const totalMinutesNeeded = estimateChapterRemainingMinutes(chapter, today, paceMultiplier);
+      items.push({
+        chapter,
+        subtopic: null,
+        subject,
+        totalMinutesNeeded,
+        remainingMinutes: totalMinutesNeeded,
+        completionDate: totalMinutesNeeded <= 0 ? toISODate(today) : null,
+      });
+      continue;
+    }
+
     for (const subtopic of subtopics) {
-      const totalMinutesNeeded = estimateSubtopicRemainingMinutes(subtopic, today, rates).totalMinutes;
+      const totalMinutesNeeded = estimateSubtopicRemainingMinutes(subtopic, today, rates, paceMultiplier).totalMinutes;
       items.push({
         chapter,
         subtopic,
@@ -831,13 +1017,18 @@ export function simulateForward(
       if (eligible.length > 0) {
         let remainingBudget = availableMinutesForDate(availability, dayDate);
         const sorted = eligible
-          .map((item) => ({ item, score: subtopicPriority(item.chapter, item.subtopic, item.subject, dayDate) }))
+          .map((item) => ({
+            item,
+            score: item.subtopic
+              ? subtopicPriority(item.chapter, item.subtopic, item.subject, dayDate)
+              : priority(item.chapter, item.subject, dayDate),
+          }))
           .sort((a, b) => b.score - a.score);
 
         for (const { item } of sorted) {
           if (remainingBudget <= 0) break;
           // 既存の [MIN_SUBTOPIC_SESSION_MINUTES, SESSION_MINUTES] クランプに加え、
-          // この小項目自身の残り分にもクランプ（完了を超えて過剰割当しない）
+          // この項目自身の残り分にもクランプ（完了を超えて過剰割当しない）
           const target = Math.max(MIN_SUBTOPIC_SESSION_MINUTES, Math.min(SESSION_MINUTES, item.remainingMinutes));
           const cappedByOwnRemaining = Math.min(target, item.remainingMinutes);
           const allocation = Math.min(cappedByOwnRemaining, remainingBudget);
@@ -859,7 +1050,7 @@ export function simulateForward(
     const onTrack = item.completionDate !== null;
     return {
       chapterId: item.chapter.id,
-      subtopicId: item.subtopic.id,
+      subtopicId: item.subtopic?.id ?? null,
       subjectId: item.subject.id,
       totalMinutesNeeded: item.totalMinutesNeeded,
       projectedCompletionDate: item.completionDate,
@@ -884,7 +1075,8 @@ export function simulateForward(
 /** シミュレーション結果から「切る候補」として並べた1件 */
 export interface TriageCandidate {
   chapterId: string;
-  subtopicId: string;
+  /** null なら章レベルの候補（小項目を持たない章、フェーズ6で追加） */
+  subtopicId: string | null;
   subjectId: string;
   /**
    * 配点按分 ÷ totalMinutesNeeded（残り総所要時間）。値が小さいほど「時間対効果が悪い」＝切る候補として優先度が高い。
@@ -892,6 +1084,8 @@ export interface TriageCandidate {
    * knapsackトリアージの本質は「同じ時間をかけるなら配点が高い方を残す」という時間対効果の比較であり、
    * 分母に shortfallMinutes（間に合わなかった分）を使うと「間に合わなさが大きいもの」が
    * 機械的に切られやすくなってしまい、意味が変わる。
+   * subtopicId が null（章レベル）の場合、按分ではなく chapter.pointWeight をそのまま使う
+   * （subtopicPointWeights の「小項目1件＝章全体の按分1件」という考え方と揃える）。
    */
   efficiency: number;
   shortfallMinutes: number;
@@ -900,7 +1094,7 @@ export interface TriageCandidate {
 /**
  * 前向きシミュレーション結果から「切る候補」を効率の低い順（昇順）に並べる。
  * ForwardSimulationResult 以外の新たな保存状態は持たない別の純粋関数。
- * shortfallMinutes > 0 の小項目のみが対象（間に合う見込みのものは切る必要が無い）。
+ * shortfallMinutes > 0 の章/小項目のみが対象（間に合う見込みのものは切る必要が無い）。
  */
 export function triageSubtopics(result: ForwardSimulationResult, chapters: Chapter[]): TriageCandidate[] {
   const chapterById = new Map(chapters.map((c) => [c.id, c]));
@@ -909,7 +1103,11 @@ export function triageSubtopics(result: ForwardSimulationResult, chapters: Chapt
     .filter((forecast) => forecast.shortfallMinutes > 0)
     .map((forecast) => {
       const chapter = chapterById.get(forecast.chapterId);
-      const weight = chapter ? subtopicPointWeights(chapter).get(forecast.subtopicId) ?? 0 : 0;
+      const weight = chapter
+        ? forecast.subtopicId
+          ? subtopicPointWeights(chapter).get(forecast.subtopicId) ?? 0
+          : chapter.pointWeight
+        : 0;
       return {
         chapterId: forecast.chapterId,
         subtopicId: forecast.subtopicId,
@@ -929,9 +1127,11 @@ export const FORECAST_SHORTFALL_THRESHOLD_MINUTES = 45;
  * 以下の2条件を両方満たすときのみ true：
  * 1. その教科の合計不足分（totalShortfallMinutes）が FORECAST_SHORTFALL_THRESHOLD_MINUTES を超えている
  *    （まとまった不足。1件だけ数分オーバーする程度は翌日の貪欲な再配分で吸収されるため無視する）
- * 2. その教科のいずれかの小項目にセッションが1件以上記録されている
+ * 2. その教科のいずれかの章（小項目を持たない章を含む、フェーズ6）にセッションが1件以上記録されている
  *    （登録直後に「何十個も登録した瞬間に間に合わない」という誤警報を防ぐ。フェーズ4の
- *    「セッション0件は悪いほうに倒さない」と同じ考え方）
+ *    「セッション0件は悪いほうに倒さない」と同じ考え方。フェーズ5時点では小項目セッションのみを
+ *    見ていたが、フェーズ6で小項目を持たない章もシミュレーション対象になったため、章全体の
+ *    セッション（subtopicId 無し）も同様に「取り組み始めている」証拠として数える）
  * テスト直前の抑制はしない（フェーズ4の PROBLEM_TIER_MIN_DAYS_LEFT とは逆。シミュレーションは
  * テストが近いほど信頼度が上がるため、テスト当日まで表示し続ける）。
  */
@@ -942,7 +1142,7 @@ export function shouldSurfaceForecastForSubject(
 ): boolean {
   if (summary.totalShortfallMinutes <= FORECAST_SHORTFALL_THRESHOLD_MINUTES) return false;
   const chapterIds = new Set(chapters.filter((c) => c.subjectId === summary.subjectId).map((c) => c.id));
-  return sessions.some((s) => !!s.subtopicId && chapterIds.has(s.chapterId));
+  return sessions.some((s) => chapterIds.has(s.chapterId));
 }
 
 // ---- 英単語暗記（確定設計 v3、docs/feature-memorization.md 参照） ----

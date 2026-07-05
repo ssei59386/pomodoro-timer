@@ -343,7 +343,6 @@ describe("フェーズ5：見通し（前向きシミュレーション）・切
     expect(screen.getByText(/今のペースだと、テストまでに あと約.+足りない見込みです/)).toBeDefined();
     expect(screen.getByText(/あくまで目安です/)).toBeDefined();
     expect(screen.getByText("→ 今日のプランを見る")).toBeDefined();
-    expect(screen.getByText(/小項目未設定の章はこの見通しの対象外です/)).toBeDefined();
 
     // トリアージ（切る候補）も同じ小項目について表示される
     expect(screen.getByText(/時間配分の効率上、優先度を下げる候補です/)).toBeDefined();

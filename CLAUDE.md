@@ -91,36 +91,17 @@ Still-open backlog items from that history (not yet scoped/resolved, low priorit
 - Onboarding's chapter-registration card is dense (up to 9 fields per chapter); moving the purely-informational `metadata-block` (exercise count/learning scope/difficulty) to Settings-only has been suggested twice by ux-reviewer but deliberately deferred both times. Revisit next time Onboarding's form load is reconsidered.
 - Product idea (not scoped): AI-generated comprehension tests calibrated to the school's exam level. Copyright risk flagged for anything beyond the student's own handwritten notes — needs real legal review before scoping. Phase 1+ only, do not build UI for this in Phase 0.
 
-**"見通し" (pace/progress forecast) feature: Phase 1〜5 COMPLETE — functionally complete.** This is the current major feature — subtopic-level understanding/pace tracking, curriculum-data-backed suggestions, subtopic-level daily plan generation (Phase 4.5), and (as of Phase 5) day-by-day forward simulation + knapsack triage of cut-candidates on the Dashboard. Full design history, confirmed decisions (do not re-ask), and phase-by-phase implementation logs are in **`docs/feature-mitoshi.md`** — **read this file before resuming work on this feature**, it contains decisions that should not be re-litigated (e.g. the user's explicit override of a CEO/CTO recommendation to build a minimal version instead). Test suite: **241 tests** as of the end of the 2026-07-03 Phase 5 session — run `npm test` to confirm nothing regressed before continuing. **Only remaining Phase 5 follow-up:** on-device visual QA in a real mobile browser was not done (no browser-automation tool in that session); dev server starts clean and jsdom tests render the section, but color/layout/tap-feel on a phone should be eyeballed on a subtopic-heavy dataset that trips the 45-min threshold. The write-back "今回は捨てる/exclude-from-plan" toggle was deliberately deferred (triage is informational only).
+**"見通し" (pace/progress forecast) feature: Phase 1〜6 COMPLETE — functionally complete.** This is the current major feature — subtopic-level understanding/pace tracking, curriculum-data-backed suggestions, subtopic-level daily plan generation (Phase 4.5), day-by-day forward simulation + knapsack triage of cut-candidates on the Dashboard (Phase 5), and (as of Phase 6) that same simulation now also drives `generateTodayPlan` itself for chapters with or without subtopics — items unlikely to finish in time are deprioritized (spillover: they still get any leftover time budget, never a hard exclusion) rather than just shown as Dashboard-only information, and a learned per-subject pace multiplier adjusts the time-remaining estimates. Full design history, confirmed decisions (do not re-ask), and phase-by-phase implementation logs are in **`docs/feature-mitoshi.md`** — **read this file before resuming work on this feature**, it contains decisions that should not be re-litigated (e.g. the user's explicit override of a CEO/CTO recommendation to build a minimal version instead). Test suite: **331 tests** as of the end of the 2026-07-05 Phase 6 session — run `npm test` to confirm nothing regressed before continuing. **Remaining follow-up (carried over from Phase 5, still not done):** on-device visual QA in a real mobile browser — no browser-automation tool has been available in any session so far; dev server starts clean and jsdom tests render everything, but actual phone color/layout/tap-feel has never been eyeballed. The write-back "今回は捨てる/exclude-from-plan" manual toggle remains deliberately not built (fully automatic only).
 
 **Curriculum reference data (math + science): RESOLVED, both fully built and integrated** into the "見通し" feature's suggestion layer (`src/data/curriculumSearch.ts`). Full research-task history is in **`docs/curriculum-data.md`**.
 
-## セッション引き継ぎメモ（2026-07-04、社会・国語暗記対応セッション終了時点）
+## セッション引き継ぎメモ（2026-07-05、Phase 6実装セッション終了時点）
 
-**暗記科目対応：英語・社会・国語がすべて実装完了・commit・push済み**（commit `5002627`、ブランチ`claude/app-dev-per-plan-qur753`）。GitHub Pagesへの自動デプロイも走っている。テストスイートは**306件**全通過、`npx tsc --noEmit`・`npm run build`ともパス。詳細な設計経緯（v1〜v4）は**`docs/feature-memorization.md`**参照——特に末尾の「確定設計 v4」節。
-
-- 英語＝単語、社会＝重要語、国語＝漢字・古文単語として、共通の「番号で管理・紙に印・20語ずつの枠単位Leitner」方式（`VocabRange`/`VocabChunk`）で動く。ロジック層（`src/logic.ts`）・データ型は教科非依存で無変更のまま。
-- **社会・国語は「暗記のみ」の教科で、章（理解度モデル）を持たない**——現代文読解などはスコープ外（ceoの「1教科に2モデル混在は複雑」という懸念を踏まえた意図的な設計）。Onboarding/Settingsとも、章を持てるのは数学・理科・英語のみという前提でUIが分岐している。
-- Home画面の暗記カードは教科ごとに分割済み、クイズも押した教科の暗記範囲だけに絞り込まれる（`src/components/vocabLabels.ts`に表示名マップを集約）。ux-reviewer指摘（重大5件・中程度4件・軽微1件）はすべて反映・実機確認済み（Playwrightで英語＋社会の2教科同時登録→教科別クイズ絞り込みまで目視確認）。
+**Phase 6（時間制約を考慮した計画生成）実装完了・commit・push済み。** 詳細はCLAUDE.md「Current status」節と`docs/feature-mitoshi.md`の"Implementation complete (2026-07-05)"節を参照。要点：`generateTodayPlan`が`simulateForward`の「間に合うか判定」を使うようになり、間に合わない見込みの章/小項目は後回しにされるが、他に使い道の無い余り時間があればスピルオーバーで拾われる（完全除外ではない——ux-reviewerが「時間が無駄になる」「科目が丸ごと消える」と指摘したための修正）。教科ごとの学習ペース倍率も残り時間見積もりに反映済み。テスト**331件**全通過、型チェック・buildともパス。
 
 **まだ手を付けていない・次回相談すべき論点：**
-- **オンボーディングのテスト日入力欄が数学・理科・英語・社会・国語の5教科分ずらっと並び、画面が長い**（ux-reviewer指摘、ユーザーも実機で確認済み）。今回は意図的に見送り。次にオンボーディングを触る際、構造の見直し（例：使う教科を先に選ばせてから該当欄だけ出す等）をceo/ux-reviewerに相談してから着手すること。
-- 国語・社会をさらに展開する場合（漢字ドリル以外の分野、他の暗記科目パターンなど）は、まず英語・社会・国語の実運用結果を見てから判断する方針（ceo推奨、英語のときと同じ考え方）。
-
-**このセッションでの副産物：**
-- `.claude/agents/engineer.md`に事故防止ルールを追加済み（既存ファイルへのWrite禁止、編集後の`git diff`自己確認）。前回セッションでengineerが既存ファイルを誤って全体上書きする事故があったための対策——次のセッションでも有効。
-- 利用上限の確認方法：`/status`コマンドの「Usage」タブで5時間・7日間のレート制限使用率が見られる（コンテキストウィンドウ使用率とは別物）。
-- 2026-07-04 01:00 JSTに一度きりのクラウドルーティン（trig_011MmY4djWr8cEgicccdJJua）を予約実行していたが、pushしない設定で走らせたためこのローカルセッションの成果とは無関係・重複作業。結果を見たい場合は https://claude.ai/code/routines 参照。
-- dev serverをバックグラウンドで起動済みの場合がある（`npm run dev`、http://localhost:5173/）。次のセッションでは新たに起動し直して問題ない。
-
-## セッション引き継ぎメモ（2026-07-05、今日の計画スナップショット実装＋Phase 6設計セッション終了時点）
-
-**今回commit・push済みの完了作業：「今日の計画スナップショット」機能。** 詳細はCLAUDE.md「Architecture」節の "Today's plan snapshot / freeze" を参照（そちらに実装内容を統合済み）。要点だけ言うと：1件記録するたびに次の項目が滑り込んで終わらない、というユーザー報告バグを、今日開いた瞬間の対象集合を日付が変わるまで固定する方式で解消した。ux-reviewerの実装後レビュー（重大2件含む）もすべて反映済み。型チェック・テスト**312件**全通過、Playwrightで実機動作も確認済み（章完了→✓バッジ、全件完了→専用メッセージ、暗記カード残存時も文言が矛盾しないことまで確認）。
-
-**次回最優先：Phase 6（設計済み・未実装）。** 同じセッションでユーザーから「今の計画の立て方は、限られた時間で最高点を狙うという目的にちゃんと沿っていない」という核心的な指摘が入り、ceo→cto→cto追加相談まで済ませて方向性が確定した。ユーザー本人が「ここがうまくできれば完成と言っていい」と位置づけている最重要タスク。**フルの設計は `docs/feature-mitoshi.md` の "Phase 6: plan-quality under real time constraints (designed, not yet implemented)" 節に全部書いてある——次のセッションはここを読んでから着手すること。** 要点だけ言うと：
-1. 「見通し」シミュレーション（Phase 5、間に合うか判定）を小項目の無い普通の章にも拡張する。
-2. 判定結果を`generateTodayPlan`自体に反映し、間に合わない章を今日の計画から除外して浮いた時間を間に合う章に回す（優先度の計算式自体は変えない）。
-3. 科目ごとに「実際の理解度の伸びペース」をセッション履歴から学習し、残り所要時間の見積もりに反映する（`learnedProblemRates`と同じ、サンプル不足時はフォールバック＋倍率クランプのパターン）。
-4. 文言は常に前向き（「間に合わない」「諦める」は言わない）。手動の「捨てる」ボタンは作らない。全滅防止の安全策も要る。
+- オンボーディングのテスト日入力欄が5教科分ずらっと並び画面が長い問題（ux-reviewer既指摘、複数セッションで見送り継続中）。次にオンボーディングを触る際、構造見直しをceo/ux-reviewerに相談してから着手すること。
+- 国語・社会のさらなる展開は、英語・社会・国語の実運用結果を見てから判断する方針（ceo推奨）。
+- **Phase 6はon-device visual QA未実施**：このセッションの環境にはPlaywright/chromium-cli等のブラウザ自動化ツールが無く、dev serverの起動確認とjsdomテストのみで済ませた（直前の「今日の計画スナップショット」セッションではPlaywrightが使えて実機確認できているため、環境依存の可能性が高い）。次回ブラウザ自動化ツールが使える状態なら、Phase 6分（除外・スピルオーバーの見え方、Dashboardの見通しセクション）を確認しておくとよい。
 
 **この方向性はまだユーザーの実装ゴーサインを得る直前で引き継ぎになった** — 次のセッション開始時、ユーザーに「このまま進めていいか」を一度確認してから着手するのが安全（会話の流れ上ほぼ合意済みだが、明示的なgoは無い）。

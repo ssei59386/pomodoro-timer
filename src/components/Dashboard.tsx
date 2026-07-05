@@ -79,12 +79,6 @@ export function Dashboard({
         </p>
       )}
 
-      {subjectsToSurface.size > 0 && (
-        <p className="muted small forecast-scope-note">
-          ※ 小項目未設定の章はこの見通しの対象外です。
-        </p>
-      )}
-
       {bySubject.map(({ subject, chapters }) => (
         <section key={subject.id} className="card">
           <div className="subject-head">
@@ -179,9 +173,11 @@ function ForecastSection({
 }) {
   const chapterById = useMemo(() => new Map(chapters.map((c) => [c.id, c])), [chapters]);
 
-  const nameOf = (chapterId: string, subtopicId: string) => {
+  // subtopicId が null の場合（小項目を持たない章、フェーズ6で追加）は章名だけを返す
+  // （「→ 小項目名」の行を出さない null パス）。
+  const nameOf = (chapterId: string, subtopicId: string | null) => {
     const chapter = chapterById.get(chapterId);
-    const subtopicName = chapter?.subtopics?.find((s) => s.id === subtopicId)?.name ?? "";
+    const subtopicName = subtopicId ? chapter?.subtopics?.find((s) => s.id === subtopicId)?.name ?? "" : null;
     return { chapterName: chapter?.name ?? "", subtopicName };
   };
 
@@ -206,9 +202,10 @@ function ForecastSection({
         {atRisk.map((f) => {
           const { chapterName, subtopicName } = nameOf(f.chapterId, f.subtopicId);
           return (
-            <li key={f.subtopicId} className="forecast-row">
+            <li key={`${f.chapterId}-${f.subtopicId ?? "chapter"}`} className="forecast-row">
               <span className="forecast-item-name">
-                {chapterName} ・ {subtopicName}
+                {chapterName}
+                {subtopicName ? ` ・ ${subtopicName}` : ""}
               </span>
               <span className="forecast-shortfall muted small">
                 今のペースだと、テストまでに あと約{formatMinutesLabel(f.shortfallMinutes)} 足りない見込みです
@@ -231,9 +228,10 @@ function ForecastSection({
             {triageForSubject.map((t) => {
               const { chapterName, subtopicName } = nameOf(t.chapterId, t.subtopicId);
               return (
-                <li key={t.subtopicId} className="triage-row">
+                <li key={`${t.chapterId}-${t.subtopicId ?? "chapter"}`} className="triage-row">
                   <span className="triage-item-name">
-                    {chapterName} ・ {subtopicName}
+                    {chapterName}
+                    {subtopicName ? ` ・ ${subtopicName}` : ""}
                   </span>
                   <span className="triage-efficiency muted small">
                     配点効率 {t.efficiency.toFixed(2)} 点/分（他の項目より時間対効果が低め）

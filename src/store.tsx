@@ -111,7 +111,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const todayISO = toISODate(today);
           if (prev.todayPlan && prev.todayPlan.date === todayISO) return prev;
           const todayMinutes = availableMinutesForDate(prev.availability, today);
-          const plan = generateTodayPlan(prev.chapters, prev.subjects, todayMinutes, today, prev.sessions);
+          const plan = generateTodayPlan(
+            prev.chapters,
+            prev.subjects,
+            todayMinutes,
+            today,
+            prev.sessions,
+            prev.availability,
+          );
           const itemKeys = plan.map((item) => ({
             chapterId: item.chapter.id,
             subtopicId: item.subtopic?.id ?? null,
