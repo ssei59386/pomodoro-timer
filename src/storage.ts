@@ -47,3 +47,32 @@ export function clearData(): void {
 export function uid(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
+
+// ---- オンボーディング・ウィザードの下書き永続化 -------------------------
+// 本番データ（STORAGE_KEY）とは別キーに保存する。ステップ＋教科ループに分割されたことで
+// 完了までの所要時間・中断確率が増えるため、途中でタブを閉じても再開できるようにする
+// （docs/feature-onboarding-wizard.md）。下書きの中身の型は呼び出し側（Onboarding.tsx）が持つ。
+
+const ONBOARDING_DRAFT_KEY = "study-planner-onboarding-draft-v1";
+
+export function saveOnboardingDraft<T>(draft: T): void {
+  try {
+    localStorage.setItem(ONBOARDING_DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    // 下書き保存の失敗はオンボーディング続行を妨げないので無視する（容量超過等）
+  }
+}
+
+export function loadOnboardingDraft<T>(): T | null {
+  try {
+    const raw = localStorage.getItem(ONBOARDING_DRAFT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+export function clearOnboardingDraft(): void {
+  localStorage.removeItem(ONBOARDING_DRAFT_KEY);
+}

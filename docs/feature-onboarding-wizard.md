@@ -1,6 +1,56 @@
-# Feature design: オンボーディングの「軽量ウィザード化」
+# Feature design: オンボーディングの「本格ウィザード化」
 
-**Status: 設計確定・未実装（2026-07-06）。次のセッションはこのファイルを読んでから着手すること。**
+**Status: 実装完了（2026-07-06）。本格ステップ式ウィザードとして実装・commit・push済み。以下の「実装完了」節と「残りのUXバックログ」節が最新。設計節（背景以降）は実装前の確定設計の記録として残す。**
+
+## 実装完了（2026-07-06）
+
+engineerエージェントに委譲して本格ステップ式ウィザードを実装、ux-reviewerでレビューし重大なP0を2件修正した。型チェック（`npx tsc --noEmit`）clean・`npm test` **343件全通過**・`npm run build` 成功。
+
+**実装ファイル：**
+- `src/components/Onboarding.tsx` — 全面書き換え（939行→約440行）。orchestrator化：ステップ状態管理・下書き永続化・各ステップのバリデーション・最終送信変換のみを担う。
+- `src/components/onboarding/`（新規ディレクトリ）：
+  - `onboardingTypes.ts` — 共有の型・定数（SUBJECT_LABELS/SUBJECT_ORDER/CHAPTER_CAPABLE_SUBJECT_KEYS/VOCAB_SUBJECT_KEYS）・下書き型・makeBlankChapter 等。
+  - `OnboardingStepSubjects.tsx`（0.使う教科を選ぶ）／`OnboardingStepTestDates.tsx`（1.テスト日）／`OnboardingStepSubjectContent.tsx`（2〜N.教科ごとの章・小項目・暗記範囲、最大UI）／`OnboardingStepSchedule.tsx`（勉強できる時間）／`OnboardingStepOverrides.tsx`（特別な予定）／`OnboardingStepReview.tsx`（確認画面）。
+- `src/logic.ts` — 純粋関数4つ追加（`validateTestDate`/`hasInvalidTimeSlotInSchedule`/`hasAnyValidTimeSlotInSchedule`/`validateSubjectHasContent`）＋ `logic.test.ts` にテスト追加。ステップごとバリデーションを logic.ts 側に集約（CLAUDE.md の純粋関数方針）。
+- `src/storage.ts` — 下書き用の別キー `study-planner-onboarding-draft-v1` と `saveOnboardingDraft`/`loadOnboardingDraft`/`clearOnboardingDraft`。completeOnboarding 成功時に clear。
+- `src/components/Settings.tsx` — Onboarding から削った metadata-block（演習問題数・学習範囲・章の難易度）を各章行に移設（Settings専用化）。
+- `src/styles.css` — ウィザード用クラス（`.wizard-step-head`/`.wizard-step-intro`/`.wizard-nav-row`/`.subject-select-row`/`.test-date-block`/`.review-row` 等）＋ `.icon-btn` の44px化。
+- テスト：`Onboarding.test.tsx` を25件に再構成（ステップ遷移を挟む形）。`App.test.tsx` に scrollIntoView モックを追加。
+
+**ステップ構成（実装結果）：** 0.使う教科を選ぶ → 1.テスト日 → 2〜N.教科ごとの内容（選んだ教科の数だけ、math→science→english→social→japanese 順） → N+1.勉強できる時間 → N+2.特別な予定（任意） → N+3.確認画面。各ステップの「次へ」でそのステップだけ検証し `error-inline`/`error` でインライン表示、「戻る」で1つ前へ（入力保持）。下書きは全state変化のたびに別キーへ保存。
+
+**確定事項（実装で採用した判断）：**
+- 教科ごとの内容ステップのバリデーションは「その教科について名前付き章 or 入力のある暗記範囲が最低1つ」＝either-or緩和を教科単位に引き継いだ。
+- 使用教科は step0 の `selectedSubjects` が正（旧実装の「章/暗記から逆算」方式は廃止）。
+- Android物理戻る/スワイプバック統合はスコープ外（画面内「戻る」のみ）。コード冒頭にコメント明記。
+- 複数テスト日はスコープ外のまま（Subject.testDate 単数）。将来の推奨データモデルは下記「スコープに含めない」節の案1。
+
+**ux-reviewで修正済みP0（2件）：**
+- **誤コピー修正**：ステップ0の「あとから設定で追加・変更できます」は事実と異なる（store に addSubject が無く Settings にも教科追加UIが無い＝教科を後から増やすにはデータリセットが必要）。「あとから教科を増やすのは今はできないので、忘れずに選んでおきましょう」という事実どおりの文言に変更（`Onboarding.tsx` introTextFor の subjects 分岐）。
+- **サイレント失敗修正**：長いステップ下部で「次へ」を押すとバリデーションエラーが見出し直下（画面外）に出てボタン付近では無反応に見えた。`fail(message)` ヘルパーを追加し、エラーセット時に `stepTopRef` へ `scrollIntoView` して必ずエラーを可視化（`handleNext` 内の全エラー分岐を `fail()` に統一）。
+
+## 残りのUXバックログ（次セッション以降・未対応、ux-reviewer指摘）
+
+P0の2件は修正済み。以下は未対応で次セッションの候補（優先度はux-reviewer評価）：
+
+- **P1: 英語ステップの密度と「どちらか一方でよい」の告知位置。** 英語は「章の登録」＋「暗記範囲の登録」の2カードが同ステップに同居して縦に長い。かつ「章か暗記範囲のどちらか一方でよい」の緩和説明が両カードの最後に `.muted.small`（12px低コントラスト）で出るため、両方埋めてから気づく。→ この一文をステップ冒頭（intro相当）に移す。`OnboardingStepSubjectContent.tsx`。
+- **P1: 全体フェーズ進捗表示の欠落。** 教科内カウント「教科 X/Y」はあるが、ウィザード全体で「今どのフェーズか／あと何ステップか」の一段目表示が無い（設計は二段構成を推奨していた）。総ステップ数は教科選択で最大10まで変動。
+- **P1: ステップ導入文が `.muted`（14px低コントラスト）のまま。** 既存に「重要情報は通常色に格上げ」する前例2件あり（`.vocab-plan-note`/`.forecast-approx-note`）。ステップ0の説明など初見の最重要文はこれに揃える（`.wizard-step-intro` の色を格上げ）。
+- **P1: 下書き復元がサイレント。** `loadOnboardingDraft` を初期stateにするだけで「前回の続きから再開しました」の明示が無く、「最初からやり直す」ボタンも無い。中断復帰した生徒が戸惑う可能性。
+- **P1: 確認画面の「編集」導線と「＋小項目追加」が `.link-btn`（実測20〜24px）でタップ領域44px未達。** 確認画面の該当ステップへ戻る唯一の導線が全て小さいテキストリンク。`OnboardingStepReview.tsx`/styles.css `.link-btn`。
+- **P1: 「戻る」ボタン（`.secondary`≈35px）が「次へ」（`.primary.big`≈47px）より小さくタップ性が非対称。**
+- **P1: ステップへの直接ジャンプ手段が確認画面到達後の「編集」のみ。** 終盤で序盤のミスに気づくと「戻る」連打しかない。
+- **P2:** テスト日エラー時に該当入力欄自体が赤枠ハイライトされない（メッセージは上部のみ／既存の `invalid` 赤枠パターン未適用）／`SelfReportPicker` の `.sr-text` が10px／1教科のみでも「（教科 1/1）」が冗長／「＋テスト日を追加」の実UIはまだ無い（複数テスト日スコープ外との整合は取れている）／Android物理戻るは実機QA未実施のままリリース。
+
+**実機（モバイルブラウザ）目視QAは未実施**（本セッション環境にPlaywright/chromium等のブラウザ自動化ツールが無い）。次回ツールが使える環境で、ステップ遷移・下書き復元・エラー時スクロール・物理戻る挙動を確認すること。
+
+---
+
+以下は実装前（2026-07-06）に確定した設計の記録。実装済みだが、判断の経緯として残す。
+
+# （設計記録）オンボーディングの「軽量ウィザード化」
+
+**Status: 設計確定（2026-07-06）→ 上記のとおり本格版として実装完了。**
 
 このファイルは、オンボーディング画面（`src/components/Onboarding.tsx`、アプリで一番複雑なフォーム）を作り替えるタスクの確定設計をまとめたもの。ceo・cto・ux-reviewer の3体に設計相談をかけ、方針が確定した状態でユーザーから「もうやっちゃってほしい。できるでしょ。でもチャット変えるから引継ぎして」と実装ゴーサインが出た（前セッションでは引き継ぎのみ、実装は次セッション）。
 

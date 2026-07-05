@@ -5,6 +5,10 @@ import {
   selfReportToInitialUnderstanding,
   computeInitialUnderstanding,
   averageInitialUnderstanding,
+  validateTestDate,
+  hasInvalidTimeSlotInSchedule,
+  hasAnyValidTimeSlotInSchedule,
+  validateSubjectHasContent,
   daysLeft,
   proximity,
   priority,
@@ -1930,5 +1934,50 @@ describe("英単語暗記（確定設計 v3：枠単位）", () => {
       expect(result.lowMinutes).toBeGreaterThanOrEqual(1);
       expect(result.highMinutes).toBeGreaterThanOrEqual(result.lowMinutes);
     });
+  });
+});
+
+describe("validateTestDate", () => {
+  it("未入力ならエラーになる", () => {
+    expect(validateTestDate("数学", "", today)).toBe("数学のテスト日を入力してください。");
+  });
+
+  it("過去日ならエラーになる", () => {
+    expect(validateTestDate("数学", "2020-01-01", today)).toBe(
+      "数学のテスト日は今日以降の日付にしてください。",
+    );
+  });
+
+  it("今日以降の日付ならエラー無し", () => {
+    expect(validateTestDate("数学", "2099-08-01", today)).toBeNull();
+  });
+});
+
+describe("hasInvalidTimeSlotInSchedule / hasAnyValidTimeSlotInSchedule", () => {
+  it("不正なスロット（終了が開始以前）が1つでもあれば true", () => {
+    expect(
+      hasInvalidTimeSlotInSchedule([[{ start: "18:00", end: "17:00" }]]),
+    ).toBe(true);
+    expect(
+      hasInvalidTimeSlotInSchedule([[{ start: "18:00", end: "19:00" }]]),
+    ).toBe(false);
+  });
+
+  it("有効なスロットが1つも無ければ false、あれば true", () => {
+    expect(hasAnyValidTimeSlotInSchedule([[], []])).toBe(false);
+    expect(
+      hasAnyValidTimeSlotInSchedule([[{ start: "18:00", end: "17:00" }], [{ start: "18:00", end: "19:00" }]]),
+    ).toBe(true);
+  });
+});
+
+describe("validateSubjectHasContent", () => {
+  it("章も暗記範囲も0件ならエラーになる", () => {
+    expect(validateSubjectHasContent(0, 0)).toBe("章または暗記範囲を1つ以上登録してください。");
+  });
+
+  it("章か暗記範囲のどちらかが1件以上あればエラー無し", () => {
+    expect(validateSubjectHasContent(1, 0)).toBeNull();
+    expect(validateSubjectHasContent(0, 1)).toBeNull();
   });
 });

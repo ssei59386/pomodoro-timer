@@ -260,6 +260,13 @@ input[type="range"] {
   font-size: 16px;
   padding: 6px;
   line-height: 1;
+  /* タップ領域を44px以上に（章・小項目・暗記範囲・時間帯の削除ボタンで多用されるため。
+     ux-reviewer指摘、docs/feature-onboarding-wizard.md） */
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* ---- オンボーディング ---- */
@@ -276,6 +283,85 @@ input[type="range"] {
 .onboarding-header h1 {
   font-size: 22px;
   margin-bottom: 6px;
+}
+
+/* ---- オンボーディング・ウィザード（本格版、docs/feature-onboarding-wizard.md） ---- */
+.wizard-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.wizard-step-head h2 {
+  font-size: 18px;
+}
+
+.wizard-step-intro {
+  margin-bottom: 14px;
+}
+
+.wizard-nav-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.wizard-nav-row .primary.big {
+  flex: 1;
+}
+
+.subject-select-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.subject-select-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.subject-select-row:last-child {
+  border-bottom: none;
+}
+
+.subject-select-row input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+}
+
+.test-date-block {
+  margin-bottom: 4px;
+}
+
+.review-card .review-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.review-card .review-row:last-child {
+  border-bottom: none;
+}
+
+.review-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.review-row-title {
+  font-weight: 600;
+  font-size: 14px;
 }
 
 .chapter-draft {

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { App } from "./App";
 import { StoreProvider } from "./store";
@@ -36,7 +36,10 @@ const onboardedData: AppData = {
   onboarded: true,
 };
 
+// jsdom は scrollIntoView 未実装のため、Onboarding のステップ遷移エフェクトが例外にならないようにモックする
+// （Onboarding.test.tsx と同じ前例）。未オンボーディング時はここでも Onboarding がマウントされる。
 beforeEach(() => {
+  Element.prototype.scrollIntoView = vi.fn();
   localStorage.clear();
 });
 

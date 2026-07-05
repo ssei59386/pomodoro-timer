@@ -95,15 +95,13 @@ Still-open backlog items from that history (not yet scoped/resolved, low priorit
 
 **Curriculum reference data (math + science): RESOLVED, both fully built and integrated** into the "見通し" feature's suggestion layer (`src/data/curriculumSearch.ts`). Full research-task history is in **`docs/curriculum-data.md`**.
 
-## セッション引き継ぎメモ（2026-07-05、Phase 6実装セッション終了時点）
+## セッション引き継ぎメモ（2026-07-06、オンボーディング本格ウィザード化セッション終了時点）
 
-**Phase 6（時間制約を考慮した計画生成）実装完了・commit・push済み。** 詳細はCLAUDE.md「Current status」節と`docs/feature-mitoshi.md`の"Implementation complete (2026-07-05)"節を参照。要点：`generateTodayPlan`が`simulateForward`の「間に合うか判定」を使うようになり、間に合わない見込みの章/小項目は後回しにされるが、他に使い道の無い余り時間があればスピルオーバーで拾われる（完全除外ではない——ux-reviewerが「時間が無駄になる」「科目が丸ごと消える」と指摘したための修正）。教科ごとの学習ペース倍率も残り時間見積もりに反映済み。テスト**331件**全通過、型チェック・buildともパス。
+**オンボーディングの「本格ウィザード化」実装完了・commit・push済み。** 現状の単一フォーム（全教科のテスト日・章・暗記範囲・予定を1画面に縦ヅラで並べる）を、1画面ずつ区切る本格ステップ式ウィザードに作り替えた。ステップ構成：0.使う教科を選ぶ→1.テスト日→2〜N.教科ごとの章/小項目/暗記→勉強できる時間→特別な予定（任意）→確認画面。各ステップの「次へ」でそのステップだけ検証（インライン表示）、「戻る」で1つ前へ（入力保持）、下書きは別localStorageキー（`study-planner-onboarding-draft-v1`）に逐次保存し中断復帰可能。metadata-blockはSettingsへ移設。**フルの実装結果・採用した判断・残りのUXバックログはすべて `docs/feature-onboarding-wizard.md` の冒頭「実装完了」「残りのUXバックログ」節に集約済み——次セッションはこれを読むこと。** テスト**343件**全通過、`npx tsc --noEmit` clean、`npm run build` 成功。
 
-**次にやる確定タスク：オンボーディングの「本格ウィザード化」（設計確定・未実装）。** 2026-07-06、ユーザーが手書きワイヤーフレームを持参して要望し、ceo/cto/ux-reviewerの3体設計相談まで完了、ユーザーが**「本格版でやってほしい」と明確に指定して実装ゴーサイン済み**（当日はチャットを変えるため引き継ぎのみ、実装は次セッション）。**フルの確定設計・ステップ構成・実装ガイド・UX注意点・技術判断はすべて `docs/feature-onboarding-wizard.md` に集約済み——次セッションはこれを読んでから着手すること。** 要点だけ：
-- 現状の「全教科のテスト日・章・暗記範囲・予定を1画面に縦ヅラで並べる」単一フォームを、ワイヤーフレーム通りの**1画面ずつ区切る本格ステップ式ウィザード**に作り替える（0.使う教科を選ぶ→1.テスト日→2-3.教科ごとに章/小項目/暗記→4.週の予定→5.カレンダー例外→6.確認画面）。3体は軽量版を推奨したがユーザー判断で本格版に確定（蒸し返さない）。
-- 本格版で必須：ステップ遷移の状態管理、**下書き永続化（本番キーと別のドラフト用localStorageキー）**、ステップごとバリデーション、metadata-blockをSettings送り。規模は中〜大。
-- **複数テスト日（数学が別日に2回など）は後回しで確定**（3体全員一致、ユーザーも後回し選択）。ただし手戻り防止でテスト日入力欄は「＋追加」しやすい形にしておく。将来やるならデータモデルは案1（Chapterごとに`testDate?`、Subject.testDateはフォールバック存続）が筋が良い＝cto検証済み。
-- 3体相談の継続用agentIdは `docs/feature-onboarding-wizard.md` 末尾に記載（ceo/cto/ux）。
+- engineerで実装→ux-reviewerでレビュー→**重大なP0を2件だけ即修正**（①「あとから教科を追加できる」という誤コピー＝実際はaddSubjectが無く教科追加はリセットが必要／②長いステップ下部で「次へ」を押すとエラーが画面外に出るサイレント失敗→`fail()`でエラー位置へscrollIntoView）。残りのP1/P2（英語ステップの密度・全体フェーズ進捗表示・導入文の色格上げ・下書き復元の明示・編集/戻るボタンのタップ領域）は`docs/feature-onboarding-wizard.md`「残りのUXバックログ」節に列挙、未対応。
+- **実機（モバイルブラウザ）目視QAは未実施**（本セッション環境にPlaywright/chromium等が無い）。次回ツールが使える環境で、ステップ遷移・下書き復元・エラー時スクロール・Android物理戻る挙動を確認すること。
+- 複数テスト日はスコープ外のまま（Subject.testDate 単数）。将来やるならデータモデルは案1（Chapterごとに`testDate?`、Subject.testDateはフォールバック存続）＝cto検証済み。設計相談の継続用agentId（ceo/cto/ux）は `docs/feature-onboarding-wizard.md` 末尾に記載。
 
 **その他の見送り中バックログ（低優先）：**
 - 国語・社会のさらなる暗記展開：構造上は「番号で管理する暗記範囲（VocabRange、labelは自由テキスト）」を複数登録すれば文法・漢文句法等も既に載る。唯一の引っかかりは表示名が教科固定（`vocabLabels.ts` の「国語＝今日の漢字・古文単語」）で範囲ごとに出し分けられない点。ユーザーは「実装しないでいい」と保留。

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useStore, uid } from "../store";
 import { DEFAULT_TARGET_UNDERSTANDING, isPastDate, validateVocabRangeDraft } from "../logic";
-import type { Chapter, ChapterSubtopic, Subject } from "../types";
+import type { Chapter, ChapterMetadata, ChapterSubtopic, Subject } from "../types";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 import { CalendarOverrides } from "./CalendarOverrides";
 import { CurriculumSuggest } from "./CurriculumSuggest";
@@ -101,6 +101,25 @@ export function Settings() {
     });
   };
 
+  // オンボーディングから章のmetadata入力欄（演習問題数・学習範囲・難易度）を削り、Settings専用に
+  // 移した（本格ウィザード化にあたり教科ループの密度負荷を下げるため。ux-reviewer/ceo指摘、
+  // docs/feature-onboarding-wizard.md）。フィールドごとに独立して「入力があれば含める」判定にし、
+  // 全部空になったら metadata ごと undefined に戻す（旧 Onboarding の組み立て条件を踏襲）。
+  const updateChapterMetadata = (chapter: Chapter, patch: Partial<ChapterMetadata>) => {
+    const merged: ChapterMetadata = { ...chapter.metadata, ...patch };
+    const cleaned: ChapterMetadata = {};
+    if (merged.exerciseCount !== undefined && merged.exerciseCount !== null) {
+      cleaned.exerciseCount = merged.exerciseCount;
+    }
+    if (merged.learningScope && merged.learningScope.trim() !== "") {
+      cleaned.learningScope = merged.learningScope.trim();
+    }
+    if (merged.difficultyLevel !== undefined) {
+      cleaned.difficultyLevel = merged.difficultyLevel;
+    }
+    updateChapter({ ...chapter, metadata: Object.keys(cleaned).length > 0 ? cleaned : undefined });
+  };
+
   return (
     <div className="screen">
       <div className="screen-head">
@@ -183,6 +202,57 @@ export function Settings() {
                   >
                     ✕
                   </button>
+                </div>
+                <div className="metadata-block">
+                  <div className="metadata-block-head">
+                    <span className="muted small">学習メタデータ（任意）</span>
+                  </div>
+                  <div className="metadata-row">
+                    <label className="field inline">
+                      <span>演習問題数</span>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="例：25"
+                        value={c.metadata?.exerciseCount ?? ""}
+                        onChange={(e) =>
+                          updateChapterMetadata(c, {
+                            exerciseCount:
+                              e.target.value === "" ? undefined : Math.max(0, Number(e.target.value)),
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="metadata-row">
+                    <label className="field">
+                      <span className="muted small">学習範囲</span>
+                      <input
+                        type="text"
+                        placeholder="例：第3章1節〜2節 / 教科書pp.45-62"
+                        value={c.metadata?.learningScope ?? ""}
+                        onChange={(e) => updateChapterMetadata(c, { learningScope: e.target.value })}
+                      />
+                    </label>
+                  </div>
+                  <div className="metadata-row">
+                    <label className="field inline">
+                      <span>章の難易度（3段階）</span>
+                      <select
+                        value={c.metadata?.difficultyLevel ?? ""}
+                        onChange={(e) =>
+                          updateChapterMetadata(c, {
+                            difficultyLevel: e.target.value === "" ? undefined : Number(e.target.value),
+                          })
+                        }
+                      >
+                        <option value="">未設定</option>
+                        <option value={1}>簡単</option>
+                        <option value={2}>中程度</option>
+                        <option value={3}>難しい</option>
+                      </select>
+                    </label>
+                  </div>
                 </div>
                 <div className="subtopic-block">
                   <div className="subtopic-block-head">

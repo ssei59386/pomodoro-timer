@@ -1169,6 +1169,49 @@ export const VOCAB_CHUNK_SIZE = 20;
  */
 export const MAX_VOCAB_RANGE_SIZE = 1000;
 
+// ---- オンボーディング・ウィザードのステップ別バリデーション ------------
+// 本格ウィザード化（docs/feature-onboarding-wizard.md）で「最後にまとめて検証」から
+// 「ステップごとに検証」へ変えるにあたり、旧単一フォームで教科ごとに重複していたロジックを
+// 共通の純粋関数にまとめた。
+
+/**
+ * ステップ「テスト日を登録」で1教科ぶんの入力を検証する。未入力→過去日の順にチェックする。
+ */
+export function validateTestDate(subjectLabel: string, date: string, today: Date): string | null {
+  if (!date) {
+    return `${subjectLabel}のテスト日を入力してください。`;
+  }
+  if (isPastDate(date, today)) {
+    return `${subjectLabel}のテスト日は今日以降の日付にしてください。`;
+  }
+  return null;
+}
+
+/** 曜日ごと/日付ごとの時間帯グループのうち、終了が開始より前になっている不正なスロットが1つでもあるか */
+export function hasInvalidTimeSlotInSchedule(slotGroups: TimeSlot[][]): boolean {
+  return slotGroups.some((slots) => slots.some((slot) => !isValidTimeSlot(slot)));
+}
+
+/** 曜日ごと/日付ごとの時間帯グループのうち、有効なスロットが1つでもあるか */
+export function hasAnyValidTimeSlotInSchedule(slotGroups: TimeSlot[][]): boolean {
+  return slotGroups.some((slots) => slots.some((slot) => isValidTimeSlot(slot)));
+}
+
+/**
+ * ステップ「教科ごとの内容入力」の必須条件：章と暗記範囲はどちらも「学習する範囲」の登録手段なので、
+ * どちらか1つでもあれば足りる（単語帳のみで使いたい生徒に、意味のない章を登録させないため。
+ * ux-reviewer指摘、docs/phase0-history.md）。
+ */
+export function validateSubjectHasContent(
+  namedChapterCount: number,
+  attemptedVocabRangeCount: number,
+): string | null {
+  if (namedChapterCount === 0 && attemptedVocabRangeCount === 0) {
+    return "章または暗記範囲を1つ以上登録してください。";
+  }
+  return null;
+}
+
 /** 単語帳の範囲登録フォームの入力値バリデーション対象（ドラフトの一部フィールドのみ参照する） */
 export interface VocabRangeDraftInput {
   label: string;
