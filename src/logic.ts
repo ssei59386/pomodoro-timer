@@ -227,6 +227,61 @@ export function generateTodayPlan(
   return plan;
 }
 
+/** 「今日の計画」の固定スナップショットが指す1件（章IDと、任意の小項目ID） */
+export interface PlanItemKey {
+  chapterId: string;
+  subtopicId: string | null;
+}
+
+/**
+ * 固定された itemKeys（章ID＋小項目ID）の集合から PlanItem[] を組み立てる。
+ * generateTodayPlan と違い、対象集合そのものは引数の itemKeys で固定済みという前提に立ち、
+ * ここでは dailyMinutes の消化・並べ替えは行わない（呼び出し側が保持する順序をそのまま使う）。
+ * allocatedMinutes・reasons・priority は、その時点の最新の章/小項目データから
+ * generateTodayPlan と同じ計算式で再計算する（Settingsでの章編集に追随させるため）。
+ * 該当する章/小項目が既に存在しない場合（Settingsで削除された等）はその項目を結果から除外する。
+ */
+export function buildPlanFromItemKeys(
+  chapters: Chapter[],
+  subjects: Subject[],
+  itemKeys: PlanItemKey[],
+  today: Date,
+  sessions: StudySession[] = [],
+): PlanItem[] {
+  const chapterById = new Map(chapters.map((c) => [c.id, c]));
+  const subjectById = new Map(subjects.map((s) => [s.id, s]));
+  const ratesCache = new Map<string, LearnedProblemRates>();
+
+  const plan: PlanItem[] = [];
+  for (const key of itemKeys) {
+    const chapter = chapterById.get(key.chapterId);
+    if (!chapter) continue;
+    const subject = subjectById.get(chapter.subjectId);
+    if (!subject) continue;
+
+    if (key.subtopicId) {
+      const subtopic = (chapter.subtopics ?? []).find((s) => s.id === key.subtopicId);
+      if (!subtopic) continue;
+
+      if (!ratesCache.has(subject.id)) {
+        ratesCache.set(subject.id, learnedProblemRates(sessions, chapters, subject.id));
+      }
+      const rates = ratesCache.get(subject.id)!;
+      const estimate = estimateSubtopicRemainingMinutes(subtopic, today, rates).totalMinutes;
+      const allocatedMinutes = Math.max(MIN_SUBTOPIC_SESSION_MINUTES, Math.min(SESSION_MINUTES, Math.ceil(estimate)));
+      const score = subtopicPriority(chapter, subtopic, subject, today);
+      const reasons = buildSubtopicReasons(chapter, subtopic, subject, chapters, today);
+      plan.push({ chapter, subtopic, subject, allocatedMinutes, priority: score, reasons });
+    } else {
+      const score = priority(chapter, subject, today);
+      const reasons = buildReasons(chapter, subject, chapters, today);
+      plan.push({ chapter, subtopic: null, subject, allocatedMinutes: SESSION_MINUTES, priority: score, reasons });
+    }
+  }
+
+  return plan;
+}
+
 /** 「配点高め／理解度が低め／テストが近い」程度の簡単な根拠（§7.2） */
 function buildReasons(
   chapter: Chapter,

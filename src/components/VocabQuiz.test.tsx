@@ -48,6 +48,7 @@ const dataWithVocab: AppData = {
       completed: false,
     },
   ],
+  todayPlan: null,
   onboarded: true,
 };
 
@@ -58,6 +59,7 @@ const emptyVocabData: AppData = {
   availability: { weeklySchedule: {}, dateOverrides: {} },
   vocabRanges: [],
   vocabChunks: [],
+  todayPlan: null,
   onboarded: true,
 };
 
@@ -186,6 +188,7 @@ describe("VocabQuiz", () => {
           completed: false,
         },
       ],
+      todayPlan: null,
       onboarded: true,
     };
     localStorage.setItem("study-planner-data-v1", JSON.stringify(multiSubjectData));
@@ -232,6 +235,7 @@ describe("VocabQuiz", () => {
           completed: false,
         },
       ],
+      todayPlan: null,
       onboarded: true,
     };
     localStorage.setItem("study-planner-data-v1", JSON.stringify(multiSubjectData));

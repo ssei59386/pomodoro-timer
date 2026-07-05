@@ -1,11 +1,12 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useStore } from "../store";
 import {
-  generateTodayPlan,
+  buildPlanFromItemKeys,
   getTodaysVocabChunks,
   estimateVocabMinutes,
   daysLeft,
   availableMinutesForDate,
+  toISODate,
 } from "../logic";
 import type { Chapter, ChapterSubtopic } from "../types";
 import { VOCAB_HEADING_BY_SUBJECT, VOCAB_ITEM_WORD_BY_SUBJECT } from "./vocabLabels";
@@ -26,20 +27,59 @@ export function Home({
   onGoSettings: () => void;
   onVocabQuiz: (subjectId: string) => void;
 }) {
-  const { data } = useStore();
+  const { data, ensureTodayPlan } = useStore();
+  // 既知の制約（今回はスコープ外、ux-reviewer指摘）: マウント時に1回だけ固定するため、
+  // Homeタブを開きっぱなしのまま深夜0時をまたいでも today/todayISO は更新されず、
+  // プランは翌日分に自動で切り替わらない。発生頻度が低く、可視性変化の監視などの実装コストに
+  // 見合わないため今回は許容する。
   const today = useMemo(() => new Date(), []);
+  const todayISO = useMemo(() => toISODate(today), [today]);
+
+  // 「今日の計画」は開いた瞬間の対象集合で固定する。1件記録して除外されても、
+  // 次善の項目が自動で滑り込んでこないようにするための仕様（対象の章/小項目の集合のみ固定、
+  // 割当分数・理由チップは表示のたびに最新データから再計算する）。
+  useEffect(() => {
+    ensureTodayPlan(today);
+    // todayISO のみを依存にする: today/ensureTodayPlan は毎レンダー新しい参照になり得るが、
+    // 実行すべきタイミングは「日付が変わったとき」だけなので、それ以外での再実行は不要。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayISO]);
 
   const todayMinutes = useMemo(
     () => availableMinutesForDate(data.availability, today),
     [data.availability, today],
   );
 
+  // todayPlan.date が今日と一致しない場合（日をまたいだ直後、ensureTodayPlan の
+  // useEffect がまだ走っていないタイミングなど）は前日分のスナップショットを描画しない
+  // ようにするガード（ux-reviewer指摘）。
+  const todayItemKeys = data.todayPlan?.date === todayISO ? data.todayPlan.itemKeys : [];
+
   const plan = useMemo(
-    () => generateTodayPlan(data.chapters, data.subjects, todayMinutes, today, data.sessions),
-    [data.chapters, data.subjects, todayMinutes, today, data.sessions],
+    () => buildPlanFromItemKeys(data.chapters, data.subjects, todayItemKeys, today, data.sessions),
+    [data.chapters, data.subjects, todayItemKeys, today, data.sessions],
   );
 
   const totalMinutes = plan.reduce((sum, p) => sum + p.allocatedMinutes, 0);
+
+  // todayItemKeys には対象があったのに plan が空 = 参照先の章/小項目がSettingsで
+  // 削除された等の理由で消えたケース。最初から対象0件だった「目標理解度に届いている」
+  // ケースと文言を分ける（ux-reviewer指摘）。
+  const plannedItemsWentMissing = todayItemKeys.length > 0 && plan.length === 0;
+  const emptyPlanMessage = plannedItemsWentMissing
+    ? "今日予定していた章が見当たりません。設定で削除された可能性があります。"
+    : "🎉 今日はすべての章が目標理解度に届いています。";
+
+  /** 今日、その章(+小項目一致)のセッションが記録済みかどうか（完了判定は都度セッション記録から行う） */
+  const isItemCompletedToday = (chapter: Chapter, subtopic: ChapterSubtopic | null) =>
+    data.sessions.some(
+      (s) =>
+        s.date === todayISO &&
+        s.chapterId === chapter.id &&
+        (subtopic ? s.subtopicId === subtopic.id : !s.subtopicId),
+    );
+
+  const allPlanItemsCompleted = plan.length > 0 && plan.every((item) => isItemCompletedToday(item.chapter, item.subtopic));
 
   // 暗記科目（英語・社会・国語、docs/feature-memorization.md）: 既存の generateTodayPlan とは
   // 独立した別ロジック系統なので、暗記カードは plan 配列には混ぜず、表示側でリストの項目として足す。
@@ -82,6 +122,11 @@ export function Home({
         <p className="muted">
           配点・理解度・テストまでの近さから、優先度の高い章や小項目を割り当てています。
         </p>
+        {plan.length > 0 && (
+          <p className="muted small">
+            今日の計画は、今日最初に開いたときの内容で固定されています。設定を変更しても今日中は反映されず、明日から反映されます。
+          </p>
+        )}
       </div>
 
       {plan.length === 0 && !hasVocab ? (
@@ -101,18 +146,19 @@ export function Home({
               </button>
             </>
           ) : (
-            <p>🎉 今日はすべての章が目標理解度に届いています。</p>
+            <p>{emptyPlanMessage}</p>
           )}
         </div>
       ) : (
         <>
-          {plan.length === 0 && (
-            <p className="muted">🎉 今日はすべての章が目標理解度に届いています。</p>
-          )}
+          {plan.length === 0 && <p>{emptyPlanMessage}</p>}
           {plan.length > 0 && (
             <div className="summary-pill">
               合計 {totalMinutes} 分 / {todayMinutes} 分・{plan.length} 件
             </div>
+          )}
+          {allPlanItemsCompleted && (
+            <p className="muted plan-all-done-message">🎉 今日予定していた章の勉強は全部終わり！お疲れさま</p>
           )}
           <ul className="plan-list">
             {vocabBySubject.map(({ subject, todaysChunks, minutes }) => {
@@ -165,8 +211,12 @@ export function Home({
               const sameChapterAsPrevious = previousItem?.chapter.id === item.chapter.id;
               const hasTeacherHint = item.reasons.includes(HINT_REASON_LABEL);
               const visibleReasons = item.reasons.filter((r) => r !== HINT_REASON_LABEL);
+              const isCompleted = isItemCompletedToday(item.chapter, item.subtopic);
               return (
-                <li key={`${item.chapter.id}-${item.subtopic?.id ?? "chapter"}`} className="plan-card">
+                <li
+                  key={`${item.chapter.id}-${item.subtopic?.id ?? "chapter"}`}
+                  className={isCompleted ? "plan-card completed" : "plan-card"}
+                >
                   <div className="plan-card-top">
                     <div>
                       <span className="subject-tag">{item.subject.name}</span>
@@ -178,19 +228,32 @@ export function Home({
                           <p className="plan-chapter-continued muted small">
                             {item.chapter.name}の続き
                           </p>
-                          <h3>{item.subtopic.name}</h3>
+                          <h3 className={isCompleted ? "plan-card-title-done" : undefined}>
+                            {item.subtopic.name}
+                          </h3>
                         </>
                       ) : (
                         <>
-                          <h3>{item.chapter.name}</h3>
+                          <h3 className={isCompleted ? "plan-card-title-done" : undefined}>
+                            {item.chapter.name}
+                          </h3>
                           {item.subtopic && (
-                            <p className="plan-subtopic-name">→ {item.subtopic.name}</p>
+                            <p
+                              className={
+                                isCompleted ? "plan-subtopic-name plan-card-title-done" : "plan-subtopic-name"
+                              }
+                            >
+                              → {item.subtopic.name}
+                            </p>
                           )}
                         </>
                       )}
                       {detailLine && <p className="muted small">{detailLine}</p>}
                     </div>
-                    <div className="plan-minutes">{item.allocatedMinutes}分</div>
+                    <div className="plan-card-top-right">
+                      {isCompleted && <span className="plan-completed-badge">✓ 完了</span>}
+                      <div className="plan-minutes">{item.allocatedMinutes}分</div>
+                    </div>
                   </div>
                   <div className="reason-row">
                     {visibleReasons.map((r) => (
@@ -202,12 +265,14 @@ export function Home({
                       テストまで {daysLeft(item.subject.testDate, today)} 日
                     </span>
                   </div>
-                  <button
-                    className="primary full"
-                    onClick={() => onRecord(item.chapter.id, item.subtopic?.id)}
-                  >
-                    終わった → 記録する
-                  </button>
+                  {!isCompleted && (
+                    <button
+                      className="primary full"
+                      onClick={() => onRecord(item.chapter.id, item.subtopic?.id)}
+                    >
+                      終わった → 記録する
+                    </button>
+                  )}
                 </li>
               );
             })}

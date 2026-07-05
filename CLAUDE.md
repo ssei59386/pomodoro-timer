@@ -52,6 +52,8 @@ There is no lint script configured.
 
 **Screens** (`src/App.tsx` tab router, gated by `data.onboarded`): Onboarding → Home (today's plan) → SessionRecord → Dashboard (understanding vs. target, days left, pace badges) → Settings (edit/reset). `Onboarding.tsx` is also where subjects, chapters, point weights, initial self-reports, sub-topics, and optional metadata are entered; it's the most complex form in the app.
 
+**Today's plan snapshot / freeze (added 2026-07-05):** `Home.tsx` no longer shows whatever `generateTodayPlan` returns live on every render. `AppData.todayPlan` (`{ date, itemKeys: {chapterId, subtopicId}[] } | null`) freezes *which* chapters/subtopics are today's target set the first time Home is opened that day (`store.tsx`'s `ensureTodayPlan`, called from a `Home.tsx` `useEffect`, is a no-op if a same-date snapshot already exists). `logic.ts`'s `buildPlanFromItemKeys(chapters, subjects, itemKeys, today, sessions)` re-derives display data (`allocatedMinutes`/`reasons`/`priority`) fresh from current chapter data every render — only the *set* of items is frozen, not their displayed numbers, so editing a chapter in Settings still updates its reason chips same-day. This exists because completing an item used to free up its time budget and immediately pull in the next-best chapter, so the list never visibly finished ("無限に出てくる" — user-reported). Completion is derived, not stored: an item counts as done if `data.sessions` has a same-day session for its chapterId(+subtopicId); no `completed` flag anywhere. Vocab/memorization cards are NOT part of this freeze — they stay live every render (deliberate: an intentional "escape valve" for students who finish early, per ux-reviewer).
+
 **PWA/deploy specifics** (`vite.config.ts`): `base` is `/` in dev but switches to `/pomodoro-timer/` on build, because the GitHub Pages workflow (`.github/workflows/deploy-pages.yml`) serves this as a project site. That workflow deploys on push to `master` or `claude/app-dev-per-plan-qur753`.
 
 **Forward-compat note in storage:** `loadData()` spreads `initialData` under any parsed/stored data so newly added fields get sane defaults for users with older persisted state — preserve this pattern when adding fields to `AppData`/`Chapter`.
@@ -110,3 +112,15 @@ Still-open backlog items from that history (not yet scoped/resolved, low priorit
 - 利用上限の確認方法：`/status`コマンドの「Usage」タブで5時間・7日間のレート制限使用率が見られる（コンテキストウィンドウ使用率とは別物）。
 - 2026-07-04 01:00 JSTに一度きりのクラウドルーティン（trig_011MmY4djWr8cEgicccdJJua）を予約実行していたが、pushしない設定で走らせたためこのローカルセッションの成果とは無関係・重複作業。結果を見たい場合は https://claude.ai/code/routines 参照。
 - dev serverをバックグラウンドで起動済みの場合がある（`npm run dev`、http://localhost:5173/）。次のセッションでは新たに起動し直して問題ない。
+
+## セッション引き継ぎメモ（2026-07-05、今日の計画スナップショット実装＋Phase 6設計セッション終了時点）
+
+**今回commit・push済みの完了作業：「今日の計画スナップショット」機能。** 詳細はCLAUDE.md「Architecture」節の "Today's plan snapshot / freeze" を参照（そちらに実装内容を統合済み）。要点だけ言うと：1件記録するたびに次の項目が滑り込んで終わらない、というユーザー報告バグを、今日開いた瞬間の対象集合を日付が変わるまで固定する方式で解消した。ux-reviewerの実装後レビュー（重大2件含む）もすべて反映済み。型チェック・テスト**312件**全通過、Playwrightで実機動作も確認済み（章完了→✓バッジ、全件完了→専用メッセージ、暗記カード残存時も文言が矛盾しないことまで確認）。
+
+**次回最優先：Phase 6（設計済み・未実装）。** 同じセッションでユーザーから「今の計画の立て方は、限られた時間で最高点を狙うという目的にちゃんと沿っていない」という核心的な指摘が入り、ceo→cto→cto追加相談まで済ませて方向性が確定した。ユーザー本人が「ここがうまくできれば完成と言っていい」と位置づけている最重要タスク。**フルの設計は `docs/feature-mitoshi.md` の "Phase 6: plan-quality under real time constraints (designed, not yet implemented)" 節に全部書いてある——次のセッションはここを読んでから着手すること。** 要点だけ言うと：
+1. 「見通し」シミュレーション（Phase 5、間に合うか判定）を小項目の無い普通の章にも拡張する。
+2. 判定結果を`generateTodayPlan`自体に反映し、間に合わない章を今日の計画から除外して浮いた時間を間に合う章に回す（優先度の計算式自体は変えない）。
+3. 科目ごとに「実際の理解度の伸びペース」をセッション履歴から学習し、残り所要時間の見積もりに反映する（`learnedProblemRates`と同じ、サンプル不足時はフォールバック＋倍率クランプのパターン）。
+4. 文言は常に前向き（「間に合わない」「諦める」は言わない）。手動の「捨てる」ボタンは作らない。全滅防止の安全策も要る。
+
+**この方向性はまだユーザーの実装ゴーサインを得る直前で引き継ぎになった** — 次のセッション開始時、ユーザーに「このまま進めていいか」を一度確認してから着手するのが安全（会話の流れ上ほぼ合意済みだが、明示的なgoは無い）。

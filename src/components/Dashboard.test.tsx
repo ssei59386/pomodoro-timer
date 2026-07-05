@@ -12,6 +12,7 @@ const emptyChaptersData: AppData = {
   availability: { weeklySchedule: {}, dateOverrides: {} },
   vocabRanges: [],
   vocabChunks: [],
+  todayPlan: null,
   onboarded: true,
 };
 
@@ -44,6 +45,7 @@ const twoSubjectsData: AppData = {
   availability: { weeklySchedule: {}, dateOverrides: {} },
   vocabRanges: [],
   vocabChunks: [],
+  todayPlan: null,
   onboarded: true,
 };
 
@@ -68,6 +70,7 @@ const subtopicChapterData: AppData = {
   availability: { weeklySchedule: {}, dateOverrides: {} },
   vocabRanges: [],
   vocabChunks: [],
+  todayPlan: null,
   onboarded: true,
 };
 
@@ -125,6 +128,7 @@ const vocabData: AppData = {
       completed: false,
     },
   ],
+  todayPlan: null,
   onboarded: true,
 };
 
@@ -215,6 +219,7 @@ describe("Dashboard", () => {
       availability: { weeklySchedule: {}, dateOverrides: {} },
       vocabRanges: [],
       vocabChunks: [],
+      todayPlan: null,
       onboarded: true,
     };
     localStorage.setItem("study-planner-data-v1", JSON.stringify(chapterlessSubjectsData));
@@ -310,6 +315,7 @@ describe("フェーズ5：見通し（前向きシミュレーション）・切
         weeklySchedule: { 0: [{ start: "00:00", end: "00:30" }], 1: [{ start: "00:00", end: "00:30" }], 2: [{ start: "00:00", end: "00:30" }], 3: [{ start: "00:00", end: "00:30" }], 4: [{ start: "00:00", end: "00:30" }], 5: [{ start: "00:00", end: "00:30" }], 6: [{ start: "00:00", end: "00:30" }] },
         dateOverrides: {},
       },
+      todayPlan: null,
       onboarded: true,
     };
   }

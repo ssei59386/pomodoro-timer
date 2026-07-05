@@ -20,8 +20,11 @@ import {
   advanceVocabChunk as advanceVocabChunkPure,
   applySessionToChapter,
   applySessionToSubtopic,
+  availableMinutesForDate,
   completeVocabChunk as completeVocabChunkPure,
   generateChunksForRange,
+  generateTodayPlan,
+  toISODate,
 } from "./logic";
 import { clearData, initialData, loadData, saveData, uid } from "./storage";
 
@@ -39,6 +42,11 @@ interface StoreValue {
   }) => void;
   /** セッションを記録し、対象章の理解度を更新する（§6.1） */
   recordSession: (input: Omit<StudySession, "id">) => void;
+  /**
+   * 「今日の計画」の対象集合（todayPlan）を固定する。既に同じ日付のスナップショットが
+   * あれば何もしない（1件記録するたびに次善の項目が滑り込んでくる挙動を防ぐための固定化）。
+   */
+  ensureTodayPlan: (today: Date) => void;
   updateSubject: (subject: Subject) => void;
   updateChapter: (chapter: Chapter) => void;
   addChapter: (chapter: Omit<Chapter, "id">) => void;
@@ -96,6 +104,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               : applySessionToChapter(c, session);
           }),
         }));
+      },
+
+      ensureTodayPlan: (today) => {
+        setData((prev) => {
+          const todayISO = toISODate(today);
+          if (prev.todayPlan && prev.todayPlan.date === todayISO) return prev;
+          const todayMinutes = availableMinutesForDate(prev.availability, today);
+          const plan = generateTodayPlan(prev.chapters, prev.subjects, todayMinutes, today, prev.sessions);
+          const itemKeys = plan.map((item) => ({
+            chapterId: item.chapter.id,
+            subtopicId: item.subtopic?.id ?? null,
+          }));
+          return { ...prev, todayPlan: { date: todayISO, itemKeys } };
+        });
       },
 
       updateSubject: (subject) => {

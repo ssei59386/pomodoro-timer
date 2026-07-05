@@ -859,6 +859,39 @@ input[type="range"] {
   white-space: nowrap;
 }
 
+.plan-card-top-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.plan-card.completed {
+  /* 0.55 だと白系背景でテキストのコントラストが下がりすぎるため 0.7 に緩和（ux-reviewer指摘）。 */
+  opacity: 0.7;
+}
+
+.plan-card-title-done {
+  text-decoration: line-through;
+}
+
+.plan-completed-badge {
+  /* 親の .plan-card.completed の opacity につられて一緒に薄まるが、これは意図した挙動
+     （完了カード全体を控えめに見せる設計の一部であり、バッジだけ目立たせる意図はない）。 */
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--reached);
+  background: #dcfce7;
+  padding: 2px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.plan-all-done-message {
+  margin-bottom: 14px;
+}
+
 .reason-row {
   display: flex;
   flex-wrap: wrap;

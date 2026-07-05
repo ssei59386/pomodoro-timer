@@ -46,6 +46,7 @@ const onboardedData: AppData = {
   },
   vocabRanges: [],
   vocabChunks: [],
+  todayPlan: null,
   onboarded: true,
 };
 

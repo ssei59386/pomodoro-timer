@@ -10,6 +10,7 @@ export const initialData: AppData = {
   availability: { weeklySchedule: {}, dateOverrides: {} },
   vocabRanges: [],
   vocabChunks: [],
+  todayPlan: null,
   onboarded: false,
 };
 

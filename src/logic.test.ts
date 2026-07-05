@@ -9,6 +9,7 @@ import {
   proximity,
   priority,
   generateTodayPlan,
+  buildPlanFromItemKeys,
   applySessionToChapter,
   applySessionToSubtopic,
   slotMinutes,
@@ -341,6 +342,102 @@ describe("§6.3 計画生成（フェーズ4.5・小項目単位）", () => {
     const plan = generateTodayPlan(chapters, subjects, 60, today);
     expect(plan.every((p) => p.subtopic === null)).toBe(true);
     expect(plan.every((p) => p.allocatedMinutes === 45 || p.allocatedMinutes <= 60)).toBe(true);
+  });
+});
+
+describe("buildPlanFromItemKeys（「今日の計画」の固定スナップショットから再構築）", () => {
+  const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-03" }];
+
+  it("章単位のitemKeyから、章単位の generateTodayPlan と同じ allocatedMinutes・reasons を再構築する", () => {
+    const c = chapter({ id: "a", subjectId: "s1", pointWeight: 40, understanding: 0.3 });
+    const plan = buildPlanFromItemKeys([c], subjects, [{ chapterId: "a", subtopicId: null }], today);
+
+    expect(plan).toHaveLength(1);
+    expect(plan[0].subtopic).toBeNull();
+    expect(plan[0].allocatedMinutes).toBe(SESSION_MINUTES);
+    expect(plan[0].reasons.length).toBeGreaterThan(0);
+  });
+
+  it("小項目単位のitemKeyから、対応する PlanItem を再構築する", () => {
+    const c = chapter({
+      id: "a",
+      subjectId: "s1",
+      pointWeight: 40,
+      subtopics: [subtopic({ id: "st1", name: "小項目1", understanding: 0.1, basicProblems: 5 })],
+    });
+    const plan = buildPlanFromItemKeys([c], subjects, [{ chapterId: "a", subtopicId: "st1" }], today);
+
+    expect(plan).toHaveLength(1);
+    expect(plan[0].subtopic?.id).toBe("st1");
+    expect(plan[0].allocatedMinutes).toBeGreaterThanOrEqual(10);
+    expect(plan[0].allocatedMinutes).toBeLessThanOrEqual(45);
+  });
+
+  it("対象の章が既に存在しない（Settingsで削除された等）場合、その項目は結果から除外される", () => {
+    const c = chapter({ id: "a", subjectId: "s1" });
+    const plan = buildPlanFromItemKeys(
+      [c],
+      subjects,
+      [
+        { chapterId: "a", subtopicId: null },
+        { chapterId: "deleted", subtopicId: null },
+      ],
+      today,
+    );
+    expect(plan).toHaveLength(1);
+    expect(plan[0].chapter.id).toBe("a");
+  });
+
+  it("対象の小項目が既に存在しない場合、その項目は結果から除外される", () => {
+    const c = chapter({
+      id: "a",
+      subjectId: "s1",
+      subtopics: [subtopic({ id: "st1", name: "小項目1", understanding: 0.1, basicProblems: 5 })],
+    });
+    const plan = buildPlanFromItemKeys(
+      [c],
+      subjects,
+      [
+        { chapterId: "a", subtopicId: "st1" },
+        { chapterId: "a", subtopicId: "removed" },
+      ],
+      today,
+    );
+    expect(plan).toHaveLength(1);
+    expect(plan[0].subtopic?.id).toBe("st1");
+  });
+
+  it("itemKeys の順序をそのまま保持する（優先度順への再ソートはしない）", () => {
+    const low = chapter({ id: "low", subjectId: "s1", pointWeight: 5, understanding: 0.7 });
+    const high = chapter({ id: "high", subjectId: "s1", pointWeight: 40, understanding: 0.1 });
+    const plan = buildPlanFromItemKeys(
+      [low, high],
+      subjects,
+      [
+        { chapterId: "low", subtopicId: null },
+        { chapterId: "high", subtopicId: null },
+      ],
+      today,
+    );
+    expect(plan.map((p) => p.chapter.id)).toEqual(["low", "high"]);
+  });
+
+  it("章データが更新されると、allocatedMinutes は再計算される（対象集合は固定のまま、値だけ最新化される）", () => {
+    const c = chapter({
+      id: "a",
+      subjectId: "s1",
+      subtopics: [subtopic({ id: "st1", name: "小項目1", understanding: 0, basicProblems: 100, advancedProblems: 100 })],
+    });
+    const before = buildPlanFromItemKeys([c], subjects, [{ chapterId: "a", subtopicId: "st1" }], today);
+    expect(before[0].allocatedMinutes).toBe(SESSION_MINUTES); // 見積もりが大きく上限クランプ
+
+    const almostDone = chapter({
+      id: "a",
+      subjectId: "s1",
+      subtopics: [subtopic({ id: "st1", name: "小項目1", understanding: 0.99, basicProblems: 1 })],
+    });
+    const after = buildPlanFromItemKeys([almostDone], subjects, [{ chapterId: "a", subtopicId: "st1" }], today);
+    expect(after[0].allocatedMinutes).toBe(10); // 見積もりがほぼ0分になり下限クランプ
   });
 });
 

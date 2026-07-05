@@ -154,6 +154,14 @@ export interface AppData {
   availability: AvailabilitySettings;
   vocabRanges: VocabRange[];
   vocabChunks: VocabChunk[];
+  /**
+   * 「今日の計画」の固定スナップショット（対象の章/小項目の集合のみ）。
+   * 日をまたぐまでは同じ集合を使い続け、1件記録するたびに次善の項目が
+   * 自動で滑り込んでくる（＝いつまでも0件にならない）挙動を防ぐ。
+   * 割当分数・理由チップはここには持たず、表示のたびに最新の章データから再計算する
+   * （logic.ts の buildPlanFromItemKeys）。未生成なら null。
+   */
+  todayPlan: { date: string; itemKeys: { chapterId: string; subtopicId: string | null }[] } | null;
   /** オンボーディング完了フラグ */
   onboarded: boolean;
 }

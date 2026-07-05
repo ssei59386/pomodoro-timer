@@ -34,6 +34,7 @@ const chapterOnlyData: AppData = {
   availability: { weeklySchedule: everydaySchedule, dateOverrides: {} },
   vocabRanges: [],
   vocabChunks: [],
+  todayPlan: null,
   onboarded: true,
 };
 
@@ -59,6 +60,7 @@ const subtopicChapterData: AppData = {
   availability: { weeklySchedule: everydaySchedule, dateOverrides: {} },
   vocabRanges: [],
   vocabChunks: [],
+  todayPlan: null,
   onboarded: true,
 };
 
