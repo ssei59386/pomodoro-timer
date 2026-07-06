@@ -31,7 +31,10 @@ export function SessionRecord({
   // 「章全体として記録」オプション自体は別の値（WHOLE_CHAPTER_VALUE）を持たせ、
   // onChange で空文字列に正規化する。
   const [subtopicId, setSubtopicId] = useState<string>("");
-  const [minutes, setMinutes] = useState(45);
+  // 入力中に空文字列を許容するため number | "" 型にする（保存時に最低1分へ補正）。
+  // 空にした瞬間に Number("") が 0 になり Math.max(1, 0) で強制的に 1 へ戻されると、
+  // 実機で「1が消せず145のような値になってしまう」不具合が起きるため。
+  const [minutes, setMinutes] = useState<number | "">(45);
   const [correctPercent, setCorrectPercent] = useState(70); // 0〜100% で入力
   const [selfReport, setSelfReport] = useState(3);
   // 未入力を許容する任意項目のため null 初期値（minutes 等の必須数値入力とは異なる）
@@ -72,7 +75,7 @@ export function SessionRecord({
       chapterId,
       subtopicId: subtopicId || undefined,
       date: toISODate(new Date()),
-      minutes,
+      minutes: Math.max(1, Number(minutes) || 0),
       correctRate: correctPercent / 100,
       selfReport,
       problemsCompleted: subtopicId ? undefined : problemsCompleted ?? undefined,
@@ -150,7 +153,8 @@ export function SessionRecord({
           type="number"
           min={1}
           value={minutes}
-          onChange={(e) => setMinutes(Math.max(1, Number(e.target.value)))}
+          onChange={(e) => setMinutes(e.target.value === "" ? "" : Number(e.target.value))}
+          onBlur={() => setMinutes((m) => (m === "" || m < 1 ? 1 : m))}
         />
       </label>
 
