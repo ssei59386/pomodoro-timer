@@ -122,7 +122,9 @@ export function Home({
         <p className="muted">
           配点・理解度・テストまでの近さから、優先度の高い章や小項目を割り当てています。
         </p>
-        {plan.length > 0 && (
+        {/* 全部終わった後は「お疲れさま」メッセージの方が優先度が高いので、固定に関する説明文は
+            隠してその分の画面上部を空ける（ux-reviewer P1指摘：完了後も毎回全文表示され続けていた）。 */}
+        {plan.length > 0 && !allPlanItemsCompleted && (
           <p className="muted small">
             今日の計画は、今日最初に開いたときの内容で固定されています。設定を変更しても今日中は反映されず、明日から反映されます。
           </p>

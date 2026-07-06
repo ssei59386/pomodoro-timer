@@ -45,6 +45,14 @@ export function Settings() {
   // 単語帳登録フォームの下書き・エラーは教科ごとに独立させる（教科card内で完結させるため）
   const [vocabDraftBySubject, setVocabDraftBySubject] = useState<Record<string, VocabRangeDraft>>({});
   const [vocabErrorBySubject, setVocabErrorBySubject] = useState<Record<string, string | null>>({});
+  // metadata-block の開閉状態。章ごとに独立させる必要があるため章IDをキーにする
+  // （details/summary のネイティブclickトグルがReact 18環境で機能しないPlaywright実機検証結果を受け、
+  // 自前の開閉状態管理に切り替え）。デフォルトは閉じた状態（未登録キー = false 扱い）。
+  const [openMetadata, setOpenMetadata] = useState<Record<string, boolean>>({});
+
+  const toggleMetadata = (chapterId: string) => {
+    setOpenMetadata((prev) => ({ ...prev, [chapterId]: !prev[chapterId] }));
+  };
 
   const getVocabDraft = (subjectId: string): VocabRangeDraft =>
     vocabDraftBySubject[subjectId] ?? EMPTY_VOCAB_DRAFT;
@@ -203,56 +211,72 @@ export function Settings() {
                     ✕
                   </button>
                 </div>
+                {/* metadata-block（演習問題数・学習範囲・難易度）はスコアリングに使わない補助情報
+                    （CLAUDE.md）。章数が増えるとページが縦に伸びすぎる問題（ux-reviewer P1指摘）の
+                    対策として、既定で閉じたアコーディオンにする。章名・配点・理解度・小項目は
+                    理解度追跡のコア機能なので折りたたまない。 */}
                 <div className="metadata-block">
-                  <div className="metadata-block-head">
-                    <span className="muted small">学習メタデータ（任意）</span>
-                  </div>
-                  <div className="metadata-row">
-                    <label className="field inline">
-                      <span>演習問題数</span>
-                      <input
-                        type="number"
-                        min={0}
-                        placeholder="例：25"
-                        value={c.metadata?.exerciseCount ?? ""}
-                        onChange={(e) =>
-                          updateChapterMetadata(c, {
-                            exerciseCount:
-                              e.target.value === "" ? undefined : Math.max(0, Number(e.target.value)),
-                          })
-                        }
-                      />
-                    </label>
-                  </div>
-                  <div className="metadata-row">
-                    <label className="field">
-                      <span className="muted small">学習範囲</span>
-                      <input
-                        type="text"
-                        placeholder="例：第3章1節〜2節 / 教科書pp.45-62"
-                        value={c.metadata?.learningScope ?? ""}
-                        onChange={(e) => updateChapterMetadata(c, { learningScope: e.target.value })}
-                      />
-                    </label>
-                  </div>
-                  <div className="metadata-row">
-                    <label className="field inline">
-                      <span>章の難易度（3段階）</span>
-                      <select
-                        value={c.metadata?.difficultyLevel ?? ""}
-                        onChange={(e) =>
-                          updateChapterMetadata(c, {
-                            difficultyLevel: e.target.value === "" ? undefined : Number(e.target.value),
-                          })
-                        }
-                      >
-                        <option value="">未設定</option>
-                        <option value={1}>簡単</option>
-                        <option value={2}>中程度</option>
-                        <option value={3}>難しい</option>
-                      </select>
-                    </label>
-                  </div>
+                  <button
+                    type="button"
+                    className="metadata-block-summary"
+                    aria-expanded={openMetadata[c.id] ?? false}
+                    onClick={() => toggleMetadata(c.id)}
+                  >
+                    <span className="metadata-block-arrow" aria-hidden="true">
+                      {openMetadata[c.id] ? "▼" : "▶"}
+                    </span>
+                    詳細情報（演習問題数・学習範囲・難易度）
+                  </button>
+                  {openMetadata[c.id] && (
+                    <>
+                      <div className="metadata-row">
+                        <label className="field inline">
+                          <span>演習問題数</span>
+                          <input
+                            type="number"
+                            min={0}
+                            placeholder="例：25"
+                            value={c.metadata?.exerciseCount ?? ""}
+                            onChange={(e) =>
+                              updateChapterMetadata(c, {
+                                exerciseCount:
+                                  e.target.value === "" ? undefined : Math.max(0, Number(e.target.value)),
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                      <div className="metadata-row">
+                        <label className="field">
+                          <span className="muted small">学習範囲</span>
+                          <input
+                            type="text"
+                            placeholder="例：第3章1節〜2節 / 教科書pp.45-62"
+                            value={c.metadata?.learningScope ?? ""}
+                            onChange={(e) => updateChapterMetadata(c, { learningScope: e.target.value })}
+                          />
+                        </label>
+                      </div>
+                      <div className="metadata-row">
+                        <label className="field inline">
+                          <span>章の難易度（3段階）</span>
+                          <select
+                            value={c.metadata?.difficultyLevel ?? ""}
+                            onChange={(e) =>
+                              updateChapterMetadata(c, {
+                                difficultyLevel: e.target.value === "" ? undefined : Number(e.target.value),
+                              })
+                            }
+                          >
+                            <option value="">未設定</option>
+                            <option value={1}>簡単</option>
+                            <option value={2}>中程度</option>
+                            <option value={3}>難しい</option>
+                          </select>
+                        </label>
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="subtopic-block">
                   <div className="subtopic-block-head">

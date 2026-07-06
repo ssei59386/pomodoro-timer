@@ -375,7 +375,7 @@ input[type="range"] {
 .chapter-draft-row {
   display: flex;
   gap: 8px;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 8px;
 }
 
@@ -562,9 +562,28 @@ input[type="range"] {
   background: #fafbfc;
 }
 
-.metadata-block-head {
-  display: block;
-  margin-bottom: 10px;
+.metadata-block-summary {
+  /* details/summary のネイティブclickトグルがReact 18環境で機能しない実機検証結果を受け、
+     button + useState の自前アコーディオンに変更（ブラウザ既定のボタン見た目をリセット） */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  font-family: inherit;
+  margin-bottom: 8px;
+  /* タップ領域を44px以上に */
+  min-height: 44px;
+}
+
+.metadata-block-arrow {
+  font-size: 11px;
 }
 
 .metadata-row {
@@ -673,7 +692,7 @@ input[type="range"] {
 
 .calendar-weekday {
   text-align: center;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   padding-bottom: 2px;
 }
@@ -689,7 +708,7 @@ input[type="range"] {
   border-radius: 8px;
   background: #fff;
   padding: 6px 2px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text);
 }
 
@@ -782,13 +801,11 @@ input[type="range"] {
   background: #fff;
 }
 
-/* ---- カリキュラム参考データのサジェスト ---- */
+/* ---- カリキュラム参考データのサジェスト ----
+   以前は position: absolute で入力欄の直下に重ねて表示していたが、DOM順で次にある
+   配点欄・難易度表示などを覆い隠して見えなくしてしまう不具合があったため、通常の
+   ドキュメントフローに乗せて高さを確保する形にした（他の要素を押し下げるだけで重ならない）。 */
 .curriculum-suggest-list {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  z-index: 20;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1248,7 +1265,9 @@ input[type="range"] {
 .settings-chapter-row {
   display: flex;
   gap: 8px;
-  align-items: center;
+  /* カリキュラム候補が章名欄の下にインライン展開されて行の高さが伸びても、
+     配点欄・削除ボタンが欄の途中に浮いて見えないよう上端で揃える */
+  align-items: flex-start;
   margin-bottom: 8px;
 }
 
