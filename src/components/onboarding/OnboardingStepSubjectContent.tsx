@@ -100,7 +100,7 @@ export function OnboardingStepSubjectContent({
       {isChapterCapable && (
         <section className="card">
           <h2>章の登録</h2>
-          <p className="muted">章ごとに「名前・配点・今の理解度（自己申告）」を入れてください。</p>
+          <p className="muted">章ごとに「名前・今の理解度（自己申告）」を入れてください。</p>
 
           {subjectChapters.map((c) => (
             <div key={c.key} className="chapter-draft">
@@ -119,17 +119,6 @@ export function OnboardingStepSubjectContent({
                 <button type="button" className="icon-btn" aria-label="削除" onClick={() => removeChapter(c.key)}>
                   ✕
                 </button>
-              </div>
-              <div className="chapter-draft-row">
-                <label className="field inline">
-                  <span>配点</span>
-                  <input
-                    type="number"
-                    min={0}
-                    value={c.pointWeight}
-                    onChange={(e) => updateChapter(c.key, { pointWeight: Math.max(0, Number(e.target.value)) })}
-                  />
-                </label>
               </div>
               <div className="subtopic-block">
                 <div className="subtopic-block-head">

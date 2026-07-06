@@ -27,7 +27,7 @@ const EMPTY_VOCAB_DRAFT: VocabRangeDraft = {
 };
 
 // 仕様書 §7.5 設定
-// テスト日・勉強可能時間・章/配点の編集、データのリセット。
+// テスト日・勉強可能時間・章の編集、データのリセット。
 export function Settings() {
   const {
     data,
@@ -177,7 +177,7 @@ export function Settings() {
 
             {subject.name !== "社会" && subject.name !== "国語" && (
               <>
-                <h4 className="sub-head">章 / 配点</h4>
+                <h4 className="sub-head">章</h4>
                 {chapters.map((c) => (
               <div key={c.id}>
                 <div className="settings-chapter-row">
@@ -192,16 +192,6 @@ export function Settings() {
                       <ChapterCurriculumSuggest query={c.name} subject={subject.name} />
                     )}
                   </div>
-                  <input
-                    type="number"
-                    className="narrow"
-                    min={0}
-                    value={c.pointWeight}
-                    onChange={(e) =>
-                      updateChapter({ ...c, pointWeight: Math.max(0, Number(e.target.value)) })
-                    }
-                    aria-label="配点"
-                  />
                   <button
                     type="button"
                     className="icon-btn"
@@ -213,7 +203,7 @@ export function Settings() {
                 </div>
                 {/* metadata-block（演習問題数・学習範囲・難易度）はスコアリングに使わない補助情報
                     （CLAUDE.md）。章数が増えるとページが縦に伸びすぎる問題（ux-reviewer P1指摘）の
-                    対策として、既定で閉じたアコーディオンにする。章名・配点・理解度・小項目は
+                    対策として、既定で閉じたアコーディオンにする。章名・理解度・小項目は
                     理解度追跡のコア機能なので折りたたまない。 */}
                 <div className="metadata-block">
                   <button
@@ -410,7 +400,6 @@ export function Settings() {
                 addChapter({
                   subjectId: subject.id,
                   name: "新しい章",
-                  pointWeight: 20,
                   understanding: 0.4,
                   targetUnderstanding: DEFAULT_TARGET_UNDERSTANDING,
                   lastStudiedDate: null,

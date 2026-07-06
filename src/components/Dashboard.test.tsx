@@ -26,7 +26,6 @@ const twoSubjectsData: AppData = {
       id: "c1",
       subjectId: "s1",
       name: "二次関数",
-      pointWeight: 20,
       understanding: 0.4,
       targetUnderstanding: 0.8,
       lastStudiedDate: null,
@@ -35,7 +34,6 @@ const twoSubjectsData: AppData = {
       id: "c2",
       subjectId: "s2",
       name: "化学変化",
-      pointWeight: 15,
       understanding: 0.6,
       targetUnderstanding: 0.8,
       lastStudiedDate: null,
@@ -56,7 +54,6 @@ const subtopicChapterData: AppData = {
       id: "c1",
       subjectId: "s1",
       name: "確率",
-      pointWeight: 20,
       understanding: 0.4,
       targetUnderstanding: 0.8,
       lastStudiedDate: null,
@@ -230,13 +227,12 @@ describe("Dashboard", () => {
     expect(screen.getAllByText(/単語帳の進捗/).length).toBeGreaterThan(0);
   });
 
-  it("章があるとき、章名・理解度・目標・配点・テストまでの日数が表示される", () => {
+  it("章があるとき、章名・理解度・目標・テストまでの日数が表示される", () => {
     localStorage.setItem("study-planner-data-v1", JSON.stringify(twoSubjectsData));
     renderDashboard();
 
     expect(screen.getByText("二次関数")).toBeDefined();
     expect(screen.getByText("40% / 目標 80%")).toBeDefined();
-    expect(screen.getByText(/配点 20 点/)).toBeDefined();
     expect(screen.getAllByText(/テストまで \d+ 日/).length).toBeGreaterThan(0);
   });
 
@@ -359,7 +355,6 @@ describe("フェーズ5：見通し（前向きシミュレーション）・切
           id: "c1",
           subjectId: "s1",
           name: "二次関数",
-          pointWeight: 20,
           understanding: 0.4,
           targetUnderstanding: 0.8,
           lastStudiedDate: null,
@@ -405,8 +400,8 @@ describe("フェーズ5：見通し（前向きシミュレーション）・切
     expect(screen.getByText("→ 今日のプランを見る")).toBeDefined();
 
     // トリアージ（切る候補）も同じ小項目について表示される
-    expect(screen.getByText(/時間配分の効率上、優先度を下げる候補です/)).toBeDefined();
-    expect(screen.getByText(/配点効率 [\d.]+ 点\/分/)).toBeDefined();
+    expect(screen.getByText(/時間がかかる項目は他を優先するため、優先度を下げる候補です/)).toBeDefined();
+    expect(screen.getByText(/残り約.+かかる見込みです/)).toBeDefined();
   });
 
   it("「今日のプランを見る」を押すと onGoHome が呼ばれる", () => {

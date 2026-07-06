@@ -50,8 +50,6 @@ export interface Chapter {
   subjectId: string;
   /** 章/単元名（例：「二次関数」） */
   name: string;
-  /** この章のテスト配点（点）。最適化の重み */
-  pointWeight: number;
   /** 現在の推定理解度（0.0〜1.0） */
   understanding: number;
   /** 目標理解度（既定 0.8） */

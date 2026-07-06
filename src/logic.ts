@@ -97,12 +97,13 @@ export function proximity(testDate: string, today: Date): number {
 
 /**
  * 優先度スコア（§6.2）。
- * priority = pointWeight × max(target − understanding, 0) × proximity
+ * priority = max(target − understanding, 0) × proximity
+ * 配点による重み付けは廃止（中高生の定期テストでは生徒が配点を知り得ないため）。
  */
 export function priority(chapter: Chapter, subject: Subject, today: Date): number {
   const currentUnderstanding = decayedUnderstanding(chapter, today);
   const gap = Math.max(chapter.targetUnderstanding - currentUnderstanding, 0);
-  return chapter.pointWeight * gap * proximity(subject.testDate, today);
+  return gap * proximity(subject.testDate, today);
 }
 
 /**
@@ -231,10 +232,10 @@ export function generateTodayPlan(
       const estimate = estimateSubtopicRemainingMinutes(subtopic, today, rates).totalMinutes;
       const target = Math.max(MIN_SUBTOPIC_SESSION_MINUTES, Math.min(SESSION_MINUTES, Math.ceil(estimate)));
       allocatedMinutes = Math.min(target, remaining);
-      reasons = buildSubtopicReasons(chapter, subtopic, subject, chapters, today);
+      reasons = buildSubtopicReasons(chapter, subtopic, subject, today);
     } else {
       allocatedMinutes = Math.min(SESSION_MINUTES, remaining);
-      reasons = buildReasons(chapter, subject, chapters, today);
+      reasons = buildReasons(chapter, subject, today);
     }
 
     plan.push({ chapter, subtopic, subject, allocatedMinutes, priority: score, reasons });
@@ -328,11 +329,11 @@ export function buildPlanFromItemKeys(
       const estimate = estimateSubtopicRemainingMinutes(subtopic, today, rates).totalMinutes;
       const allocatedMinutes = Math.max(MIN_SUBTOPIC_SESSION_MINUTES, Math.min(SESSION_MINUTES, Math.ceil(estimate)));
       const score = subtopicPriority(chapter, subtopic, subject, today);
-      const reasons = buildSubtopicReasons(chapter, subtopic, subject, chapters, today);
+      const reasons = buildSubtopicReasons(chapter, subtopic, subject, today);
       plan.push({ chapter, subtopic, subject, allocatedMinutes, priority: score, reasons });
     } else {
       const score = priority(chapter, subject, today);
-      const reasons = buildReasons(chapter, subject, chapters, today);
+      const reasons = buildReasons(chapter, subject, today);
       plan.push({ chapter, subtopic: null, subject, allocatedMinutes: SESSION_MINUTES, priority: score, reasons });
     }
   }
@@ -340,20 +341,13 @@ export function buildPlanFromItemKeys(
   return plan;
 }
 
-/** 「配点高め／理解度が低め／テストが近い」程度の簡単な根拠（§7.2） */
+/** 「理解度が低め／テストが近い」程度の簡単な根拠（§7.2） */
 function buildReasons(
   chapter: Chapter,
   subject: Subject,
-  allChapters: Chapter[],
   today: Date,
 ): string[] {
   const reasons: string[] = [];
-
-  const weights = allChapters.map((c) => c.pointWeight);
-  const avgWeight = average(weights);
-  if (chapter.pointWeight >= avgWeight) {
-    reasons.push("配点が高め");
-  }
 
   const currentUnderstanding = decayedUnderstanding(chapter, today);
   if (currentUnderstanding < chapter.targetUnderstanding * 0.75) {
@@ -370,21 +364,14 @@ function buildReasons(
   return reasons;
 }
 
-/** 小項目版の「配点高め／理解度が低め／テストが近い／先生のヒントあり」根拠ラベル */
+/** 小項目版の「理解度が低め／テストが近い／先生のヒントあり」根拠ラベル */
 function buildSubtopicReasons(
   chapter: Chapter,
   subtopic: ChapterSubtopic,
   subject: Subject,
-  allChapters: Chapter[],
   today: Date,
 ): string[] {
   const reasons: string[] = [];
-
-  const weights = allChapters.map((c) => c.pointWeight);
-  const avgWeight = average(weights);
-  if (chapter.pointWeight >= avgWeight) {
-    reasons.push("配点が高め");
-  }
 
   const target = subtopic.targetUnderstanding ?? chapter.targetUnderstanding;
   const currentUnderstanding = decayedSubtopicUnderstanding(subtopic, today);
@@ -454,23 +441,6 @@ export function applySessionToSubtopic(chapter: Chapter, subtopicId: string, ses
 // （章単位のロジックは今回のフェーズでは無関係、回帰リスクをゼロに保つ設計方針）。
 
 /**
- * 章の配点（pointWeight）を、その章が持つ小項目の間で均等に按分する。
- * 各小項目の按分weightの合計は常に chapter.pointWeight と一致する
- * （章単位のスコアとの比較可能性を保つため）。
- * 小項目が無い/空の章は空の Map を返す。
- */
-export function subtopicPointWeights(chapter: Chapter): Map<string, number> {
-  const subtopics = chapter.subtopics ?? [];
-  const map = new Map<string, number>();
-  if (subtopics.length === 0) return map;
-  const share = chapter.pointWeight / subtopics.length;
-  for (const subtopic of subtopics) {
-    map.set(subtopic.id, share);
-  }
-  return map;
-}
-
-/**
  * 忘却曲線を適用した小項目の「現在の」推定理解度（read-time のみの計算）。
  * 章版 decayedUnderstanding と同じ減衰式を使う。
  * understanding 未設定なら 0 として扱い、lastStudiedDate 未設定ならその値をそのまま返す（減衰させない）。
@@ -485,8 +455,8 @@ export function decayedSubtopicUnderstanding(subtopic: ChapterSubtopic, today: D
 }
 
 /**
- * 小項目版の優先度スコア。章版 priority と同じ形（配点 × 伸びしろ × 近さ）だが、
- * 配点は subtopicPointWeights で按分した値を使う。
+ * 小項目版の優先度スコア。章版 priority と同じ形（伸びしろ × 近さ）に、
+ * 先生のヒント（teacherHinted）によるブースト（配点とは無関係の実在シグナル）を掛ける。
  */
 /** 先生からのテストヒントがあった小項目の優先度に掛けるボーナス倍率（暫定値） */
 export const TEACHER_HINT_PRIORITY_BOOST = 1.5;
@@ -497,12 +467,11 @@ export function subtopicPriority(
   subject: Subject,
   today: Date,
 ): number {
-  const weight = subtopicPointWeights(chapter).get(subtopic.id) ?? 0;
   const target = subtopic.targetUnderstanding ?? chapter.targetUnderstanding;
   const currentUnderstanding = decayedSubtopicUnderstanding(subtopic, today);
   const gap = Math.max(target - currentUnderstanding, 0);
   const hintMultiplier = subtopic.teacherHinted ? TEACHER_HINT_PRIORITY_BOOST : 1;
-  return weight * gap * proximity(subject.testDate, today) * hintMultiplier;
+  return gap * proximity(subject.testDate, today) * hintMultiplier;
 }
 
 /** 章 or 小項目のどちらを対象にしたスコアかを表す（小項目が無い章は subtopic: null の1件） */
@@ -1079,44 +1048,31 @@ export interface TriageCandidate {
   subtopicId: string | null;
   subjectId: string;
   /**
-   * 配点按分 ÷ totalMinutesNeeded（残り総所要時間）。値が小さいほど「時間対効果が悪い」＝切る候補として優先度が高い。
-   * 分母は shortfallMinutes ではなく totalMinutesNeeded（設計ドキュメント準拠）。
-   * knapsackトリアージの本質は「同じ時間をかけるなら配点が高い方を残す」という時間対効果の比較であり、
-   * 分母に shortfallMinutes（間に合わなかった分）を使うと「間に合わなさが大きいもの」が
-   * 機械的に切られやすくなってしまい、意味が変わる。
-   * subtopicId が null（章レベル）の場合、按分ではなく chapter.pointWeight をそのまま使う
-   * （subtopicPointWeights の「小項目1件＝章全体の按分1件」という考え方と揃える）。
+   * day 0（today）時点で見積もった、この章/小項目を終えるのに必要な総分数。
+   * 値が大きいほど「残り所要時間が長い」＝切る候補として優先度が高い
+   * （時間内に終わらせることが目的である以上、残り時間がかかりすぎるものから優先的に切る、という考え方。
+   * 配点による重み付けは廃止済みのため、時間対効果ではなく所要時間そのものを基準にする）。
    */
-  efficiency: number;
+  totalMinutesNeeded: number;
   shortfallMinutes: number;
 }
 
 /**
- * 前向きシミュレーション結果から「切る候補」を効率の低い順（昇順）に並べる。
+ * 前向きシミュレーション結果から「切る候補」を残り所要時間の長い順（降順）に並べる。
  * ForwardSimulationResult 以外の新たな保存状態は持たない別の純粋関数。
  * shortfallMinutes > 0 の章/小項目のみが対象（間に合う見込みのものは切る必要が無い）。
  */
-export function triageSubtopics(result: ForwardSimulationResult, chapters: Chapter[]): TriageCandidate[] {
-  const chapterById = new Map(chapters.map((c) => [c.id, c]));
-
+export function triageSubtopics(result: ForwardSimulationResult): TriageCandidate[] {
   return result.subtopics
     .filter((forecast) => forecast.shortfallMinutes > 0)
-    .map((forecast) => {
-      const chapter = chapterById.get(forecast.chapterId);
-      const weight = chapter
-        ? forecast.subtopicId
-          ? subtopicPointWeights(chapter).get(forecast.subtopicId) ?? 0
-          : chapter.pointWeight
-        : 0;
-      return {
-        chapterId: forecast.chapterId,
-        subtopicId: forecast.subtopicId,
-        subjectId: forecast.subjectId,
-        efficiency: forecast.totalMinutesNeeded > 0 ? weight / forecast.totalMinutesNeeded : 0,
-        shortfallMinutes: forecast.shortfallMinutes,
-      };
-    })
-    .sort((a, b) => a.efficiency - b.efficiency);
+    .map((forecast) => ({
+      chapterId: forecast.chapterId,
+      subtopicId: forecast.subtopicId,
+      subjectId: forecast.subjectId,
+      totalMinutesNeeded: forecast.totalMinutesNeeded,
+      shortfallMinutes: forecast.shortfallMinutes,
+    }))
+    .sort((a, b) => b.totalMinutesNeeded - a.totalMinutesNeeded);
 }
 
 /** 「間に合わない見込み＋切る候補」を表示するトリガーの閾値（分）。1学習ブロック分程度の暫定値・調整可能 */
@@ -1478,11 +1434,6 @@ export function buildStudyHistory(
 
 export function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
-}
-
-function average(values: number[]): number {
-  if (values.length === 0) return 0;
-  return values.reduce((sum, v) => sum + v, 0) / values.length;
 }
 
 function startOfDay(date: Date): Date {

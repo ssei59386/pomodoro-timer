@@ -11,7 +11,6 @@ const onboardedData: AppData = {
       id: "c1",
       subjectId: "s1",
       name: "二次関数",
-      pointWeight: 20,
       understanding: 0.4,
       targetUnderstanding: 0.8,
       lastStudiedDate: null,
@@ -21,7 +20,6 @@ const onboardedData: AppData = {
       id: "c2",
       subjectId: "s1",
       name: "図形の性質",
-      pointWeight: 10,
       understanding: 0.5,
       targetUnderstanding: 0.8,
       lastStudiedDate: null,
@@ -101,16 +99,6 @@ describe("Settings", () => {
     expect(screen.queryByDisplayValue("二次関数")).toBeNull();
     expect(latestData?.chapters).toHaveLength(1);
     expect(latestData?.chapters[0].name).toBe("図形の性質");
-  });
-
-  it("章の配点を変更すると updateChapter 経由で反映される", () => {
-    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
-    renderSettings();
-
-    const pointWeightInput = screen.getByDisplayValue("20") as HTMLInputElement;
-    fireEvent.change(pointWeightInput, { target: { value: "35" } });
-
-    expect(latestData?.chapters.find((c) => c.id === "c1")?.pointWeight).toBe(35);
   });
 
   it("＋ 章を追加ボタンで新しい章が追加される", () => {

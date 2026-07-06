@@ -58,10 +58,7 @@ export function Dashboard({
     [data.chapters, data.subjects, data.availability, today, data.sessions],
   );
 
-  const triageCandidates = useMemo(
-    () => triageSubtopics(forecast, data.chapters),
-    [forecast, data.chapters],
-  );
+  const triageCandidates = useMemo(() => triageSubtopics(forecast), [forecast]);
 
   // 「まとまった不足がある」かつ「その教科に取り組み始めている」の両方を満たす教科だけ見通しを出す
   const subjectsToSurface = useMemo(
@@ -262,7 +259,7 @@ function formatDayLabel(isoDate: string): string {
  * 1. 断定を避け「今のペースだと」の条件つき表現に統一
  * 2. 予測の直後に必ず「今日のプランを見る」導線を置く
  * 3. 「あくまで目安」トーンを明示
- * 4. 切る候補は「時間配分の効率上」というフレーミングで、効率の数値を見せて算数であることを示す
+ * 4. 切る候補は「時間がかかる項目は他を優先するため」というフレーミングで、頑張り不足ではないことを示す
  */
 function ForecastSection({
   subject,
@@ -328,7 +325,7 @@ function ForecastSection({
       {triageForSubject.length > 0 && (
         <div className="triage-section">
           <p className="triage-note">
-            時間配分の効率上、優先度を下げる候補です（頑張りが足りないという意味ではありません）。
+            時間がかかる項目は他を優先するため、優先度を下げる候補です（頑張りが足りないという意味ではありません）。
           </p>
           <ul className="triage-list">
             {triageForSubject.map((t) => {
@@ -340,7 +337,7 @@ function ForecastSection({
                     {subtopicName ? ` ・ ${subtopicName}` : ""}
                   </span>
                   <span className="triage-efficiency muted small">
-                    配点効率 {t.efficiency.toFixed(2)} 点/分（他の項目より時間対効果が低め）
+                    残り約{formatMinutesLabel(t.totalMinutesNeeded)}かかる見込みです（他の項目より時間がかかるため、優先度を下げる候補です）
                   </span>
                 </li>
               );
@@ -435,8 +432,7 @@ function UnderstandingRow({
         />
       </div>
       <div className="chapter-meta muted">
-        配点 {chapter.pointWeight} 点
-        {chapter.lastStudiedDate ? ` ・ 最終学習 ${chapter.lastStudiedDate}` : " ・ 未学習"}
+        {chapter.lastStudiedDate ? `最終学習 ${chapter.lastStudiedDate}` : "未学習"}
       </div>
 
       {hasSubtopics && (

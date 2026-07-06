@@ -21,7 +21,6 @@ import {
   decayedUnderstanding,
   isValidTimeSlot,
   isPastDate,
-  subtopicPointWeights,
   decayedSubtopicUnderstanding,
   subtopicPriority,
   scoreChapterOrSubtopics,
@@ -83,7 +82,6 @@ function chapter(overrides: Partial<Chapter> = {}): Chapter {
     id: "c1",
     subjectId: "s1",
     name: "二次関数",
-    pointWeight: 20,
     understanding: 0.4,
     targetUnderstanding: 0.8,
     lastStudiedDate: null,
@@ -191,13 +189,6 @@ describe("§6.2 優先度スコア", () => {
     const done = chapter({ understanding: 0.9, targetUnderstanding: 0.8 });
     expect(priority(done, subject, today)).toBe(0);
   });
-
-  it("配点が高いほど priority が高い", () => {
-    const subject: Subject = { id: "s1", name: "数学", testDate: "2026-07-09" };
-    const low = priority(chapter({ pointWeight: 10 }), subject, today);
-    const high = priority(chapter({ pointWeight: 40 }), subject, today);
-    expect(high).toBeGreaterThan(low);
-  });
 });
 
 describe("§6.3 計画生成（貪欲法・1章集中）", () => {
@@ -206,14 +197,14 @@ describe("§6.3 計画生成（貪欲法・1章集中）", () => {
     { id: "s2", name: "理科", testDate: "2026-07-20" },
   ];
   const chapters: Chapter[] = [
-    chapter({ id: "a", subjectId: "s1", pointWeight: 40, understanding: 0.3 }),
-    chapter({ id: "b", subjectId: "s2", pointWeight: 20, understanding: 0.5 }),
-    chapter({ id: "c", subjectId: "s1", pointWeight: 10, understanding: 0.75 }),
+    chapter({ id: "a", subjectId: "s1", understanding: 0.3 }),
+    chapter({ id: "b", subjectId: "s2", understanding: 0.5 }),
+    chapter({ id: "c", subjectId: "s1", understanding: 0.75 }),
   ];
 
   it("優先度の高い順に章を割り当てる", () => {
     const plan = generateTodayPlan(chapters, subjects, 120, today);
-    expect(plan[0].chapter.id).toBe("a"); // 配点高・理解度低・テスト近
+    expect(plan[0].chapter.id).toBe("a"); // 理解度低・テスト近
   });
 
   it("dailyMinutes を超えて割り当てない", () => {
@@ -236,7 +227,6 @@ describe("§6.3 計画生成（フェーズ4.5・小項目単位）", () => {
     const c = chapter({
       id: "a",
       subjectId: "s1",
-      pointWeight: 40,
       understanding: 0.9, // 章レベルの understanding は使われない（デュアルパスで無視される）はず
       subtopics: [
         subtopic({ id: "st1", name: "小項目1", understanding: 0.1, basicProblems: 5 }),
@@ -254,7 +244,6 @@ describe("§6.3 計画生成（フェーズ4.5・小項目単位）", () => {
     const c = chapter({
       id: "a",
       subjectId: "s1",
-      pointWeight: 40,
       subtopics: [
         subtopic({ id: "st1", name: "小項目1", understanding: 0.1, basicProblems: 3 }),
         subtopic({ id: "st2", name: "小項目2", understanding: 0.1, basicProblems: 3 }),
@@ -269,7 +258,6 @@ describe("§6.3 計画生成（フェーズ4.5・小項目単位）", () => {
     const c = chapter({
       id: "a",
       subjectId: "s1",
-      pointWeight: 40,
       subtopics: [
         // 理解度が高く見積もりがほぼ0分になるケース → 下限でクランプされるはず
         subtopic({ id: "st1", name: "ほぼ完了", understanding: 0.99, basicProblems: 1 }),
@@ -290,7 +278,6 @@ describe("§6.3 計画生成（フェーズ4.5・小項目単位）", () => {
     const c = chapter({
       id: "a",
       subjectId: "s1",
-      pointWeight: 40,
       subtopics: [subtopic({ id: "st1", name: "小項目1", understanding: 0, basicProblems: 2 })],
     });
     // デフォルト単価（MINUTES_PER_BASIC_PROBLEM=13）よりずっと軽い実測値を学習させる
@@ -315,7 +302,6 @@ describe("§6.3 計画生成（フェーズ4.5・小項目単位）", () => {
     const c = chapter({
       id: "a",
       subjectId: "s1",
-      pointWeight: 40,
       subtopics: [
         subtopic({ id: "st1", name: "ヒントあり", understanding: 0.1, basicProblems: 3, teacherHinted: true }),
       ],
@@ -328,13 +314,11 @@ describe("§6.3 計画生成（フェーズ4.5・小項目単位）", () => {
     const withSubtopics = chapter({
       id: "a",
       subjectId: "s1",
-      pointWeight: 40,
       subtopics: [subtopic({ id: "st1", name: "小項目1", understanding: 0, basicProblems: 3 })],
     });
     const withoutSubtopics = chapter({
       id: "b",
       subjectId: "s1",
-      pointWeight: 10,
       understanding: 0.75,
     });
     const plan = generateTodayPlan([withSubtopics, withoutSubtopics], subjects, 120, today);
@@ -349,8 +333,8 @@ describe("§6.3 計画生成（フェーズ4.5・小項目単位）", () => {
 
   it("小項目を持たない章のみを渡した場合、既存の generateTodayPlan（章単位・1章45分固定）と完全に一致する", () => {
     const chapters: Chapter[] = [
-      chapter({ id: "a", subjectId: "s1", pointWeight: 40, understanding: 0.3 }),
-      chapter({ id: "c", subjectId: "s1", pointWeight: 10, understanding: 0.75 }),
+      chapter({ id: "a", subjectId: "s1", understanding: 0.3 }),
+      chapter({ id: "c", subjectId: "s1", understanding: 0.75 }),
     ];
     const plan = generateTodayPlan(chapters, subjects, 60, today);
     expect(plan.every((p) => p.subtopic === null)).toBe(true);
@@ -373,17 +357,17 @@ describe("§6.3 フェーズ6：シミュレーションに基づく除外・安
 
   it("availability を渡さない場合は従来通り除外を行わない（後方互換）", () => {
     // 伸びしろが大きく、タイトな時間では絶対に間に合わない章
-    const hopeless = chapter({ id: "a", subjectId: "s1", pointWeight: 20, understanding: 0, targetUnderstanding: 0.8 });
-    const easy = chapter({ id: "b", subjectId: "s1", pointWeight: 20, understanding: 0.75, targetUnderstanding: 0.8 });
+    const hopeless = chapter({ id: "a", subjectId: "s1", understanding: 0, targetUnderstanding: 0.8 });
+    const easy = chapter({ id: "b", subjectId: "s1", understanding: 0.75, targetUnderstanding: 0.8 });
     const plan = generateTodayPlan([hopeless, easy], subjects, 200, today);
     expect(plan.map((p) => p.chapter.id).sort()).toEqual(["a", "b"]);
   });
 
   it("availability を渡すと、まとまった不足が出る章は候補から除外され、間に合う章が優先的に時間を確保する", () => {
     // 伸びしろ0.8 → 見積もり360分必要。1日45分×3日=135分では全く足りない
-    const hopeless = chapter({ id: "a", subjectId: "s1", pointWeight: 20, understanding: 0, targetUnderstanding: 0.8 });
+    const hopeless = chapter({ id: "a", subjectId: "s1", understanding: 0, targetUnderstanding: 0.8 });
     // 伸びしろ0.05 → 見積もり約22.5分。相手が割当を独占してもこの章自身の不足は閾値未満に収まる
-    const easy = chapter({ id: "b", subjectId: "s1", pointWeight: 20, understanding: 0.75, targetUnderstanding: 0.8 });
+    const easy = chapter({ id: "b", subjectId: "s1", understanding: 0.75, targetUnderstanding: 0.8 });
 
     const withoutAvailability = generateTodayPlan([hopeless, easy], subjects, 200, today);
     expect(withoutAvailability.map((p) => p.chapter.id).sort()).toEqual(["a", "b"]);
@@ -394,8 +378,8 @@ describe("§6.3 フェーズ6：シミュレーションに基づく除外・安
   });
 
   it("除外後の候補だけでは dailyMinutes を使い切れない場合、除外された項目がスピルオーバー（2周目）で埋まる", () => {
-    const hopeless = chapter({ id: "a", subjectId: "s1", pointWeight: 20, understanding: 0, targetUnderstanding: 0.8 });
-    const easy = chapter({ id: "b", subjectId: "s1", pointWeight: 20, understanding: 0.75, targetUnderstanding: 0.8 });
+    const hopeless = chapter({ id: "a", subjectId: "s1", understanding: 0, targetUnderstanding: 0.8 });
+    const easy = chapter({ id: "b", subjectId: "s1", understanding: 0.75, targetUnderstanding: 0.8 });
 
     // easy 1件（45分）だけでは埋まらない90分を渡す → 余り45分がスピルオーバーで hopeless に回る
     const plan = generateTodayPlan([hopeless, easy], subjects, 90, today, [], flatAvailability(45));
@@ -404,8 +388,8 @@ describe("§6.3 フェーズ6：シミュレーションに基づく除外・安
   });
 
   it("候補だけで dailyMinutes を使い切れる場合はスピルオーバーが発生しない（除外された項目は入らない）", () => {
-    const hopeless = chapter({ id: "a", subjectId: "s1", pointWeight: 20, understanding: 0, targetUnderstanding: 0.8 });
-    const easy = chapter({ id: "b", subjectId: "s1", pointWeight: 20, understanding: 0.75, targetUnderstanding: 0.8 });
+    const hopeless = chapter({ id: "a", subjectId: "s1", understanding: 0, targetUnderstanding: 0.8 });
+    const easy = chapter({ id: "b", subjectId: "s1", understanding: 0.75, targetUnderstanding: 0.8 });
 
     // easy 1件（45分）ちょうどしか渡さない → 余りが無いのでスピルオーバーは起きない
     const plan = generateTodayPlan([hopeless, easy], subjects, 45, today, [], flatAvailability(45));
@@ -413,15 +397,16 @@ describe("§6.3 フェーズ6：シミュレーションに基づく除外・安
   });
 
   it("スピルオーバーは除外された項目の中でもスコアの高い順に埋める", () => {
-    // 配点30・5どちらも同じ伸びしろ0.8（＝同じ見積もり所要時間）で除外されるが、優先度スコアは配点差で異なる
-    const hopelessHighWeight = chapter({ id: "a", subjectId: "s1", pointWeight: 30, understanding: 0, targetUnderstanding: 0.8 });
-    const hopelessLowWeight = chapter({ id: "b", subjectId: "s1", pointWeight: 5, understanding: 0, targetUnderstanding: 0.8 });
-    const easy = chapter({ id: "c", subjectId: "s1", pointWeight: 20, understanding: 0.75, targetUnderstanding: 0.8 });
+    // 伸びしろ（targetUnderstanding − understanding）が大きいほど見積もり所要時間も長くなり、
+    // どちらも間に合わない見込みで除外されるが、優先度スコアは伸びしろの大きさで異なる
+    const hopelessHighGap = chapter({ id: "a", subjectId: "s1", understanding: 0, targetUnderstanding: 0.9 });
+    const hopelessLowGap = chapter({ id: "b", subjectId: "s1", understanding: 0, targetUnderstanding: 0.7 });
+    const easy = chapter({ id: "c", subjectId: "s1", understanding: 0.75, targetUnderstanding: 0.8 });
 
     // easy(45分) + スピルオーバー1件分(45分)しか入らない90分。2件とも間に合わない見込みだが、
-    // スコアが高い hopelessHighWeight が優先してスピルオーバーに入るはず
+    // スコアが高い hopelessHighGap が優先してスピルオーバーに入るはず
     const plan = generateTodayPlan(
-      [hopelessHighWeight, hopelessLowWeight, easy],
+      [hopelessHighGap, hopelessLowGap, easy],
       subjects,
       90,
       today,
@@ -433,7 +418,7 @@ describe("§6.3 フェーズ6：シミュレーションに基づく除外・安
 
   it("除外の結果、候補が0件になってしまう場合は最優先1件を必ず残す（安全策。スピルオーバー導入後も引き続き成立する）", () => {
     // 唯一の章が間に合わない見込みでも、プランが0件にはならない
-    const hopeless = chapter({ id: "a", subjectId: "s1", pointWeight: 20, understanding: 0, targetUnderstanding: 0.8 });
+    const hopeless = chapter({ id: "a", subjectId: "s1", understanding: 0, targetUnderstanding: 0.8 });
     const plan = generateTodayPlan([hopeless], subjects, 200, today, [], flatAvailability(45));
     expect(plan).toHaveLength(1);
     expect(plan[0].chapter.id).toBe("a");
@@ -444,7 +429,7 @@ describe("buildPlanFromItemKeys（「今日の計画」の固定スナップシ�
   const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-03" }];
 
   it("章単位のitemKeyから、章単位の generateTodayPlan と同じ allocatedMinutes・reasons を再構築する", () => {
-    const c = chapter({ id: "a", subjectId: "s1", pointWeight: 40, understanding: 0.3 });
+    const c = chapter({ id: "a", subjectId: "s1", understanding: 0.3 });
     const plan = buildPlanFromItemKeys([c], subjects, [{ chapterId: "a", subtopicId: null }], today);
 
     expect(plan).toHaveLength(1);
@@ -457,7 +442,6 @@ describe("buildPlanFromItemKeys（「今日の計画」の固定スナップシ�
     const c = chapter({
       id: "a",
       subjectId: "s1",
-      pointWeight: 40,
       subtopics: [subtopic({ id: "st1", name: "小項目1", understanding: 0.1, basicProblems: 5 })],
     });
     const plan = buildPlanFromItemKeys([c], subjects, [{ chapterId: "a", subtopicId: "st1" }], today);
@@ -503,8 +487,8 @@ describe("buildPlanFromItemKeys（「今日の計画」の固定スナップシ�
   });
 
   it("itemKeys の順序をそのまま保持する（優先度順への再ソートはしない）", () => {
-    const low = chapter({ id: "low", subjectId: "s1", pointWeight: 5, understanding: 0.7 });
-    const high = chapter({ id: "high", subjectId: "s1", pointWeight: 40, understanding: 0.1 });
+    const low = chapter({ id: "low", subjectId: "s1", understanding: 0.7 });
+    const high = chapter({ id: "high", subjectId: "s1", understanding: 0.1 });
     const plan = buildPlanFromItemKeys(
       [low, high],
       subjects,
@@ -696,25 +680,6 @@ describe("applySessionToSubtopic", () => {
 describe("小項目単位の優先度スコア", () => {
   const subject: Subject = { id: "s1", name: "数学", testDate: "2026-07-09" };
 
-  describe("subtopicPointWeights", () => {
-    it("小項目が無い/空の章は空の Map を返す", () => {
-      const c = chapter({ pointWeight: 20 });
-      expect(subtopicPointWeights(c).size).toBe(0);
-      expect(subtopicPointWeights(chapter({ pointWeight: 20, subtopics: [] })).size).toBe(0);
-    });
-
-    it("複数の小項目に均等按分し、合計が chapter.pointWeight と一致する", () => {
-      const subtopics = [subtopic({ id: "a" }), subtopic({ id: "b" }), subtopic({ id: "c" })];
-      const c = chapter({ pointWeight: 30, subtopics });
-      const weights = subtopicPointWeights(c);
-      expect(weights.get("a")).toBeCloseTo(10);
-      expect(weights.get("b")).toBeCloseTo(10);
-      expect(weights.get("c")).toBeCloseTo(10);
-      const total = [...weights.values()].reduce((sum, v) => sum + v, 0);
-      expect(total).toBeCloseTo(c.pointWeight);
-    });
-  });
-
   describe("decayedSubtopicUnderstanding", () => {
     it("understanding 未設定なら 0 として扱う", () => {
       const st = subtopic({ understanding: undefined, lastStudiedDate: null });
@@ -740,44 +705,44 @@ describe("小項目単位の優先度スコア", () => {
   });
 
   describe("subtopicPriority", () => {
-    it("按分weight × 伸びしろ × 近さ で計算される", () => {
+    it("伸びしろ × 近さ で計算される（先生ヒント無しなら倍率1）", () => {
       const subtopics = [subtopic({ id: "a" }), subtopic({ id: "b" })];
-      const c = chapter({ pointWeight: 20, targetUnderstanding: 0.8, subtopics });
+      const c = chapter({ targetUnderstanding: 0.8, subtopics });
       const st = { ...subtopics[0], understanding: 0.4, lastStudiedDate: null };
       const score = subtopicPriority(c, st, subject, today);
-      const expected = 10 * Math.max(0.8 - 0.4, 0) * proximity(subject.testDate, today);
+      const expected = Math.max(0.8 - 0.4, 0) * proximity(subject.testDate, today);
       expect(score).toBeCloseTo(expected);
     });
 
     it("targetUnderstanding は小項目側の値があれば優先する", () => {
       const subtopics = [subtopic({ id: "a" })];
-      const c = chapter({ pointWeight: 20, targetUnderstanding: 0.8, subtopics });
+      const c = chapter({ targetUnderstanding: 0.8, subtopics });
       const st = { ...subtopics[0], understanding: 0.5, targetUnderstanding: 0.6, lastStudiedDate: null };
       const score = subtopicPriority(c, st, subject, today);
-      const expected = 20 * Math.max(0.6 - 0.5, 0) * proximity(subject.testDate, today);
+      const expected = Math.max(0.6 - 0.5, 0) * proximity(subject.testDate, today);
       expect(score).toBeCloseTo(expected);
     });
 
     it("understanding/lastStudiedDate 未設定の小項目でもクラッシュせず計算できる", () => {
       const subtopics = [subtopic({ id: "a" })];
-      const c = chapter({ pointWeight: 20, targetUnderstanding: 0.8, subtopics });
+      const c = chapter({ targetUnderstanding: 0.8, subtopics });
       expect(() => subtopicPriority(c, subtopics[0], subject, today)).not.toThrow();
       const score = subtopicPriority(c, subtopics[0], subject, today);
       // understanding未設定 -> 0扱い、gap = 0.8
-      const expected = 20 * 0.8 * proximity(subject.testDate, today);
+      const expected = 0.8 * proximity(subject.testDate, today);
       expect(score).toBeCloseTo(expected);
     });
 
     it("目標到達済み（gap負）の小項目は0にクランプ", () => {
       const subtopics = [subtopic({ id: "a" })];
-      const c = chapter({ pointWeight: 20, targetUnderstanding: 0.8, subtopics });
+      const c = chapter({ targetUnderstanding: 0.8, subtopics });
       const st = { ...subtopics[0], understanding: 0.9, lastStudiedDate: null };
       expect(subtopicPriority(c, st, subject, today)).toBe(0);
     });
 
     it("teacherHinted: true の小項目は、そうでない場合の TEACHER_HINT_PRIORITY_BOOST 倍のスコアになる", () => {
       const subtopics = [subtopic({ id: "a" })];
-      const c = chapter({ pointWeight: 20, targetUnderstanding: 0.8, subtopics });
+      const c = chapter({ targetUnderstanding: 0.8, subtopics });
       const stWithoutHint = { ...subtopics[0], understanding: 0.4, lastStudiedDate: null };
       const stWithHint = { ...stWithoutHint, teacherHinted: true };
       const baseScore = subtopicPriority(c, stWithoutHint, subject, today);
@@ -787,7 +752,7 @@ describe("小項目単位の優先度スコア", () => {
 
     it("teacherHinted: false は teacherHinted 未設定と同じスコアになる（後方互換）", () => {
       const subtopics = [subtopic({ id: "a" })];
-      const c = chapter({ pointWeight: 20, targetUnderstanding: 0.8, subtopics });
+      const c = chapter({ targetUnderstanding: 0.8, subtopics });
       const stUnset = { ...subtopics[0], understanding: 0.4, lastStudiedDate: null };
       const stFalse = { ...stUnset, teacherHinted: false };
       expect(subtopicPriority(c, stFalse, subject, today)).toBeCloseTo(
@@ -798,7 +763,7 @@ describe("小項目単位の優先度スコア", () => {
 
   describe("scoreChapterOrSubtopics", () => {
     it("小項目を持たない章は既存 priority() と同じスコアを1件返す（デュアルパスの後方互換）", () => {
-      const c = chapter({ pointWeight: 20, understanding: 0.4, targetUnderstanding: 0.8 });
+      const c = chapter({ understanding: 0.4, targetUnderstanding: 0.8 });
       const items = scoreChapterOrSubtopics(c, subject, today);
       expect(items).toHaveLength(1);
       expect(items[0].subtopic).toBeNull();
@@ -818,7 +783,7 @@ describe("小項目単位の優先度スコア", () => {
         subtopic({ id: "a", understanding: 0.3, lastStudiedDate: null }),
         subtopic({ id: "b", understanding: 0.7, lastStudiedDate: null }),
       ];
-      const c = chapter({ pointWeight: 20, targetUnderstanding: 0.8, subtopics });
+      const c = chapter({ targetUnderstanding: 0.8, subtopics });
       const items = scoreChapterOrSubtopics(c, subject, today);
       expect(items).toHaveLength(2);
       expect(items.every((i) => i.subtopic !== null)).toBe(true);
@@ -1348,7 +1313,6 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
       const chapterA = chapter({
         id: "a",
         subjectId: "sA",
-        pointWeight: 20,
         understanding: 0,
         targetUnderstanding: 0.8,
         subtopics: [subtopic({ id: "stA", understanding: 0, basicProblems: 1000 })], // 絶対に終わらない量
@@ -1356,7 +1320,6 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
       const chapterB = chapter({
         id: "b",
         subjectId: "sB",
-        pointWeight: 20,
         understanding: 0,
         targetUnderstanding: 0.8,
         subtopics: [subtopic({ id: "stB", understanding: 0, basicProblems: 0 })], // 概念コスト20分のみ
@@ -1386,7 +1349,7 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
         subjectId: "s1",
         subtopics: [subtopic({ id: "st1", understanding: 0, basicProblems: 1 })],
       });
-      const withoutSubtopics = chapter({ id: "b", subjectId: "s1", pointWeight: 100, understanding: 0 });
+      const withoutSubtopics = chapter({ id: "b", subjectId: "s1", understanding: 0 });
       const result = simulateForward([withSubtopics, withoutSubtopics], subjects, dailyAvailability(200), today);
       expect(result.subtopics).toHaveLength(2);
       const withSubtopicsForecast = result.subtopics.find((f) => f.chapterId === "a")!;
@@ -1429,21 +1392,7 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
   });
 
   describe("triageSubtopics", () => {
-    it("shortfallMinutes > 0 の小項目だけを対象に、効率（配点按分 ÷ totalMinutesNeeded）の低い順に並べる", () => {
-      const chapters: Chapter[] = [
-        chapter({
-          id: "x",
-          subjectId: "s1",
-          pointWeight: 40,
-          subtopics: [subtopic({ id: "stA" }), subtopic({ id: "stB" })], // 均等按分で各20
-        }),
-        chapter({
-          id: "y",
-          subjectId: "s1",
-          pointWeight: 10,
-          subtopics: [subtopic({ id: "stC" })], // 按分10
-        }),
-      ];
+    it("shortfallMinutes > 0 の項目だけを対象に、totalMinutesNeeded（残り所要時間）の長い順に並べる", () => {
       const result: ForwardSimulationResult = {
         subtopics: [
           {
@@ -1454,7 +1403,7 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
             projectedCompletionDate: null,
             shortfallMinutes: 50,
             onTrack: false,
-          }, // efficiency = 20/100 = 0.2（所要時間が長い割に配点は同じ → 効率が悪い）
+          },
           {
             chapterId: "x",
             subtopicId: "stB",
@@ -1463,7 +1412,7 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
             projectedCompletionDate: null,
             shortfallMinutes: 10,
             onTrack: false,
-          }, // efficiency = 20/40 = 0.5（shortfallはstAより小さいが、denominatorはtotalMinutesNeededなので効率はこちらが上）
+          },
           {
             chapterId: "y",
             subtopicId: "stC",
@@ -1477,54 +1426,12 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
         subjects: [],
       };
 
-      const candidates = triageSubtopics(result, chapters);
+      const candidates = triageSubtopics(result);
       expect(candidates).toHaveLength(2);
-      // 効率が低い（＝切る候補として優先度が高い）順：stA(0.2) → stB(0.5)
+      // 残り所要時間が長い順（＝切る候補として優先度が高い順）：stA(100分) → stB(40分)
       expect(candidates.map((c) => c.subtopicId)).toEqual(["stA", "stB"]);
-      expect(candidates[0].efficiency).toBeCloseTo(0.2, 5);
-      expect(candidates[1].efficiency).toBeCloseTo(0.5, 5);
-    });
-
-    it("対応する章が見つからない場合は配点按分0として扱う（クラッシュしない）", () => {
-      const result: ForwardSimulationResult = {
-        subtopics: [
-          {
-            chapterId: "missing",
-            subtopicId: "st1",
-            subjectId: "s1",
-            totalMinutesNeeded: 50,
-            projectedCompletionDate: null,
-            shortfallMinutes: 20,
-            onTrack: false,
-          },
-        ],
-        subjects: [],
-      };
-      const candidates = triageSubtopics(result, []);
-      expect(candidates).toHaveLength(1);
-      expect(candidates[0].efficiency).toBe(0);
-    });
-
-    it("totalMinutesNeeded が0（理論上ありえないが防御的に）の場合は efficiency を0として扱う（ゼロ除算を避ける）", () => {
-      const chapters: Chapter[] = [
-        chapter({ id: "x", subjectId: "s1", pointWeight: 20, subtopics: [subtopic({ id: "stA" })] }),
-      ];
-      const result: ForwardSimulationResult = {
-        subtopics: [
-          {
-            chapterId: "x",
-            subtopicId: "stA",
-            subjectId: "s1",
-            totalMinutesNeeded: 0,
-            projectedCompletionDate: null,
-            shortfallMinutes: 5,
-            onTrack: false,
-          },
-        ],
-        subjects: [],
-      };
-      const candidates = triageSubtopics(result, chapters);
-      expect(candidates[0].efficiency).toBe(0);
+      expect(candidates[0].totalMinutesNeeded).toBe(100);
+      expect(candidates[1].totalMinutesNeeded).toBe(40);
     });
   });
 

@@ -32,7 +32,7 @@ import { OnboardingStepOverrides } from "./onboarding/OnboardingStepOverrides";
 import { OnboardingStepReview, type ReviewSubjectSummary } from "./onboarding/OnboardingStepReview";
 
 // 仕様書 §7.1 初期設定 / オンボーディング（本格ステップ式ウィザード版、docs/feature-onboarding-wizard.md）。
-// 数学・理科・英語・社会・国語の5教科と各教科のテスト日、章（名前・配点・自己申告）、勉強可能時間を登録。
+// 数学・理科・英語・社会・国語の5教科と各教科のテスト日、章（名前・自己申告）、勉強可能時間を登録。
 // 社会・国語は暗記専用教科（章を持たず、暗記範囲のみ）— docs/feature-memorization.md 確定設計v4。
 //
 // ステップは「使う教科を選ぶ→テスト日→教科ごとの内容→勉強できる時間→特別な予定→確認画面」の順。
@@ -312,7 +312,6 @@ export function Onboarding() {
         id: chapterId,
         subjectId: subjectIdByKey[c.subjectKey]!,
         name: c.name.trim(),
-        pointWeight: c.pointWeight,
         understanding,
         targetUnderstanding: DEFAULT_TARGET_UNDERSTANDING,
         lastStudiedDate: null,

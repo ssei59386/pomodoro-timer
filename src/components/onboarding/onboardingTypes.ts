@@ -60,7 +60,6 @@ export interface DraftChapter {
   key: string; // フォーム内での一時キー
   subjectKey: SubjectKey;
   name: string;
-  pointWeight: number;
   selfReport: number; // 1〜5
   correctRate: number | null; // 直近の正答率（%表記、未入力なら null）
   subtopics: DraftSubtopic[]; // 空配列なら従来通り chapter 全体の self-report/correctRate を使う
@@ -86,7 +85,6 @@ export function makeBlankChapter(subjectKey: SubjectKey): DraftChapter {
     key: uid(),
     subjectKey,
     name: "",
-    pointWeight: 20,
     selfReport: 3,
     correctRate: null,
     subtopics: [],

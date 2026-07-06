@@ -19,7 +19,6 @@ const onboardedData: AppData = {
       id: "c1",
       subjectId: "s1",
       name: "二次関数",
-      pointWeight: 20,
       understanding: 0.4,
       targetUnderstanding: 0.8,
       lastStudiedDate: null,
