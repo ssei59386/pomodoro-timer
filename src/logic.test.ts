@@ -62,6 +62,7 @@ import {
   PACE_MULTIPLIER_MIN,
   PACE_MULTIPLIER_MAX,
   BASELINE_UNDERSTANDING_GAIN_PER_MINUTE,
+  buildStudyHistory,
 } from "./logic";
 import type { ForwardSimulationResult, SubjectForecastSummary } from "./logic";
 import type {
@@ -1979,5 +1980,73 @@ describe("validateSubjectHasContent", () => {
   it("章か暗記範囲のどちらかが1件以上あればエラー無し", () => {
     expect(validateSubjectHasContent(1, 0)).toBeNull();
     expect(validateSubjectHasContent(0, 1)).toBeNull();
+  });
+});
+
+describe("buildStudyHistory", () => {
+  const subjects: Subject[] = [
+    { id: "s1", name: "数学", testDate: "2026-07-09" },
+    { id: "s2", name: "理科", testDate: "2026-07-09" },
+  ];
+  const chapters: Chapter[] = [
+    chapter({ id: "c1", subjectId: "s1", name: "二次関数" }),
+    chapter({
+      id: "c2",
+      subjectId: "s2",
+      name: "電流",
+      subtopics: [subtopic({ id: "st1", name: "オームの法則" })],
+    }),
+  ];
+
+  function session(overrides: Partial<StudySession> = {}): StudySession {
+    return {
+      id: `sess-${Math.random()}`,
+      chapterId: "c1",
+      date: "2026-06-29",
+      minutes: 30,
+      correctRate: 0.8,
+      selfReport: 4,
+      ...overrides,
+    };
+  }
+
+  it("セッションが1件も無ければ、日数分すべて合計0分・空配列で返す（歯抜けにしない）", () => {
+    const result = buildStudyHistory([], chapters, subjects, today, 7);
+    expect(result).toHaveLength(7);
+    for (const day of result) {
+      expect(day.totalMinutes).toBe(0);
+      expect(day.sessions).toEqual([]);
+    }
+    // 古い日→新しい日の順（末尾が今日）
+    expect(result[6].date).toBe("2026-06-29");
+    expect(result[0].date).toBe("2026-06-23");
+  });
+
+  it("同じ日の複数教科のセッションを合算しつつ、内訳は教科名・章名つきで残す", () => {
+    const sessions: StudySession[] = [
+      session({ id: "a", chapterId: "c1", date: "2026-06-29", minutes: 30 }),
+      session({ id: "b", chapterId: "c2", subtopicId: "st1", date: "2026-06-29", minutes: 20 }),
+    ];
+    const result = buildStudyHistory(sessions, chapters, subjects, today, 7);
+    const todayEntry = result.find((d) => d.date === "2026-06-29")!;
+    expect(todayEntry.totalMinutes).toBe(50);
+    expect(todayEntry.sessions).toEqual(
+      expect.arrayContaining([
+        { subjectName: "数学", chapterName: "二次関数", subtopicName: null, minutes: 30 },
+        { subjectName: "理科", chapterName: "電流", subtopicName: "オームの法則", minutes: 20 },
+      ]),
+    );
+  });
+
+  it("ウィンドウ外の古いセッションは含めない", () => {
+    const sessions: StudySession[] = [session({ id: "old", date: "2026-06-01", minutes: 45 })];
+    const result = buildStudyHistory(sessions, chapters, subjects, today, 7);
+    expect(result.every((d) => d.totalMinutes === 0)).toBe(true);
+  });
+
+  it("days を指定すればその日数ぶん返す", () => {
+    const result = buildStudyHistory([], chapters, subjects, today, 3);
+    expect(result).toHaveLength(3);
+    expect(result.map((d) => d.date)).toEqual(["2026-06-27", "2026-06-28", "2026-06-29"]);
   });
 });

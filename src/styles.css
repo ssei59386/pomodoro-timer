@@ -1157,6 +1157,97 @@ input[type="range"] {
   background: #fbfdff;
 }
 
+/* ---- 学習履歴セクション（直近7日の棒グラフ） ---- */
+.study-history-total {
+  margin: 0 0 12px;
+  font-weight: 600;
+}
+
+.study-history-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 140px;
+}
+
+/* 棒1本＝タップ領域そのもの。<button> でタップ範囲を十分な大きさにする */
+.study-history-bar-btn {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  padding: 4px 2px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+}
+
+.study-history-bar-btn:active {
+  background: #f1f5f9;
+}
+
+.study-history-bar-minutes {
+  font-size: 11px;
+  line-height: 1.2;
+  min-height: 14px;
+}
+
+.study-history-bar-track {
+  position: relative;
+  width: 100%;
+  max-width: 28px;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  background: #f1f5f9;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.study-history-bar-fill {
+  width: 100%;
+  background: var(--primary);
+  border-radius: 999px;
+  transition: height 0.3s ease;
+}
+
+.study-history-bar-fill.today {
+  background: var(--reached);
+}
+
+.study-history-bar-btn-today .study-history-bar-label {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.study-history-bar-label {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.study-history-detail-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.study-history-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
 /* ---- 見通し機能フェーズ5：前向きシミュレーション・トリアージ ---- */
 .forecast-scope-note {
   margin-bottom: 12px;

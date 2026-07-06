@@ -1408,6 +1408,72 @@ export function estimateVocabMinutes(chunkCount: number): { lowMinutes: number; 
   return { lowMinutes, highMinutes };
 }
 
+// ---- 学習履歴（Dashboard の「学習履歴」セクション表示用） --------------
+
+/** 学習履歴の1日ぶんのセッション明細 */
+export interface DailyStudySessionEntry {
+  subjectName: string;
+  chapterName: string;
+  subtopicName: string | null;
+  minutes: number;
+}
+
+/** 学習履歴の1日ぶんの集計 */
+export interface DailyStudyHistory {
+  /** "YYYY-MM-DD" */
+  date: string;
+  totalMinutes: number;
+  sessions: DailyStudySessionEntry[];
+}
+
+/**
+ * 直近 days 日間（今日を含む、古い日→新しい日の順）の日別学習時間履歴を作る。
+ * セッションが1件も無い日も合計0分・空配列として含める（歯抜けにしない。7日固定のローリング
+ * ウィンドウで棒グラフ表示するため、日付が抜けると棒の間隔がズレて見えるのを避ける）。
+ * StudySession 自体は subjectId を持たないため、chapterId から Chapter → subjectId → Subject
+ * と辿って教科名を解決する。
+ */
+export function buildStudyHistory(
+  sessions: StudySession[],
+  chapters: Chapter[],
+  subjects: Subject[],
+  today: Date,
+  days: number = 7,
+): DailyStudyHistory[] {
+  const chapterById = new Map(chapters.map((c) => [c.id, c]));
+  const subjectById = new Map(subjects.map((s) => [s.id, s]));
+
+  const result: DailyStudyHistory[] = [];
+  for (let offset = days - 1; offset >= 0; offset--) {
+    const day = new Date(today);
+    day.setDate(day.getDate() - offset);
+    const dateStr = toISODate(day);
+
+    const entries: DailyStudySessionEntry[] = sessions
+      .filter((s) => s.date === dateStr)
+      .map((s) => {
+        const chapter = chapterById.get(s.chapterId);
+        const subject = chapter ? subjectById.get(chapter.subjectId) : undefined;
+        const subtopicName = s.subtopicId
+          ? chapter?.subtopics?.find((st) => st.id === s.subtopicId)?.name ?? null
+          : null;
+        return {
+          subjectName: subject?.name ?? "",
+          chapterName: chapter?.name ?? "",
+          subtopicName,
+          minutes: s.minutes,
+        };
+      });
+
+    result.push({
+      date: dateStr,
+      totalMinutes: entries.reduce((sum, e) => sum + e.minutes, 0),
+      sessions: entries,
+    });
+  }
+  return result;
+}
+
 // ---- 小さなユーティリティ ---------------------------------------------
 
 export function clamp01(value: number): number {

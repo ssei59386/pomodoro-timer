@@ -10,9 +10,11 @@ import {
   simulateForward,
   triageSubtopics,
   shouldSurfaceForecastForSubject,
+  buildStudyHistory,
   type ProgressTier,
   type ForwardSimulationResult,
   type TriageCandidate,
+  type DailyStudyHistory,
 } from "../logic";
 import type { Chapter, StudySession, Subject } from "../types";
 
@@ -46,6 +48,11 @@ export function Dashboard({
 
   const hasAnySubtopics = data.chapters.some((c) => (c.subtopics?.length ?? 0) > 0);
 
+  const studyHistory = useMemo(
+    () => buildStudyHistory(data.sessions, data.chapters, data.subjects, today),
+    [data.sessions, data.chapters, data.subjects, today],
+  );
+
   const forecast = useMemo(
     () => simulateForward(data.chapters, data.subjects, data.availability, today, data.sessions),
     [data.chapters, data.subjects, data.availability, today, data.sessions],
@@ -72,6 +79,8 @@ export function Dashboard({
       <div className="screen-head">
         <h2>理解度ダッシュボード</h2>
       </div>
+
+      <StudyHistorySection history={studyHistory} />
 
       {hasAnySubtopics && (
         <p className="muted small tier-badge-explainer">
@@ -147,6 +156,103 @@ export function Dashboard({
       )}
     </div>
   );
+}
+
+/**
+ * 「勉強したものを視覚的にわかりやすくしたい」という要望から追加した学習履歴セクション。
+ * 直近7日間（今日を含むローリングウィンドウ）の日別合計学習分数を棒グラフで見せる。
+ * 定期テスト前の短期モチベーション用途のため、全期間ではなく直近7日に絞る（過去の空白期間が
+ * 目立つと逆効果になるため）。単語帳（VocabChunk）は時間を記録していないためスコープ外。
+ */
+function StudyHistorySection({ history }: { history: DailyStudyHistory[] }) {
+  const [expandedDate, setExpandedDate] = useState<string | null>(null);
+
+  const totalMinutes = history.reduce((sum, day) => sum + day.totalMinutes, 0);
+  const hasAnyRecord = totalMinutes > 0;
+  const maxMinutes = Math.max(1, ...history.map((day) => day.totalMinutes));
+  const todayStr = history.length > 0 ? history[history.length - 1].date : "";
+
+  return (
+    <section className="card study-history-section">
+      <h3>学習履歴</h3>
+      {!hasAnyRecord ? (
+        <p className="muted small">
+          まだ記録がありません。セッションを記録すると、ここに学習の様子が表示されます。
+        </p>
+      ) : (
+        <>
+          <p className="study-history-total">直近7日間の合計：{formatMinutesLabel(totalMinutes)}</p>
+          <div className="study-history-chart" role="group" aria-label="直近7日間の学習時間">
+            {history.map((day) => {
+              const isToday = day.date === todayStr;
+              const isExpanded = expandedDate === day.date;
+              const barHeightPct = Math.max(2, Math.round((day.totalMinutes / maxMinutes) * 100));
+              return (
+                <button
+                  key={day.date}
+                  type="button"
+                  className={
+                    isToday
+                      ? "study-history-bar-btn study-history-bar-btn-today"
+                      : "study-history-bar-btn"
+                  }
+                  onClick={() => setExpandedDate((prev) => (prev === day.date ? null : day.date))}
+                  aria-expanded={isExpanded}
+                  aria-label={`${formatDayLabel(day.date)}${isToday ? "（今日）" : ""} ${day.totalMinutes}分`}
+                >
+                  <span className="study-history-bar-minutes muted small">
+                    {day.totalMinutes > 0 ? day.totalMinutes : ""}
+                  </span>
+                  <span className="study-history-bar-track">
+                    <span
+                      className={isToday ? "study-history-bar-fill today" : "study-history-bar-fill"}
+                      style={{ height: `${barHeightPct}%` }}
+                    />
+                  </span>
+                  <span className="study-history-bar-label muted small">{formatDayLabel(day.date)}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {expandedDate && (
+            <StudyHistoryDetail
+              day={history.find((d) => d.date === expandedDate) ?? null}
+            />
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+/** 展開時の内訳表示。合計0分の日を選んだ場合はその旨だけ出す */
+function StudyHistoryDetail({ day }: { day: DailyStudyHistory | null }) {
+  if (!day) return null;
+  return (
+    <ul className="study-history-detail-list">
+      {day.sessions.length === 0 ? (
+        <li className="muted small">この日の記録はありません。</li>
+      ) : (
+        day.sessions.map((entry, i) => (
+          <li key={i} className="study-history-detail-row">
+            <span className="chapter-name">
+              {entry.subjectName}
+              {entry.chapterName ? ` ・ ${entry.chapterName}` : ""}
+              {entry.subtopicName ? ` ・ ${entry.subtopicName}` : ""}
+            </span>
+            <span className="muted small">{formatMinutesLabel(entry.minutes)}</span>
+          </li>
+        ))
+      )}
+    </ul>
+  );
+}
+
+/** "YYYY-MM-DD" を「M/D」表記に整形する（棒グラフの下のラベル用） */
+function formatDayLabel(isoDate: string): string {
+  const [, m, d] = isoDate.split("-");
+  return `${Number(m)}/${Number(d)}`;
 }
 
 /**

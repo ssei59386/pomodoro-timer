@@ -249,8 +249,10 @@ describe("Dashboard", () => {
     expect(screen.getByText("二次関数")).toBeDefined();
     expect(screen.getByText("化学変化")).toBeDefined();
 
-    const sections = document.querySelectorAll("section.card");
-    expect(sections).toHaveLength(2);
+    // 学習履歴セクションなど教科に紐づかない section.card もあるため、
+    // 「教科ごとに分かれているか」は教科見出し（.subject-head）の数で確認する
+    const subjectSections = document.querySelectorAll(".subject-head");
+    expect(subjectSections).toHaveLength(2);
   });
 
   it("小項目を持たない章では見通しバッジ・展開ボタンが表示されない（既存表示に回帰なし）", () => {
@@ -279,6 +281,64 @@ describe("Dashboard", () => {
     expect(screen.getByText("場合の数")).toBeDefined();
     expect(screen.getByText("条件付き確率")).toBeDefined();
     expect(screen.getByText("閉じる")).toBeDefined();
+  });
+});
+
+describe("学習履歴セクション", () => {
+  it("セッション記録が1件も無ければ空状態メッセージが表示される", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(twoSubjectsData));
+    renderDashboard();
+
+    expect(
+      screen.getByText("まだ記録がありません。セッションを記録すると、ここに学習の様子が表示されます。"),
+    ).toBeDefined();
+  });
+
+  it("直近のセッションがあれば週合計と棒グラフが表示される", () => {
+    const data: AppData = {
+      ...twoSubjectsData,
+      sessions: [
+        {
+          id: "sess1",
+          chapterId: "c1",
+          date: toISODate(new Date()),
+          minutes: 30,
+          correctRate: 0.8,
+          selfReport: 4,
+        },
+      ],
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(data));
+    renderDashboard();
+
+    expect(screen.getByText("直近7日間の合計：30分")).toBeDefined();
+    expect(document.querySelectorAll(".study-history-bar-btn")).toHaveLength(7);
+  });
+
+  it("棒をタップするとその日のセッション内訳が展開表示される", () => {
+    const data: AppData = {
+      ...twoSubjectsData,
+      sessions: [
+        {
+          id: "sess1",
+          chapterId: "c1",
+          date: toISODate(new Date()),
+          minutes: 30,
+          correctRate: 0.8,
+          selfReport: 4,
+        },
+      ],
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(data));
+    renderDashboard();
+
+    expect(screen.queryByText(/数学 ・ 二次関数/)).toBeNull();
+
+    const todayBar = document.querySelectorAll(".study-history-bar-btn-today");
+    expect(todayBar).toHaveLength(1);
+    fireEvent.click(todayBar[0]);
+
+    expect(screen.getByText(/数学 ・ 二次関数/)).toBeDefined();
   });
 });
 
