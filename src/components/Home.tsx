@@ -1,12 +1,16 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
 import {
   buildPlanFromItemKeys,
+  collectForecastDecisionPrompts,
+  effectiveStudyMode,
+  forecastDecisionKey,
   getTodaysVocabChunks,
   estimateVocabMinutes,
   daysLeft,
   availableMinutesForDate,
   toISODate,
+  type ForecastDecisionPrompt,
 } from "../logic";
 import type { Chapter, ChapterSubtopic } from "../types";
 import { VOCAB_HEADING_BY_SUBJECT, VOCAB_ITEM_WORD_BY_SUBJECT } from "./vocabLabels";
@@ -22,12 +26,21 @@ export function Home({
   onRecord,
   onGoSettings,
   onVocabQuiz,
+  onShowStudyPolicy,
 }: {
   onRecord: (chapterId?: string, subtopicId?: string) => void;
   onGoSettings: () => void;
   onVocabQuiz: (subjectId: string) => void;
+  onShowStudyPolicy: () => void;
 }) {
-  const { data, ensureTodayPlan } = useStore();
+  const {
+    data,
+    ensureTodayPlan,
+    evaluateForecastDecisions,
+    continueDecision,
+    switchToMemorizeMode,
+    restoreUnderstandMode,
+  } = useStore();
   // 既知の制約（今回はスコープ外、ux-reviewer指摘）: マウント時に1回だけ固定するため、
   // Homeタブを開きっぱなしのまま深夜0時をまたいでも today/todayISO は更新されず、
   // プランは翌日分に自動で切り替わらない。発生頻度が低く、可視性変化の監視などの実装コストに
@@ -44,6 +57,52 @@ export function Home({
     // 実行すべきタイミングは「日付が変わったとき」だけなので、それ以外での再実行は不要。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [todayISO]);
+
+  // 後悔防止トリガー（Phase 2）：前向きシミュレーションに基づく連続shortfall日数を1日1回だけ更新する。
+  // ensureTodayPlan と同じ理由で todayISO のみを依存にする（日付が変わったときだけ再評価すればよい）。
+  useEffect(() => {
+    evaluateForecastDecisions(today);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayISO]);
+
+  const forecastDecisionPrompts = useMemo(
+    () => collectForecastDecisionPrompts(data.chapters, data.forecastDecisions ?? {}, today),
+    [data.chapters, data.forecastDecisions, today],
+  );
+
+  // 「切り替える」を選んだ直後の項目（このセッション中のみ）：問いかけカードと同じ場所に
+  // 事後メッセージ＋「元に戻す」を出すための一時状態。切り替え済みの項目は studyMode が
+  // 'memorize' になり forecastDecisionPrompts から自然に外れるため、ここで別枠に保持しないと
+  // カード自体が消えてしまい取り消し手段が示せない（ux-reviewer指摘）。
+  const [justSwitched, setJustSwitched] = useState<Record<string, ForecastDecisionPrompt>>({});
+
+  const decisionCardEntries = useMemo(() => {
+    const byKey = new Map<string, { prompt: ForecastDecisionPrompt; justSwitched: boolean }>();
+    for (const prompt of forecastDecisionPrompts) {
+      byKey.set(forecastDecisionKey(prompt.chapterId, prompt.subtopicId), { prompt, justSwitched: false });
+    }
+    for (const [key, prompt] of Object.entries(justSwitched)) {
+      if (!byKey.has(key)) byKey.set(key, { prompt, justSwitched: true });
+    }
+    return Array.from(byKey.values());
+  }, [forecastDecisionPrompts, justSwitched]);
+
+  const handleSwitchToMemorize = (prompt: ForecastDecisionPrompt) => {
+    switchToMemorizeMode(prompt.chapterId, prompt.subtopicId);
+    setJustSwitched((prev) => ({
+      ...prev,
+      [forecastDecisionKey(prompt.chapterId, prompt.subtopicId)]: prompt,
+    }));
+  };
+
+  const handleRestoreUnderstandMode = (prompt: ForecastDecisionPrompt) => {
+    restoreUnderstandMode(prompt.chapterId, prompt.subtopicId);
+    setJustSwitched((prev) => {
+      const next = { ...prev };
+      delete next[forecastDecisionKey(prompt.chapterId, prompt.subtopicId)];
+      return next;
+    });
+  };
 
   const todayMinutes = useMemo(
     () => availableMinutesForDate(data.availability, today),
@@ -131,6 +190,24 @@ export function Home({
         )}
       </div>
 
+      {decisionCardEntries.length > 0 && (
+        <ul className="forecast-decision-list">
+          {decisionCardEntries.map(({ prompt, justSwitched: switched }) => (
+            <ForecastDecisionCard
+              key={forecastDecisionKey(prompt.chapterId, prompt.subtopicId)}
+              prompt={prompt}
+              chapters={data.chapters}
+              subjects={data.subjects}
+              justSwitched={switched}
+              onContinue={() => continueDecision(prompt.chapterId, prompt.subtopicId, today)}
+              onSwitchToMemorize={() => handleSwitchToMemorize(prompt)}
+              onRestore={() => handleRestoreUnderstandMode(prompt)}
+              onShowStudyPolicy={onShowStudyPolicy}
+            />
+          ))}
+        </ul>
+      )}
+
       {plan.length === 0 && !hasVocab ? (
         <div className="empty">
           {data.chapters.length === 0 ? (
@@ -214,6 +291,7 @@ export function Home({
               const hasTeacherHint = item.reasons.includes(HINT_REASON_LABEL);
               const visibleReasons = item.reasons.filter((r) => r !== HINT_REASON_LABEL);
               const isCompleted = isItemCompletedToday(item.chapter, item.subtopic);
+              const isMemorizeMode = effectiveStudyMode(item.chapter, item.subtopic) === "memorize";
               return (
                 <li
                   key={`${item.chapter.id}-${item.subtopic?.id ?? "chapter"}`}
@@ -222,6 +300,7 @@ export function Home({
                   <div className="plan-card-top">
                     <div>
                       <span className="subject-tag">{item.subject.name}</span>
+                      {isMemorizeMode && <span className="memorize-mode-badge">🧠 暗記モード</span>}
                       {hasTeacherHint && (
                         <span className="teacher-hint-badge">📌 先生のヒント</span>
                       )}
@@ -282,5 +361,79 @@ export function Home({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * 後悔防止トリガー（Phase 2）の「続ける/切り替える」問いかけカード。
+ * 英語は「訳文を暗記する」、数学・理科は「解き方を覚える」と切り替え先の文言を出し分ける
+ * （docs/feature-study-policy.md「切り替える」を選んだ後の挙動）。
+ * デフォルト方針は「どれだけ時間をかけてもいい＝続ける」なので、視覚的に強い primary は
+ * 「このまま続ける」側に付ける（切り替えるは中立な secondary。ux-reviewer指摘）。
+ * justSwitched が true のときは、選択のやり直しがきくよう「元に戻す」ボタン付きの
+ * 事後メッセージを同じ場所に表示する（取り消し手段。ux-reviewer指摘）。
+ */
+function ForecastDecisionCard({
+  prompt,
+  chapters,
+  subjects,
+  justSwitched,
+  onContinue,
+  onSwitchToMemorize,
+  onRestore,
+  onShowStudyPolicy,
+}: {
+  prompt: ForecastDecisionPrompt;
+  chapters: Chapter[];
+  subjects: { id: string; name: string }[];
+  justSwitched: boolean;
+  onContinue: () => void;
+  onSwitchToMemorize: () => void;
+  onRestore: () => void;
+  onShowStudyPolicy: () => void;
+}) {
+  const chapter = chapters.find((c) => c.id === prompt.chapterId);
+  const subtopic = prompt.subtopicId
+    ? chapter?.subtopics?.find((s) => s.id === prompt.subtopicId) ?? null
+    : null;
+  const subject = subjects.find((s) => s.id === prompt.subjectId);
+  if (!chapter || !subject) return null;
+
+  const itemName = subtopic ? `${chapter.name}・${subtopic.name}` : chapter.name;
+  const switchLabel = subject.name === "英語" ? "訳文暗記に切り替える" : "覚えるモードにする";
+
+  if (justSwitched) {
+    return (
+      <li className="forecast-decision-card forecast-decision-card-confirmed">
+        <p className="forecast-decision-message">
+          {itemName}を暗記モードに切り替えました。明日から「今日やること」には出ません。自分のペースで解き方を覚えて復習してください。
+        </p>
+        <button type="button" className="secondary" onClick={onRestore}>
+          元に戻す
+        </button>
+      </li>
+    );
+  }
+
+  return (
+    <li className="forecast-decision-card">
+      <p className="forecast-decision-message">
+        {itemName}、このままだと他の章が終わらなそうです。
+      </p>
+      <p className="forecast-decision-reason muted small">
+        3日続けて「このペースだと間に合わなそう」と出ています。
+      </p>
+      <div className="forecast-decision-actions">
+        <button type="button" className="primary" onClick={onContinue}>
+          このまま続ける
+        </button>
+        <button type="button" className="secondary" onClick={onSwitchToMemorize}>
+          {switchLabel}
+        </button>
+      </div>
+      <button type="button" className="link-btn forecast-decision-policy-link" onClick={onShowStudyPolicy}>
+        📖 勉強方針を見る
+      </button>
+    </li>
   );
 }

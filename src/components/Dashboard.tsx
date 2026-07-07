@@ -3,6 +3,7 @@ import { useStore } from "../store";
 import {
   daysLeft,
   decayedUnderstanding,
+  effectiveStudyMode,
   subtopicUnderstandingTier,
   subtopicProblemTier,
   worstProgressTier,
@@ -30,9 +31,11 @@ const CHAPTERLESS_SUBJECTS = new Set(["社会", "国語"]);
 export function Dashboard({
   onGoSettings,
   onGoHome,
+  onShowStudyPolicy,
 }: {
   onGoSettings: () => void;
   onGoHome: () => void;
+  onShowStudyPolicy: () => void;
 }) {
   const { data } = useStore();
   const today = useMemo(() => new Date(), []);
@@ -76,6 +79,10 @@ export function Dashboard({
       <div className="screen-head">
         <h2>理解度ダッシュボード</h2>
       </div>
+
+      <button type="button" className="secondary study-policy-entry-btn" onClick={onShowStudyPolicy}>
+        📖 勉強方針を見る
+      </button>
 
       <StudyHistorySection history={studyHistory} />
 
@@ -418,6 +425,9 @@ function UnderstandingRow({
     <li className="understanding-row">
       <div className="understanding-row-head">
         <span className="chapter-name">{chapter.name}</span>
+        {!hasSubtopics && effectiveStudyMode(chapter, null) === "memorize" && (
+          <span className="memorize-mode-badge">🧠 暗記モード</span>
+        )}
         <span className={reached ? "pct reached" : "pct"}>
           {pct}% / 目標 {targetPct}%
         </span>
@@ -458,6 +468,9 @@ function UnderstandingRow({
                 return (
                   <li key={st.id} className="subtopic-progress-row">
                     <span className="chapter-name">{st.name}</span>
+                    {effectiveStudyMode(chapter, st) === "memorize" && (
+                      <span className="memorize-mode-badge">🧠 暗記モード</span>
+                    )}
                     <div className="tier-badge-row">
                       <TierBadge label="理解度" tier={stTier} />
                       {stProblemTiers.basic && <TierBadge label="基礎" tier={stProblemTiers.basic} />}

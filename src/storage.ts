@@ -11,6 +11,7 @@ export const initialData: AppData = {
   vocabRanges: [],
   vocabChunks: [],
   todayPlan: null,
+  forecastDecisions: {},
   onboarded: false,
 };
 

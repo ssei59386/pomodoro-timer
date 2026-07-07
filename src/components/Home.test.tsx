@@ -68,7 +68,12 @@ function renderHome(
 ) {
   return render(
     <StoreProvider>
-      <Home onRecord={onRecord} onGoSettings={() => {}} onVocabQuiz={onVocabQuiz} />
+      <Home
+        onRecord={onRecord}
+        onGoSettings={() => {}}
+        onVocabQuiz={onVocabQuiz}
+        onShowStudyPolicy={() => {}}
+      />
     </StoreProvider>,
   );
 }

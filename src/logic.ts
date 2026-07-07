@@ -3,6 +3,8 @@ import type {
   AvailabilitySettings,
   Chapter,
   ChapterSubtopic,
+  ForecastDecisionState,
+  StudyMode,
   StudySession,
   Subject,
   TimeSlot,
@@ -206,8 +208,11 @@ export function generateTodayPlan(
         score: item.score,
       }));
     })
-    // 既に目標到達（伸びしろ0）の章/小項目は今日やる必要がないので除外
-    .filter((x) => x.score > 0)
+    // 既に目標到達（伸びしろ0）の章/小項目は今日やる必要がないので除外。
+    // 暗記モード（studyMode: 'memorize'、後悔防止トリガーで「切り替える」を選んだ項目）は、
+    // 意識的に深い理解を諦めた項目なので、理解度を無理に上げにいく貪欲割当の対象からも外す
+    // （Phase 2、docs/feature-study-policy.md。完全な計画再設計はしない最小限の変更）。
+    .filter((x) => x.score > 0 && effectiveStudyMode(x.chapter, x.subtopic) !== "memorize")
     .sort((a, b) => b.score - a.score);
 
   const candidates = excludeUnlikelyToFinish(scored, chapters, subjects, availability, today, sessions);
@@ -472,6 +477,16 @@ export function subtopicPriority(
   const gap = Math.max(target - currentUnderstanding, 0);
   const hintMultiplier = subtopic.teacherHinted ? TEACHER_HINT_PRIORITY_BOOST : 1;
   return gap * proximity(subject.testDate, today) * hintMultiplier;
+}
+
+/**
+ * 章/小項目の「有効な」studyMode（後悔防止トリガー機能、Phase 2）。
+ * 小項目がある場合は subtopic.studyMode が優先される（chapter.studyMode は小項目が無い章のみ意味を持つ）。
+ * 未設定は 'understand' 扱い。
+ */
+export function effectiveStudyMode(chapter: Chapter, subtopic: ChapterSubtopic | null): StudyMode {
+  if (subtopic) return subtopic.studyMode ?? "understand";
+  return chapter.studyMode ?? "understand";
 }
 
 /** 章 or 小項目のどちらを対象にしたスコアかを表す（小項目が無い章は subtopic: null の1件） */
@@ -945,6 +960,9 @@ export function simulateForward(
 
     const subtopics = chapter.subtopics ?? [];
     if (subtopics.length === 0) {
+      // 暗記モードの章は意識的に深い理解を諦めた項目なので、シミュレーション自体の対象から外す
+      // （shortfall会計・切る候補（triageSubtopics）から除外するため。Phase 2）。
+      if (effectiveStudyMode(chapter, null) === "memorize") continue;
       const totalMinutesNeeded = estimateChapterRemainingMinutes(chapter, today, paceMultiplier);
       items.push({
         chapter,
@@ -958,6 +976,7 @@ export function simulateForward(
     }
 
     for (const subtopic of subtopics) {
+      if (effectiveStudyMode(chapter, subtopic) === "memorize") continue;
       const totalMinutesNeeded = estimateSubtopicRemainingMinutes(subtopic, today, rates, paceMultiplier).totalMinutes;
       items.push({
         chapter,
@@ -1099,6 +1118,196 @@ export function shouldSurfaceForecastForSubject(
   if (summary.totalShortfallMinutes <= FORECAST_SHORTFALL_THRESHOLD_MINUTES) return false;
   const chapterIds = new Set(chapters.filter((c) => c.subjectId === summary.subjectId).map((c) => c.id));
   return sessions.some((s) => chapterIds.has(s.chapterId));
+}
+
+// ---- 後悔防止トリガー（Phase 2、docs/feature-study-policy.md 参照） ----
+// 「テストが終わった後の後悔（この単元にもっと時間をかけていれば…）」を防ぐため、
+// simulateForward の結果を毎日1回だけ評価し、ある章/小項目が3日連続で「間に合わない候補」
+// （shortfallMinutes > 0）に入り続けたら、Home で「続ける／切り替える」を問いかける。
+// 対象は章を持つ教科（数学・理科・英語）のみ。社会は現状 vocab 専用で章が無いため、
+// chapters配列に社会の章がそもそも存在せず、自動的に対象外になる（Phase 3の章化まで対象外）。
+
+/** 何日連続で shortfall があれば問いかけを出すか（暫定値） */
+export const SHORTFALL_STREAK_THRESHOLD_DAYS = 3;
+
+/** 「続ける」を選んだときに再確認を抑制する日数（暫定値） */
+export const FORECAST_DECISION_SNOOZE_DAYS = 3;
+
+/** 章/小項目1件を指す合成キー（generateTodayPlan 内で使っているのと同じ形に揃える） */
+export function forecastDecisionKey(chapterId: string, subtopicId: string | null): string {
+  return `${chapterId}:${subtopicId ?? ""}`;
+}
+
+/**
+ * simulateForward の結果から、各章/小項目の「連続shortfall日数」を1日1回だけ更新する。
+ * ensureTodayPlan（store.tsx）と同じ「同日なら二重カウントしない」パターンを踏襲し、
+ * lastEvaluatedDate が既に今日と一致する項目はそのまま前回の状態を保持する
+ * （呼び出し側が1日に何度呼んでもストリークが余計に進まないようにするための安全策）。
+ * shortfallMinutes > 0 の日はストリーク+1、0（間に合う見込みに戻った）日は0にリセットする。
+ * studyMode === 'memorize' の項目（意識的に諦めた項目）は forecast.subtopics 自体に
+ * 含まれない（simulateForward 側で除外済み）ため自然に評価対象から外れるが、念のため
+ * ここでも同じ判定を明示しておく（simulateForward の除外実装が変わっても壊れないように）。
+ */
+export function updateForecastDecisions(
+  forecast: ForwardSimulationResult,
+  chapters: Chapter[],
+  previous: Record<string, ForecastDecisionState>,
+  today: Date,
+): Record<string, ForecastDecisionState> {
+  const todayISO = toISODate(today);
+  const chapterById = new Map(chapters.map((c) => [c.id, c]));
+  const next: Record<string, ForecastDecisionState> = { ...previous };
+
+  for (const item of forecast.subtopics) {
+    const chapter = chapterById.get(item.chapterId);
+    if (!chapter) continue;
+    const subtopic = item.subtopicId
+      ? (chapter.subtopics ?? []).find((s) => s.id === item.subtopicId) ?? null
+      : null;
+    if (effectiveStudyMode(chapter, subtopic) === "memorize") continue;
+
+    const key = forecastDecisionKey(item.chapterId, item.subtopicId);
+    const existing = next[key];
+    if (existing && existing.lastEvaluatedDate === todayISO) continue;
+
+    const shortfallStreak = item.shortfallMinutes > 0 ? (existing?.shortfallStreak ?? 0) + 1 : 0;
+    next[key] = {
+      shortfallStreak,
+      lastEvaluatedDate: todayISO,
+      snoozeUntilDate: existing?.snoozeUntilDate,
+    };
+  }
+
+  return next;
+}
+
+/**
+ * 「続ける／切り替える」を問いかけるべきかどうかの判定。
+ * ストリークが閾値未満、暗記モードに切り替え済み、または「続ける」を選んだ直後で
+ * まだ snoozeUntilDate（未来日）を過ぎていない場合は問いかけない。
+ */
+export function shouldPromptForecastDecision(
+  state: ForecastDecisionState | undefined,
+  studyMode: StudyMode,
+  today: Date,
+): boolean {
+  if (!state) return false;
+  if (studyMode === "memorize") return false;
+  if (state.shortfallStreak < SHORTFALL_STREAK_THRESHOLD_DAYS) return false;
+  if (state.snoozeUntilDate && daysSince(state.snoozeUntilDate, today) < 0) return false;
+  return true;
+}
+
+/**
+ * 「このまま続ける」を選んだ結果の新しい状態。ストリークを0に戻し、
+ * today から FORECAST_DECISION_SNOOZE_DAYS 日後まで再確認を抑制する。
+ */
+export function snoozeForecastDecision(today: Date): ForecastDecisionState {
+  const snoozeDate = new Date(today);
+  snoozeDate.setDate(snoozeDate.getDate() + FORECAST_DECISION_SNOOZE_DAYS);
+  return {
+    shortfallStreak: 0,
+    lastEvaluatedDate: toISODate(today),
+    snoozeUntilDate: toISODate(snoozeDate),
+  };
+}
+
+/**
+ * 「解き方/訳文を覚えるモードに切り替える」を選んだ結果の章の更新。
+ * 小項目が指定されていればその小項目の studyMode のみを切り替え（章本体は変更しない）、
+ * 指定が無ければ章本体の studyMode を切り替える。該当する小項目が見つからない場合は
+ * 章をそのまま返す（applySessionToSubtopic と同じ安全策）。
+ */
+export function switchToMemorizeMode(chapter: Chapter, subtopicId: string | null): Chapter {
+  if (!subtopicId) return { ...chapter, studyMode: "memorize" };
+  const subtopics = chapter.subtopics ?? [];
+  const index = subtopics.findIndex((s) => s.id === subtopicId);
+  if (index === -1) return chapter;
+  const updatedSubtopics = [...subtopics];
+  updatedSubtopics[index] = { ...updatedSubtopics[index], studyMode: "memorize" };
+  return { ...chapter, subtopics: updatedSubtopics };
+}
+
+/**
+ * switchToMemorizeMode の逆操作。「切り替える」に取り消し手段が無いのは CLAUDE.md の
+ * 「取り消しのつくUI」方針に反する（ux-reviewer指摘）ため追加。studyMode を 'understand' に
+ * 戻すだけで、暗記モード中に何を勉強したかの記録（セッション等）自体は変更しない。
+ */
+export function restoreUnderstandMode(chapter: Chapter, subtopicId: string | null): Chapter {
+  if (!subtopicId) return { ...chapter, studyMode: "understand" };
+  const subtopics = chapter.subtopics ?? [];
+  const index = subtopics.findIndex((s) => s.id === subtopicId);
+  if (index === -1) return chapter;
+  const updatedSubtopics = [...subtopics];
+  updatedSubtopics[index] = { ...updatedSubtopics[index], studyMode: "understand" };
+  return { ...chapter, subtopics: updatedSubtopics };
+}
+
+/** Home に表示すべき「続ける/切り替える」問いかけ1件（対象の章/小項目・教科を指す） */
+export interface ForecastDecisionPrompt {
+  chapterId: string;
+  subtopicId: string | null;
+  subjectId: string;
+}
+
+/**
+ * 今、問いかけを出すべき章/小項目を集める。chapters を走査するだけで自然に
+ * 「章を持つ教科（数学・理科・英語）のみ」に絞られる（社会は章を持たないため）。
+ */
+export function collectForecastDecisionPrompts(
+  chapters: Chapter[],
+  forecastDecisions: Record<string, ForecastDecisionState>,
+  today: Date,
+): ForecastDecisionPrompt[] {
+  const prompts: ForecastDecisionPrompt[] = [];
+  for (const chapter of chapters) {
+    const subtopics = chapter.subtopics ?? [];
+    if (subtopics.length === 0) {
+      const key = forecastDecisionKey(chapter.id, null);
+      if (shouldPromptForecastDecision(forecastDecisions[key], effectiveStudyMode(chapter, null), today)) {
+        prompts.push({ chapterId: chapter.id, subtopicId: null, subjectId: chapter.subjectId });
+      }
+      continue;
+    }
+    for (const subtopic of subtopics) {
+      const key = forecastDecisionKey(chapter.id, subtopic.id);
+      if (shouldPromptForecastDecision(forecastDecisions[key], effectiveStudyMode(chapter, subtopic), today)) {
+        prompts.push({ chapterId: chapter.id, subtopicId: subtopic.id, subjectId: chapter.subjectId });
+      }
+    }
+  }
+  return prompts;
+}
+
+/** Settings の「暗記モードに切り替えた項目」一覧1件（対象の章/小項目・教科を指す） */
+export interface MemorizeModeItem {
+  chapterId: string;
+  subtopicId: string | null;
+  subjectId: string;
+}
+
+/**
+ * studyMode === 'memorize' の章/小項目をすべて集める（Settings の恒久的な「理解モードに戻す」
+ * 導線用。ux-reviewer指摘：取り消し手段が Home のインライン事後表示だけだと、そのセッションを
+ * 離れた後に戻す手段が無くなる）。
+ */
+export function collectMemorizeModeItems(chapters: Chapter[]): MemorizeModeItem[] {
+  const items: MemorizeModeItem[] = [];
+  for (const chapter of chapters) {
+    const subtopics = chapter.subtopics ?? [];
+    if (subtopics.length === 0) {
+      if (effectiveStudyMode(chapter, null) === "memorize") {
+        items.push({ chapterId: chapter.id, subtopicId: null, subjectId: chapter.subjectId });
+      }
+      continue;
+    }
+    for (const subtopic of subtopics) {
+      if (effectiveStudyMode(chapter, subtopic) === "memorize") {
+        items.push({ chapterId: chapter.id, subtopicId: subtopic.id, subjectId: chapter.subjectId });
+      }
+    }
+  }
+  return items;
 }
 
 // ---- 英単語暗記（確定設計 v3、docs/feature-memorization.md 参照） ----

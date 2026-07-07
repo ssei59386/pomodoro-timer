@@ -20,6 +20,13 @@ export interface ChapterMetadata {
 }
 
 /**
+ * 章・小項目が「理解を目指す（理解度ラダーを上げにいく）」のか「暗記に切り替えた（深い理解を
+ * 諦め、解き方・訳文を丸暗記する）」のかを表す（後悔防止トリガー機能、Phase 2、
+ * docs/feature-study-policy.md）。未設定（undefined）は 'understand' 扱い。
+ */
+export type StudyMode = "understand" | "memorize";
+
+/**
  * 章内の小項目。
  * 元々は名前のみの情報管理（学習範囲を見返すための一覧）だったが、
  * 「見通し」機能フェーズ1で小項目単位の理解度追跡・所要時間見積もりに対応するため、
@@ -42,6 +49,8 @@ export interface ChapterSubtopic {
   difficultyLevel?: 1 | 2 | 3 | 4 | 5;
   /** 先生からテストに出るヒント（言及・強調など）があったかどうか。優先度計算にボーナスを与える */
   teacherHinted?: boolean;
+  /** 後悔防止トリガーで「切り替える」を選んだ結果（Phase 2）。未設定は 'understand' 扱い */
+  studyMode?: StudyMode;
 }
 
 /** 章 ＝ 理解度管理の最小単位 */
@@ -62,6 +71,12 @@ export interface Chapter {
   metadata?: ChapterMetadata;
   /** 小項目（名前のみ。理解度追跡やセッション記録とは連動しない情報管理用） */
   subtopics?: ChapterSubtopic[];
+  /**
+   * 後悔防止トリガーで「切り替える」を選んだ結果（Phase 2）。この章が小項目を持つ場合、
+   * 各小項目の studyMode（ChapterSubtopic.studyMode）が優先され、こちらは使われない
+   * （小項目が無い章のみが対象）。未設定は 'understand' 扱い。
+   */
+  studyMode?: StudyMode;
 }
 
 /** 学習セッションの記録ログ */
@@ -144,6 +159,19 @@ export interface VocabChunk {
   completed: boolean;
 }
 
+/**
+ * 後悔防止トリガー（Phase 2、docs/feature-study-policy.md）の、章/小項目1件ぶんの追跡状態。
+ * キーは logic.ts の forecastDecisionKey(chapterId, subtopicId) で作る合成キー。
+ */
+export interface ForecastDecisionState {
+  /** 前向きシミュレーションで「不足あり」と判定された連続日数 */
+  shortfallStreak: number;
+  /** 直近に評価した日（同日の二重カウント防止に使う。"YYYY-MM-DD"） */
+  lastEvaluatedDate: string;
+  /** 「続ける」を選んだ結果の再確認抑制日（この日以降に再評価する。"YYYY-MM-DD"、未設定なら抑制なし） */
+  snoozeUntilDate?: string;
+}
+
 /** アプリ全体の永続化データ */
 export interface AppData {
   subjects: Subject[];
@@ -160,6 +188,11 @@ export interface AppData {
    * （logic.ts の buildPlanFromItemKeys）。未生成なら null。
    */
   todayPlan: { date: string; itemKeys: { chapterId: string; subtopicId: string | null }[] } | null;
+  /**
+   * 後悔防止トリガー（Phase 2）の追跡状態。キーは logic.ts の forecastDecisionKey(chapterId, subtopicId)。
+   * 章を持つ教科（数学・理科・英語）のみが対象（社会は章を持たないため対象外）。
+   */
+  forecastDecisions?: Record<string, ForecastDecisionState>;
   /** オンボーディング完了フラグ */
   onboarded: boolean;
 }

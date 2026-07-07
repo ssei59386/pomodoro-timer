@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-定期テスト学習進捗管理アプリ（Phase 0 最小版）— a mobile-first PWA that helps students maximize exam scores by managing per-chapter understanding levels: self-report/measure understanding → allocate study time to chapters that will move the score most → re-measure and re-plan. Target subjects in Phase 0 are 数学 (math) and 理科 (science) only. No backend, no login — all data lives in the browser's `localStorage`.
+定期テスト学習進捗管理アプリ（Phase 0 最小版）— a mobile-first PWA that helps students maximize exam scores by managing per-chapter understanding levels: self-report/measure understanding → allocate study time to chapters that will move the score most → re-measure and re-plan. No backend, no login — all data lives in the browser's `localStorage`.
 
-AI features, all 5 subjects, and rote-memorization mode are explicitly out of scope for this phase (see README.md). Forgetting-curve decay was originally listed as out of scope but has since been implemented — see `decayedUnderstanding` below.
+**教科は5つ実装済み**（数学・理科・英語＝章を持つ理解度追跡型、社会・国語＝暗記専用でLeitner反復管理）。README.md や以前のこのファイルには「Phase 0 は数学・理科のみ」「5教科は対象外」とあったが、それは**古い記述**で、実際は英語・社会・国語まで拡張済み（`docs/feature-memorization.md`、`onboarding/onboardingTypes.ts` の SUBJECT_ORDER 参照）。暗記モードは実装済み。Forgetting-curve decay も実装済み（`decayedUnderstanding`、下記参照）。AI機能のみが引き続き明確にスコープ外。
 
 ## Commands
 
@@ -100,17 +100,19 @@ Still-open backlog items from that history (not yet scoped/resolved, low priorit
 
 **Curriculum reference data (math + science): RESOLVED, both fully built and integrated** into the "見通し" feature's suggestion layer (`src/data/curriculumSearch.ts`). Full research-task history is in **`docs/curriculum-data.md`**.
 
-## セッション引き継ぎメモ（2026-07-07、学習履歴セクション追加＋配点撤廃セッション終了時点）
+## セッション引き継ぎメモ（2026-07-08、勉強方針・後悔防止トリガー機能 Phase 1+2 完了時点）
 
-**オンボーディングの本格ウィザード化は完了済み**（実装内容・残りのUXバックログは `docs/feature-onboarding-wizard.md` 参照）。
+**オンボーディングの本格ウィザード化は完了済み**（`docs/feature-onboarding-wizard.md` 参照）。
 
-**このセッションでやったこと・詳細は `docs/pointweight-removal-2026-07-07.md` を読むこと。** 要点のみここに残す:
+**このセッションでやったこと・詳細は `docs/feature-study-policy.md` を読むこと**（決定事項・フェーズ計画・見送り事項が全部そこにある）。要点のみここに残す:
 
-- Dashboardに「学習履歴」セクション（直近7日間の日別学習時間を棒グラフ表示、タップで内訳展開）を追加（`buildStudyHistory`、上記Core algorithms参照）。commit `806db2a`。
-- 配点(pointWeight)機能を完全撤廃。優先度は理解度不足×テストの近さのみで決定、「切る候補」も残り所要時間が長い順に変更。ceoとの2回の議論（1回目は3択セレクトへの妥協案→ユーザーの再反論を受けて2回目で完全撤廃に転換）と、CTO提案の実装方式に自分で見つけた技術的欠陥（教科横断比較でのバイアス）の詳細は上記docsファイル参照。commit `b3cf578`。
-- 両方ともcommit・push済み、テスト344件・型チェックともにパス、Playwright実機確認済み。
-- 未確認事項：`src/components/`配下に未追跡の「〜コピー.tsx」ファイルが6件ある（ChapterCurriculumSuggest/CurriculumSubtopicPicker/CurriculumSuggestの本体＋テスト）。今回の作業とは無関係で、いつからあるか・意図的かは未確認のまま。次回、ユーザーに要不要を確認すること。
-- 残作業（変更なし、そのまま）：エクスポート/インポート機能（複数端末同期の代替、まだ未実装）、数値inputの`Math.max`即時強制パターンの横展開チェック（上記「実装上の既知の注意点」参照、未実施）。
+- **「勉強方針・後悔防止トリガー」機能の Phase 1+2 を実装**。目的は「テスト後に『この単元に時間をかけすぎた、別科目に回せば良かった』という後悔をその場で防ぐ」こと。既存「見通し」機能を、黙って表示するだけ→能動的に問いかける形へ格上げ。
+  - **Phase 1（勉強方針画面）**: `src/data/studyPolicy.ts`（教科ごとの理解度1〜5ラダー＝各段階の「達成したこと／次にやること」の単一の情報源）＋ `src/components/StudyPolicy.tsx`（理解度タブ上部の「勉強方針を見る」から開くサブ画面、登録教科のみ表示）。
+  - **Phase 2（3日連続トリガー）**: ある章/小項目が3日連続で `simulateForward` の「間に合わない候補（shortfall>0）」に入ったら Home で「このまま続ける／覚えるモードにする」を問いかける。`Chapter`/`ChapterSubtopic` に `studyMode?: 'understand'|'memorize'` を追加、`AppData.forecastDecisions` に連続日数・スヌーズを persist。memorize 化した項目は `generateTodayPlan`/`simulateForward` から除外。関連純粋関数は `logic.ts` の「後悔防止トリガー」節（`updateForecastDecisions`/`shouldPromptForecastDecision`/`switchToMemorizeMode`/`restoreUnderstandMode`/`collectMemorizeModeItems` 等）。取り消し導線あり（切替直後のインライン「元に戻す」＋設定画面の一覧）。
+  - テスト375件・型チェックともにパス、Playwright実機確認済み（ux-reviewer指摘の重大3件＋中程度も対応済み）。
+- **Phase 3（未着手・要再設計、着手前に必ずユーザーと相談）**: 理解度の**更新エンジン自体**を達成段階ベースへ作り替え／社会を「暗記専用」から「章＋周回カウント」へ移行／英語の文法・読解トラック分割／暗記モードの Leitner フル合流。ux-reviewer指摘の「勉強方針が教える段階モデルと、実際の記録入力（SelfReportPicker の全然〜完璧）の言葉の食い違い」もこの Phase 3 で解消する既知ギャップ。
+- 未確認事項（変更なし）：`src/components/`配下の未追跡「〜コピー.tsx」6件。今回も未着手・未確認。次回ユーザーに要不要を確認すること。
+- 残作業（変更なし）：エクスポート/インポート機能（未実装）、数値inputの`Math.max`即時強制パターンの横展開チェック（未実施）。
 
 **その他の見送り中バックログ（低優先）：**
 - 国語・社会のさらなる暗記展開：構造上は「番号で管理する暗記範囲（VocabRange、labelは自由テキスト）」を複数登録すれば文法・漢文句法等も既に載る。唯一の引っかかりは表示名が教科固定（`vocabLabels.ts` の「国語＝今日の漢字・古文単語」）で範囲ごとに出し分けられない点。ユーザーは「実装しないでいい」と保留。

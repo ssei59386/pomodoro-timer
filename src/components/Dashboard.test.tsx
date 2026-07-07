@@ -74,7 +74,7 @@ const subtopicChapterData: AppData = {
 function renderDashboard(onGoSettings: () => void = () => {}, onGoHome: () => void = () => {}) {
   return render(
     <StoreProvider>
-      <Dashboard onGoSettings={onGoSettings} onGoHome={onGoHome} />
+      <Dashboard onGoSettings={onGoSettings} onGoHome={onGoHome} onShowStudyPolicy={() => {}} />
     </StoreProvider>,
   );
 }

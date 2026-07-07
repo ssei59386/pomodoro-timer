@@ -22,9 +22,15 @@ import {
   applySessionToSubtopic,
   availableMinutesForDate,
   completeVocabChunk as completeVocabChunkPure,
+  forecastDecisionKey,
   generateChunksForRange,
   generateTodayPlan,
+  restoreUnderstandMode as restoreUnderstandModePure,
+  simulateForward,
+  snoozeForecastDecision,
+  switchToMemorizeMode as switchToMemorizeModePure,
   toISODate,
+  updateForecastDecisions,
 } from "./logic";
 import { clearData, initialData, loadData, saveData, uid } from "./storage";
 
@@ -47,6 +53,19 @@ interface StoreValue {
    * あれば何もしない（1件記録するたびに次善の項目が滑り込んでくる挙動を防ぐための固定化）。
    */
   ensureTodayPlan: (today: Date) => void;
+  /**
+   * 後悔防止トリガー（Phase 2）：前向きシミュレーション結果から連続shortfall日数を1日1回だけ更新する。
+   * updateForecastDecisions 自体が同日の二重カウントを防ぐので、ensureTodayPlan と違い
+   * ここでの no-op ガードは無い（呼び出し側の Home useEffect が todayISO 変化時のみ呼ぶことで
+   * 実質1日1回になる）。
+   */
+  evaluateForecastDecisions: (today: Date) => void;
+  /** 「このまま続ける」：ストリークをリセットし、数日は再確認しない */
+  continueDecision: (chapterId: string, subtopicId: string | null, today: Date) => void;
+  /** 「解き方/訳文を覚えるモードに切り替える」：対象の章/小項目の studyMode を 'memorize' にする */
+  switchToMemorizeMode: (chapterId: string, subtopicId: string | null) => void;
+  /** 暗記モードから理解モードに戻す（取り消し手段。Home のインライン「元に戻す」/Settings 一覧の両方から呼ばれる） */
+  restoreUnderstandMode: (chapterId: string, subtopicId: string | null) => void;
   updateSubject: (subject: Subject) => void;
   updateChapter: (chapter: Chapter) => void;
   addChapter: (chapter: Omit<Chapter, "id">) => void;
@@ -125,6 +144,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }));
           return { ...prev, todayPlan: { date: todayISO, itemKeys } };
         });
+      },
+
+      evaluateForecastDecisions: (today) => {
+        setData((prev) => {
+          const forecast = simulateForward(prev.chapters, prev.subjects, prev.availability, today, prev.sessions);
+          const forecastDecisions = updateForecastDecisions(
+            forecast,
+            prev.chapters,
+            prev.forecastDecisions ?? {},
+            today,
+          );
+          return { ...prev, forecastDecisions };
+        });
+      },
+
+      continueDecision: (chapterId, subtopicId, today) => {
+        setData((prev) => {
+          const key = forecastDecisionKey(chapterId, subtopicId);
+          return {
+            ...prev,
+            forecastDecisions: {
+              ...(prev.forecastDecisions ?? {}),
+              [key]: snoozeForecastDecision(today),
+            },
+          };
+        });
+      },
+
+      switchToMemorizeMode: (chapterId, subtopicId) => {
+        setData((prev) => ({
+          ...prev,
+          chapters: prev.chapters.map((c) => (c.id === chapterId ? switchToMemorizeModePure(c, subtopicId) : c)),
+        }));
+      },
+
+      restoreUnderstandMode: (chapterId, subtopicId) => {
+        setData((prev) => ({
+          ...prev,
+          chapters: prev.chapters.map((c) => (c.id === chapterId ? restoreUnderstandModePure(c, subtopicId) : c)),
+        }));
       },
 
       updateSubject: (subject) => {

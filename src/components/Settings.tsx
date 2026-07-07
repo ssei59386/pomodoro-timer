@@ -1,6 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useStore, uid } from "../store";
-import { DEFAULT_TARGET_UNDERSTANDING, isPastDate, validateVocabRangeDraft } from "../logic";
+import {
+  collectMemorizeModeItems,
+  DEFAULT_TARGET_UNDERSTANDING,
+  isPastDate,
+  validateVocabRangeDraft,
+} from "../logic";
 import type { Chapter, ChapterMetadata, ChapterSubtopic, Subject } from "../types";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 import { CalendarOverrides } from "./CalendarOverrides";
@@ -38,8 +43,13 @@ export function Settings() {
     setAvailability,
     addVocabRange,
     removeVocabRange,
+    restoreUnderstandMode,
     resetAll,
   } = useStore();
+
+  // 暗記モードに切り替えた項目の恒久的な「理解モードに戻す」導線（ux-reviewer指摘：
+  // Home のインライン取り消しだけだとそのセッションを離れた後に戻す手段が無くなる）。
+  const memorizeModeItems = useMemo(() => collectMemorizeModeItems(data.chapters), [data.chapters]);
 
   const [confirmingReset, setConfirmingReset] = useState(false);
   // 単語帳登録フォームの下書き・エラーは教科ごとに独立させる（教科card内で完結させるため）
@@ -504,6 +514,40 @@ export function Settings() {
           </section>
         );
       })}
+
+      {memorizeModeItems.length > 0 && (
+        <section className="card">
+          <h3>暗記モードに切り替えた項目</h3>
+          <p className="muted">
+            後悔防止トリガーで「切り替える」を選んだ章・小項目です。いつでも理解モードに戻せます。
+          </p>
+          <ul className="memorize-mode-item-list">
+            {memorizeModeItems.map((item) => {
+              const chapter = data.chapters.find((c) => c.id === item.chapterId);
+              const subtopic = item.subtopicId
+                ? chapter?.subtopics?.find((s) => s.id === item.subtopicId) ?? null
+                : null;
+              const subject = data.subjects.find((s) => s.id === item.subjectId);
+              if (!chapter || !subject) return null;
+              const itemName = subtopic ? `${chapter.name}・${subtopic.name}` : chapter.name;
+              return (
+                <li key={`${item.chapterId}-${item.subtopicId ?? "chapter"}`} className="settings-chapter-row">
+                  <span className="grow">
+                    <span className="subject-tag">{subject.name}</span> {itemName}
+                  </span>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => restoreUnderstandMode(item.chapterId, item.subtopicId)}
+                  >
+                    理解モードに戻す
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       <section className="card danger-zone">
         <h3>データのリセット</h3>

@@ -938,6 +938,8 @@ input[type="range"] {
   background: #eff6ff;
   padding: 2px 8px;
   border-radius: 6px;
+  /* バッジが複数並んで折り返した時に行間が詰まって見えないように（ux-reviewer指摘） */
+  margin-bottom: 4px;
 }
 
 .teacher-hint-badge {
@@ -949,6 +951,21 @@ input[type="range"] {
   padding: 2px 8px;
   border-radius: 6px;
   margin-left: 6px;
+  margin-bottom: 4px;
+}
+
+/* 後悔防止トリガー（Phase 2）で暗記モードに切り替え済みの章/小項目のバッジ。
+   先生のヒント（warning系オレンジ）と混同しないよう別トーン（indigo系）にする。 */
+.memorize-mode-badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #6d28d9;
+  background: #ede9fe;
+  padding: 2px 8px;
+  border-radius: 6px;
+  margin-left: 6px;
+  margin-bottom: 4px;
 }
 
 .plan-minutes {
@@ -1365,6 +1382,12 @@ input[type="range"] {
   border-radius: 8px;
 }
 
+.memorize-mode-item-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
 .danger-zone {
   border: 1px solid #fecaca;
 }
@@ -1470,4 +1493,157 @@ input[type="range"] {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* ---- 勉強方針画面（docs/feature-study-policy.md Phase 1） ---- */
+.study-policy-entry-btn {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+.study-policy-trigger-card p {
+  line-height: 1.6;
+}
+
+/* 後悔防止トリガーの説明は最重要情報なので、通常サイズ・通常色の箇条書きにする
+   （元は muted small の一段落で最も目立たない表示になっていた。ux-reviewer指摘）。 */
+.study-policy-trigger-points {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.study-policy-back-btn {
+  min-height: 44px;
+}
+
+.study-policy-subject-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.study-policy-subject-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 16px;
+  text-align: left;
+  min-height: 44px;
+}
+
+.study-policy-toggle-icon {
+  font-size: 13px;
+  color: var(--primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.study-policy-level-list {
+  list-style: none;
+  padding: 0 16px 16px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.study-policy-level-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.study-policy-level-badge {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+  background: #eff6ff;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.study-policy-level-body p {
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 4px;
+}
+
+.study-policy-level-achieved {
+  color: var(--text);
+}
+
+/* 「次にやること」は画面の目的上いちばん大事な情報なので、「達成したこと」と同等の
+   視認性にする（元は muted small の12px灰で最も弱い表示になっていた。ux-reviewer指摘）。 */
+.study-policy-level-next {
+  color: var(--text);
+}
+
+.study-policy-extra-note {
+  margin: 0 16px 16px;
+  line-height: 1.6;
+}
+
+/* ---- 後悔防止トリガー（Phase 2）：Home の「続ける/切り替える」問いかけカード ---- */
+.forecast-decision-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.forecast-decision-card {
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+/* 「切り替える」を選んだ直後の事後表示。判断待ちの黄系（注意喚起）と区別し、
+   決定済み・落ち着いたトーンにする（indigo系、memorize-mode-badge と揃える）。 */
+.forecast-decision-card-confirmed {
+  border-color: #ddd6fe;
+  background: #f5f3ff;
+}
+
+.forecast-decision-message {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.forecast-decision-card-confirmed .forecast-decision-message {
+  margin-bottom: 10px;
+}
+
+.forecast-decision-reason {
+  margin: -6px 0 12px;
+}
+
+.forecast-decision-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.forecast-decision-actions button {
+  flex: 1;
+  min-height: 44px;
+}
+
+.forecast-decision-policy-link {
+  display: block;
+  margin-top: 10px;
 }

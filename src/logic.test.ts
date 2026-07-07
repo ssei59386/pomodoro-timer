@@ -62,12 +62,24 @@ import {
   PACE_MULTIPLIER_MAX,
   BASELINE_UNDERSTANDING_GAIN_PER_MINUTE,
   buildStudyHistory,
+  effectiveStudyMode,
+  forecastDecisionKey,
+  updateForecastDecisions,
+  shouldPromptForecastDecision,
+  snoozeForecastDecision,
+  switchToMemorizeMode,
+  restoreUnderstandMode,
+  collectForecastDecisionPrompts,
+  collectMemorizeModeItems,
+  SHORTFALL_STREAK_THRESHOLD_DAYS,
+  FORECAST_DECISION_SNOOZE_DAYS,
 } from "./logic";
 import type { ForwardSimulationResult, SubjectForecastSummary } from "./logic";
 import type {
   AvailabilitySettings,
   Chapter,
   ChapterSubtopic,
+  ForecastDecisionState,
   StudySession,
   Subject,
   TimeSlot,
@@ -1502,6 +1514,348 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
         },
       ];
       expect(shouldSurfaceForecastForSubject(summary, sessions, otherChapters)).toBe(false);
+    });
+  });
+});
+
+describe("後悔防止トリガー（Phase 2、docs/feature-study-policy.md）", () => {
+  const today = new Date(2026, 5, 29); // 2026-06-29
+
+  describe("effectiveStudyMode", () => {
+    it("小項目が無い章は chapter.studyMode を見る（未設定は understand）", () => {
+      const c = chapter({ id: "a" });
+      expect(effectiveStudyMode(c, null)).toBe("understand");
+      expect(effectiveStudyMode({ ...c, studyMode: "memorize" }, null)).toBe("memorize");
+    });
+
+    it("小項目がある場合は subtopic.studyMode を優先する（未設定は understand）", () => {
+      const c = chapter({ id: "a", studyMode: "memorize" });
+      const st = subtopic({ id: "st1" });
+      expect(effectiveStudyMode(c, st)).toBe("understand");
+      expect(effectiveStudyMode(c, { ...st, studyMode: "memorize" })).toBe("memorize");
+    });
+  });
+
+  describe("forecastDecisionKey", () => {
+    it("章IDと小項目IDから合成キーを作る（小項目IDが無ければ空文字で埋める）", () => {
+      expect(forecastDecisionKey("c1", "st1")).toBe("c1:st1");
+      expect(forecastDecisionKey("c1", null)).toBe("c1:");
+    });
+  });
+
+  describe("updateForecastDecisions（連続shortfall日数のカウント）", () => {
+    function forecastWith(shortfallMinutes: number): ForwardSimulationResult {
+      return {
+        subtopics: [
+          {
+            chapterId: "c1",
+            subtopicId: "st1",
+            subjectId: "s1",
+            totalMinutesNeeded: 100,
+            projectedCompletionDate: shortfallMinutes > 0 ? null : "2026-07-01",
+            shortfallMinutes,
+            onTrack: shortfallMinutes <= 0,
+          },
+        ],
+        subjects: [],
+      };
+    }
+
+    it("shortfallMinutes > 0 の日はストリークが+1される", () => {
+      const c = chapter({ id: "c1", subtopics: [subtopic({ id: "st1" })] });
+      const next = updateForecastDecisions(forecastWith(50), [c], {}, today);
+      const key = forecastDecisionKey("c1", "st1");
+      expect(next[key].shortfallStreak).toBe(1);
+      expect(next[key].lastEvaluatedDate).toBe("2026-06-29");
+    });
+
+    it("連続する日ごとにストリークが積み上がり、3日目で閾値に達する", () => {
+      const c = chapter({ id: "c1", subtopics: [subtopic({ id: "st1" })] });
+      const key = forecastDecisionKey("c1", "st1");
+
+      const day1 = new Date(2026, 5, 27);
+      const day2 = new Date(2026, 5, 28);
+      const day3 = new Date(2026, 5, 29);
+
+      let state = updateForecastDecisions(forecastWith(50), [c], {}, day1);
+      expect(state[key].shortfallStreak).toBe(1);
+      state = updateForecastDecisions(forecastWith(50), [c], state, day2);
+      expect(state[key].shortfallStreak).toBe(2);
+      state = updateForecastDecisions(forecastWith(50), [c], state, day3);
+      expect(state[key].shortfallStreak).toBe(SHORTFALL_STREAK_THRESHOLD_DAYS);
+    });
+
+    it("shortfallMinutes が0に戻った日はストリークが0にリセットされる", () => {
+      const c = chapter({ id: "c1", subtopics: [subtopic({ id: "st1" })] });
+      const key = forecastDecisionKey("c1", "st1");
+      const day1 = new Date(2026, 5, 27);
+      const day2 = new Date(2026, 5, 28);
+
+      let state = updateForecastDecisions(forecastWith(50), [c], {}, day1);
+      expect(state[key].shortfallStreak).toBe(1);
+      state = updateForecastDecisions(forecastWith(0), [c], state, day2);
+      expect(state[key].shortfallStreak).toBe(0);
+    });
+
+    it("同じ日に2回呼んでも二重カウントしない（ensureTodayPlanと同じno-opパターン）", () => {
+      const c = chapter({ id: "c1", subtopics: [subtopic({ id: "st1" })] });
+      const key = forecastDecisionKey("c1", "st1");
+      let state = updateForecastDecisions(forecastWith(50), [c], {}, today);
+      expect(state[key].shortfallStreak).toBe(1);
+      state = updateForecastDecisions(forecastWith(50), [c], state, today);
+      expect(state[key].shortfallStreak).toBe(1);
+    });
+
+    it("studyMode==='memorize' の小項目は評価対象から外れる（既存状態も変化しない）", () => {
+      const c = chapter({
+        id: "c1",
+        subtopics: [subtopic({ id: "st1", studyMode: "memorize" })],
+      });
+      const key = forecastDecisionKey("c1", "st1");
+      const existing: Record<string, ForecastDecisionState> = {
+        [key]: { shortfallStreak: 2, lastEvaluatedDate: "2026-06-28" },
+      };
+      // 暗記モードの項目は simulateForward 側で forecast.subtopics に含まれなくなるが、
+      // この関数単体としても memorize なら評価をスキップすることを確認する。
+      const next = updateForecastDecisions(forecastWith(50), [c], existing, today);
+      expect(next[key]).toEqual(existing[key]);
+    });
+  });
+
+  describe("shouldPromptForecastDecision", () => {
+    it("状態が無ければ問いかけない", () => {
+      expect(shouldPromptForecastDecision(undefined, "understand", today)).toBe(false);
+    });
+
+    it("ストリークが閾値未満なら問いかけない", () => {
+      const state: ForecastDecisionState = {
+        shortfallStreak: SHORTFALL_STREAK_THRESHOLD_DAYS - 1,
+        lastEvaluatedDate: "2026-06-29",
+      };
+      expect(shouldPromptForecastDecision(state, "understand", today)).toBe(false);
+    });
+
+    it("ストリークが閾値以上なら問いかける（3日で発火）", () => {
+      const state: ForecastDecisionState = {
+        shortfallStreak: SHORTFALL_STREAK_THRESHOLD_DAYS,
+        lastEvaluatedDate: "2026-06-29",
+      };
+      expect(shouldPromptForecastDecision(state, "understand", today)).toBe(true);
+    });
+
+    it("studyMode が memorize なら問いかけない", () => {
+      const state: ForecastDecisionState = {
+        shortfallStreak: SHORTFALL_STREAK_THRESHOLD_DAYS + 5,
+        lastEvaluatedDate: "2026-06-29",
+      };
+      expect(shouldPromptForecastDecision(state, "memorize", today)).toBe(false);
+    });
+
+    it("snoozeUntilDate が未来なら問いかけない（「続ける」を選んだ直後）", () => {
+      const state: ForecastDecisionState = {
+        shortfallStreak: SHORTFALL_STREAK_THRESHOLD_DAYS,
+        lastEvaluatedDate: "2026-06-29",
+        snoozeUntilDate: "2026-07-01",
+      };
+      expect(shouldPromptForecastDecision(state, "understand", today)).toBe(false);
+    });
+
+    it("snoozeUntilDate が今日以前なら再び問いかける", () => {
+      const state: ForecastDecisionState = {
+        shortfallStreak: SHORTFALL_STREAK_THRESHOLD_DAYS,
+        lastEvaluatedDate: "2026-06-29",
+        snoozeUntilDate: "2026-06-29",
+      };
+      expect(shouldPromptForecastDecision(state, "understand", today)).toBe(true);
+    });
+  });
+
+  describe("snoozeForecastDecision（「続ける」を選んだ結果）", () => {
+    it("ストリークを0に戻し、today+FORECAST_DECISION_SNOOZE_DAYS日を snoozeUntilDate にセットする", () => {
+      const state = snoozeForecastDecision(today);
+      expect(state.shortfallStreak).toBe(0);
+      expect(state.lastEvaluatedDate).toBe("2026-06-29");
+      expect(state.snoozeUntilDate).toBe("2026-07-02"); // 29 + 3日
+      expect(FORECAST_DECISION_SNOOZE_DAYS).toBe(3);
+    });
+  });
+
+  describe("switchToMemorizeMode（「切り替える」を選んだ結果）", () => {
+    it("小項目IDが無ければ章本体の studyMode を切り替える", () => {
+      const c = chapter({ id: "c1" });
+      const updated = switchToMemorizeMode(c, null);
+      expect(updated.studyMode).toBe("memorize");
+    });
+
+    it("小項目IDがあればその小項目だけ studyMode を切り替える（他の小項目・章本体は変わらない）", () => {
+      const c = chapter({
+        id: "c1",
+        subtopics: [subtopic({ id: "st1" }), subtopic({ id: "st2" })],
+      });
+      const updated = switchToMemorizeMode(c, "st1");
+      expect(updated.studyMode).toBeUndefined();
+      expect(updated.subtopics?.find((s) => s.id === "st1")?.studyMode).toBe("memorize");
+      expect(updated.subtopics?.find((s) => s.id === "st2")?.studyMode).toBeUndefined();
+    });
+
+    it("存在しない小項目IDを指定した場合は章をそのまま返す", () => {
+      const c = chapter({ id: "c1", subtopics: [subtopic({ id: "st1" })] });
+      const updated = switchToMemorizeMode(c, "missing");
+      expect(updated).toEqual(c);
+    });
+  });
+
+  describe("restoreUnderstandMode（switchToMemorizeMode の取り消し）", () => {
+    it("小項目IDが無ければ章本体の studyMode を 'understand' に戻す", () => {
+      const c = chapter({ id: "c1", studyMode: "memorize" });
+      const updated = restoreUnderstandMode(c, null);
+      expect(updated.studyMode).toBe("understand");
+    });
+
+    it("小項目IDがあればその小項目だけ studyMode を戻す（他の小項目・章本体は変わらない）", () => {
+      const c = chapter({
+        id: "c1",
+        subtopics: [
+          subtopic({ id: "st1", studyMode: "memorize" }),
+          subtopic({ id: "st2", studyMode: "memorize" }),
+        ],
+      });
+      const updated = restoreUnderstandMode(c, "st1");
+      expect(updated.studyMode).toBeUndefined();
+      expect(updated.subtopics?.find((s) => s.id === "st1")?.studyMode).toBe("understand");
+      expect(updated.subtopics?.find((s) => s.id === "st2")?.studyMode).toBe("memorize");
+    });
+
+    it("存在しない小項目IDを指定した場合は章をそのまま返す", () => {
+      const c = chapter({ id: "c1", subtopics: [subtopic({ id: "st1", studyMode: "memorize" })] });
+      const updated = restoreUnderstandMode(c, "missing");
+      expect(updated).toEqual(c);
+    });
+
+    it("switchToMemorizeMode → restoreUnderstandMode で元の状態に戻る", () => {
+      const c = chapter({ id: "c1" });
+      const switched = switchToMemorizeMode(c, null);
+      const restored = restoreUnderstandMode(switched, null);
+      expect(restored.studyMode).toBe("understand");
+    });
+  });
+
+  describe("collectForecastDecisionPrompts", () => {
+    it("ストリークが閾値以上の章/小項目だけを問いかけ対象として集める", () => {
+      const chapters: Chapter[] = [
+        chapter({ id: "a", subjectId: "s1", subtopics: [subtopic({ id: "st1" })] }),
+        chapter({ id: "b", subjectId: "s1" }), // 小項目無し
+      ];
+      const decisions: Record<string, ForecastDecisionState> = {
+        [forecastDecisionKey("a", "st1")]: {
+          shortfallStreak: SHORTFALL_STREAK_THRESHOLD_DAYS,
+          lastEvaluatedDate: "2026-06-29",
+        },
+        [forecastDecisionKey("b", null)]: {
+          shortfallStreak: SHORTFALL_STREAK_THRESHOLD_DAYS - 1,
+          lastEvaluatedDate: "2026-06-29",
+        },
+      };
+      const prompts = collectForecastDecisionPrompts(chapters, decisions, today);
+      expect(prompts).toEqual([{ chapterId: "a", subtopicId: "st1", subjectId: "s1" }]);
+    });
+
+    it("既に暗記モードに切り替え済みの項目は対象外", () => {
+      const chapters: Chapter[] = [
+        chapter({ id: "a", subjectId: "s1", subtopics: [subtopic({ id: "st1", studyMode: "memorize" })] }),
+      ];
+      const decisions: Record<string, ForecastDecisionState> = {
+        [forecastDecisionKey("a", "st1")]: {
+          shortfallStreak: SHORTFALL_STREAK_THRESHOLD_DAYS + 10,
+          lastEvaluatedDate: "2026-06-29",
+        },
+      };
+      expect(collectForecastDecisionPrompts(chapters, decisions, today)).toEqual([]);
+    });
+  });
+
+  describe("collectMemorizeModeItems（Settings の「暗記モードに切り替えた項目」一覧用）", () => {
+    it("小項目を持たない章で studyMode==='memorize' なら1件返す", () => {
+      const chapters: Chapter[] = [chapter({ id: "a", subjectId: "s1", studyMode: "memorize" })];
+      expect(collectMemorizeModeItems(chapters)).toEqual([{ chapterId: "a", subtopicId: null, subjectId: "s1" }]);
+    });
+
+    it("小項目のうち memorize のものだけを集める（章本体・understandな小項目は含まない）", () => {
+      const chapters: Chapter[] = [
+        chapter({
+          id: "a",
+          subjectId: "s1",
+          subtopics: [
+            subtopic({ id: "st1", studyMode: "memorize" }),
+            subtopic({ id: "st2" }),
+          ],
+        }),
+      ];
+      expect(collectMemorizeModeItems(chapters)).toEqual([
+        { chapterId: "a", subtopicId: "st1", subjectId: "s1" },
+      ]);
+    });
+
+    it("memorize の項目が無ければ空配列を返す", () => {
+      const chapters: Chapter[] = [chapter({ id: "a", subjectId: "s1" })];
+      expect(collectMemorizeModeItems(chapters)).toEqual([]);
+    });
+  });
+
+  describe("simulateForward / triageSubtopics との統合：memorize除外", () => {
+    it("studyMode==='memorize' の小項目は simulateForward の結果（forecast.subtopics）に含まれない", () => {
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-01" }];
+      const c = chapter({
+        id: "a",
+        subjectId: "s1",
+        subtopics: [
+          subtopic({ id: "st1", understanding: 0, basicProblems: 100, studyMode: "memorize" }), // 諦めた項目
+          subtopic({ id: "st2", understanding: 0, basicProblems: 1 }),
+        ],
+      });
+      const availability: AvailabilitySettings = {
+        weeklySchedule: { 0: [{ start: "00:00", end: "01:00" }], 1: [{ start: "00:00", end: "01:00" }] },
+        dateOverrides: {},
+      };
+      const result = simulateForward([c], subjects, availability, today);
+      expect(result.subtopics.map((f) => f.subtopicId)).toEqual(["st2"]);
+    });
+
+    it("memorize除外の結果、triageSubtopics（切る候補）にも現れない", () => {
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-01" }];
+      const c = chapter({
+        id: "a",
+        subjectId: "s1",
+        subtopics: [subtopic({ id: "st1", understanding: 0, basicProblems: 1000, studyMode: "memorize" })],
+      });
+      const availability: AvailabilitySettings = {
+        weeklySchedule: { 0: [{ start: "00:00", end: "00:10" }] },
+        dateOverrides: {},
+      };
+      const result = simulateForward([c], subjects, availability, today);
+      expect(triageSubtopics(result)).toEqual([]);
+    });
+  });
+
+  describe("generateTodayPlan との統合：memorize項目は理解度を上げにいく貪欲割当の対象から外れる", () => {
+    it("studyMode==='memorize' の章は score > 0 でも今日の計画から除外される", () => {
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-08-01" }];
+      const c = chapter({
+        id: "a",
+        subjectId: "s1",
+        understanding: 0,
+        targetUnderstanding: 0.8,
+        studyMode: "memorize",
+      });
+      const plan = generateTodayPlan([c], subjects, 200, today);
+      expect(plan).toEqual([]);
+    });
+
+    it("同じ章で studyMode==='understand'（既定）なら通常通り計画に含まれる", () => {
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-08-01" }];
+      const c = chapter({ id: "a", subjectId: "s1", understanding: 0, targetUnderstanding: 0.8 });
+      const plan = generateTodayPlan([c], subjects, 200, today);
+      expect(plan.map((p) => p.chapter.id)).toEqual(["a"]);
     });
   });
 });

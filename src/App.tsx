@@ -6,6 +6,7 @@ import { SessionRecord } from "./components/SessionRecord";
 import { Dashboard } from "./components/Dashboard";
 import { Settings } from "./components/Settings";
 import { VocabQuiz } from "./components/VocabQuiz";
+import { StudyPolicy } from "./components/StudyPolicy";
 
 // 仕様書 §7: 最小版で必要な画面は5つ。
 export type Tab = "home" | "record" | "dashboard" | "settings";
@@ -29,6 +30,8 @@ export function App() {
   // VocabQuiz 側でその教科の暗記範囲だけに出題を絞り込めるようにする（修正1、
   // docs/feature-memorization.md。以前は教科を問わず全ての VocabRange を混ぜて出題していた）。
   const [vocabQuizSubjectId, setVocabQuizSubjectId] = useState<string | null>(null);
+  // 理解度(Dashboard)タブから開く「勉強方針」の一時サブ画面。VocabQuizと同じ流儀（新規タブは作らない）。
+  const [showStudyPolicy, setShowStudyPolicy] = useState(false);
 
   // 仕様書 §7.1: 未オンボーディングなら初期設定画面を全画面で表示
   if (!data.onboarded) {
@@ -67,6 +70,12 @@ export function App() {
               onRecord={goRecord}
               onGoSettings={goSettings}
               onVocabQuiz={(subjectId) => setVocabQuizSubjectId(subjectId)}
+              onShowStudyPolicy={() => {
+                // 勉強方針は理解度タブのサブ画面として実装済みなので、Home からはタブごと
+                // 切り替えて開く（App.tsx の showStudyPolicy state をそのまま再利用）。
+                setTab("dashboard");
+                setShowStudyPolicy(true);
+              }}
             />
           ))}
         {tab === "record" && (
@@ -77,7 +86,16 @@ export function App() {
             onGoSettings={goSettings}
           />
         )}
-        {tab === "dashboard" && <Dashboard onGoSettings={goSettings} onGoHome={goHome} />}
+        {tab === "dashboard" &&
+          (showStudyPolicy ? (
+            <StudyPolicy onDone={() => setShowStudyPolicy(false)} />
+          ) : (
+            <Dashboard
+              onGoSettings={goSettings}
+              onGoHome={goHome}
+              onShowStudyPolicy={() => setShowStudyPolicy(true)}
+            />
+          ))}
         {tab === "settings" && <Settings />}
       </main>
 
@@ -89,6 +107,7 @@ export function App() {
             onClick={() => {
               setTab(t.id);
               setVocabQuizSubjectId(null);
+              setShowStudyPolicy(false);
             }}
           >
             <span className="tab-icon">{t.icon}</span>
