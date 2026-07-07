@@ -36,7 +36,7 @@ There is no lint script configured.
 
 **Core domain model** (`src/types.ts`):
 - `Subject` — math/science, has a `testDate`.
-- `Chapter` — the unit of understanding tracking. Holds `understanding` (0.0–1.0), `targetUnderstanding` (default 0.8), `lastStudiedDate`, optional `metadata` (exercise count, learning scope, difficulty — informational, not used in scoring), and optional `subtopics` (see below). (`pointWeight` was removed 2026-07-07 — see Current status.)
+- `Chapter` — the unit of understanding tracking. Holds `understanding` (0.0–1.0), `targetUnderstanding` (default 0.8), `lastStudiedDate`, optional `metadata` (exercise count, learning scope, difficulty — informational, not used in scoring), and optional `subtopics` (see below). (`pointWeight` was removed 2026-07-07 — see `docs/pointweight-removal-2026-07-07.md`.)
 - `ChapterSubtopic` — a chapter can optionally be broken into subtopics, each independently tracking `understanding`, `basicProblems`/`advancedProblems` (target problem counts), `teacherHinted` (priority boost), etc. Chapters without subtopics keep working exactly as they did in Phase 0 (dual-path design throughout `logic.ts`) — see `docs/feature-mitoshi.md` for the full design.
 - `StudySession` — a logged study session (chapter or subtopic, minutes, correctRate, selfReport, problem counts) that drives understanding updates.
 - `AvailabilitySettings` — weekly recurring time slots (`weeklySchedule`, keyed by day-of-week 0–6) plus `dateOverrides` for one-off days (e.g. travel). This indirection is deliberate: a future calendar integration would only need to replace the input source, since plan generation always asks "how many minutes available on date X" via `availableMinutesForDate`.
@@ -49,14 +49,19 @@ There is no lint script configured.
 - Plan generation (§6.3, `generateTodayPlan`): greedy allocation — sort chapters/subtopics by priority descending (via `scoreChapterOrSubtopics`), filter out items already at/above target (score ≤ 0), then consume `dailyMinutes` one item at a time. Chapters without subtopics get a fixed `SESSION_MINUTES` (45 min) allocation, one per day (unchanged from Phase 0). Chapters with subtopics can contribute multiple items per day, each clamped between `MIN_SUBTOPIC_SESSION_MINUTES` (10 min) and `SESSION_MINUTES`, sized from `estimateSubtopicRemainingMinutes`'s time estimate. `buildReasons`/`buildSubtopicReasons` attach human-readable justification labels (理解度が低め / テストが近い / 先生のヒントあり) for display.
 - Time estimation (`estimateSubtopicRemainingMinutes`): per-subtopic remaining study time from basic/advanced problem counts and current understanding gap, using either default per-problem-minute constants or a per-subject *learned* rate (`learnedProblemRates`) once enough real session data exists.
 - Pace judgment (`subtopicUnderstandingTier`/`subtopicProblemTier`): achievement-based (not time-invested-based) "on_track / slightly_behind / at_risk" classification per subtopic, shown on the Dashboard.
+- Study history (`buildStudyHistory`, added 2026-07-07): pure function returning the last 7 days (rolling window including today, gap-free — zero-session days included as 0 minutes) of daily total study minutes + per-session detail (subject/chapter/subtopic name, minutes), resolved from `chapterId` → `Chapter` → `subjectId` → `Subject`. Rendered at the top of the Dashboard as a bar chart (today highlighted, tap a bar to expand that day's session list). Vocab (`VocabChunk`) isn't included — it doesn't track time.
 
 **Screens** (`src/App.tsx` tab router, gated by `data.onboarded`): Onboarding → Home (today's plan) → SessionRecord → Dashboard (understanding vs. target, days left, pace badges) → Settings (edit/reset). `Onboarding.tsx` is also where subjects, chapters, initial self-reports, sub-topics, and optional metadata are entered; it's the most complex form in the app.
 
 **Today's plan snapshot / freeze (added 2026-07-05):** `Home.tsx` no longer shows whatever `generateTodayPlan` returns live on every render. `AppData.todayPlan` (`{ date, itemKeys: {chapterId, subtopicId}[] } | null`) freezes *which* chapters/subtopics are today's target set the first time Home is opened that day (`store.tsx`'s `ensureTodayPlan`, called from a `Home.tsx` `useEffect`, is a no-op if a same-date snapshot already exists). `logic.ts`'s `buildPlanFromItemKeys(chapters, subjects, itemKeys, today, sessions)` re-derives display data (`allocatedMinutes`/`reasons`/`priority`) fresh from current chapter data every render — only the *set* of items is frozen, not their displayed numbers, so editing a chapter in Settings still updates its reason chips same-day. This exists because completing an item used to free up its time budget and immediately pull in the next-best chapter, so the list never visibly finished ("無限に出てくる" — user-reported). Completion is derived, not stored: an item counts as done if `data.sessions` has a same-day session for its chapterId(+subtopicId); no `completed` flag anywhere. Vocab/memorization cards are NOT part of this freeze — they stay live every render (deliberate: an intentional "escape valve" for students who finish early, per ux-reviewer).
 
-**PWA/deploy specifics** (`vite.config.ts`): `base` is `/` in dev but switches to `/pomodoro-timer/` on build, because the GitHub Pages workflow (`.github/workflows/deploy-pages.yml`) serves this as a project site. That workflow deploys on push to `master` or `claude/app-dev-per-plan-qur753`.
+**PWA/deploy specifics** (`vite.config.ts`): `base` is `/` in dev but switches to `/pomodoro-timer/` on build, because the GitHub Pages workflow (`.github/workflows/deploy-pages.yml`) serves this as a project site. That workflow deploys on push to `master` or `claude/app-dev-per-plan-qur753`. `actions/deploy-pages@v4`が一時的なエラーで失敗することが稀にある（空コミットでリトライすれば通る）ので、push後は本番URLの反映を確認し、deployだけ失敗していたら空コミットでリトライすること。
 
 **Forward-compat note in storage:** `loadData()` spreads `initialData` under any parsed/stored data so newly added fields get sane defaults for users with older persisted state — preserve this pattern when adding fields to `AppData`/`Chapter`.
+
+**実装上の既知の注意点（繰り返し踏んだ罠）：**
+- `<details>/<summary>`のネイティブ開閉は、Playwrightの合成クリック/タップに反応しないことがある（キーボードでは動く）。アコーディオンUIは`useState` + `<button>`で実装する（詳細: `docs/mobile-polish-2026-07-06.md`）。
+- 数値inputで`onChange`のたびに`Math.max(min, ...)`をその場適用すると、ユーザーが値を消そうとしても即座に最小値へ強制されて消せなくなる。入力中は空文字列を許容し、保存時にのみ補正すること（`SessionRecord.tsx`のminutesで実機発見、他の数値inputへの横展開チェックは未実施）。
 
 ## Product direction (CEO judgment lens)
 
@@ -95,20 +100,17 @@ Still-open backlog items from that history (not yet scoped/resolved, low priorit
 
 **Curriculum reference data (math + science): RESOLVED, both fully built and integrated** into the "見通し" feature's suggestion layer (`src/data/curriculumSearch.ts`). Full research-task history is in **`docs/curriculum-data.md`**.
 
-**配点(pointWeight)機能を撤廃、優先度は理解度不足×テスト近さのみで決定するよう変更（2026-07-07、ceoとの議論の末の判断）。** 中高生の定期テストでは生徒が配点を知り得ないため。トリアージ（切る候補）も配点効率ではなく残り所要時間の長い順に変更。
-
-## セッション引き継ぎメモ（2026-07-06、モバイル表示改善+デプロイ障害対応セッション終了時点）
+## セッション引き継ぎメモ（2026-07-07、学習履歴セクション追加＋配点撤廃セッション終了時点）
 
 **オンボーディングの本格ウィザード化は完了済み**（実装内容・残りのUXバックログは `docs/feature-onboarding-wizard.md` 参照）。
 
-**このセッションでやったこと・詳細は `docs/mobile-polish-2026-07-06.md` を読むこと。** 要点のみここに残す:
+**このセッションでやったこと・詳細は `docs/pointweight-removal-2026-07-07.md` を読むこと。** 要点のみここに残す:
 
-- 高校生ペルソナで実機相当の操作（Playwright + Chromium。このセッションでは使えた、環境依存なので次回も早めに試すとよい）→ ux-reviewerでモバイル表示レビュー → P0（候補ドロップダウンが配点欄に重なる／理科候補の学年表記が食い違う）・P1（設定画面の折りたたみ・カレンダー文字サイズ・完了時の説明文）を修正、実装中にさらに2件のバグ（`<details>`がタップで開閉しない／候補を閉じる際のレイアウトシフトで直後のタップが吸収される）を発見・修正。すべて commit・push・本番反映まで確認済み。
-- **`<details>/<summary>`はPlaywrightのクリック/タップで反応しないことがある（キーボードでは動く）。今後アコーディオンは`useState`+`<button>`で実装すること。**
-- **数値inputで`onChange`のたびに`Math.max(min, ...)`をその場適用すると値を消せなくなる。** `SessionRecord.tsx`のminutesで実機ユーザー(弟?)に見つかった。他の数値input（章の配点など）に同じパターンが残っていないか未確認、横展開チェックが必要。
-- **重大インシデント: 2026-07-02以降、`claude/app-dev-per-plan-qur753`へのpushによるGitHub Pagesデプロイが全部失敗しており、7/2〜7/6の全作業が本番未反映だった。** 原因はGitHub Environmentのブランチ制限（ユーザーが設定修正、解消済み）。加えて、ブランチ制限解消後も`actions/deploy-pages@v4`が一時的なエラーで失敗することが2回連続で観測された（空コミットでリトライすれば通る）。**今後もpush後は本番URLの反映を確認し、deployだけ失敗していたら空コミットでリトライする運用にすること。**
-- 複数端末同期は「今はやらない」（CEO/CTO一致）。代替の「データ書き出し/読み込み」機能は**まだ未実装**、次に同じ要望が出たらそこから着手。
-- 残作業: エクスポート/インポート機能、ux-reviewerのP2（配点欄のラベル/inputの視覚的まとまり）、数値inputの横展開チェック。いずれも未着手。
+- Dashboardに「学習履歴」セクション（直近7日間の日別学習時間を棒グラフ表示、タップで内訳展開）を追加（`buildStudyHistory`、上記Core algorithms参照）。commit `806db2a`。
+- 配点(pointWeight)機能を完全撤廃。優先度は理解度不足×テストの近さのみで決定、「切る候補」も残り所要時間が長い順に変更。ceoとの2回の議論（1回目は3択セレクトへの妥協案→ユーザーの再反論を受けて2回目で完全撤廃に転換）と、CTO提案の実装方式に自分で見つけた技術的欠陥（教科横断比較でのバイアス）の詳細は上記docsファイル参照。commit `b3cf578`。
+- 両方ともcommit・push済み、テスト344件・型チェックともにパス、Playwright実機確認済み。
+- 未確認事項：`src/components/`配下に未追跡の「〜コピー.tsx」ファイルが6件ある（ChapterCurriculumSuggest/CurriculumSubtopicPicker/CurriculumSuggestの本体＋テスト）。今回の作業とは無関係で、いつからあるか・意図的かは未確認のまま。次回、ユーザーに要不要を確認すること。
+- 残作業（変更なし、そのまま）：エクスポート/インポート機能（複数端末同期の代替、まだ未実装）、数値inputの`Math.max`即時強制パターンの横展開チェック（上記「実装上の既知の注意点」参照、未実施）。
 
 **その他の見送り中バックログ（低優先）：**
 - 国語・社会のさらなる暗記展開：構造上は「番号で管理する暗記範囲（VocabRange、labelは自由テキスト）」を複数登録すれば文法・漢文句法等も既に載る。唯一の引っかかりは表示名が教科固定（`vocabLabels.ts` の「国語＝今日の漢字・古文単語」）で範囲ごとに出し分けられない点。ユーザーは「実装しないでいい」と保留。
