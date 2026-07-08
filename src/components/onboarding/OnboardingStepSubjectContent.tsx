@@ -1,25 +1,21 @@
 import type { Dispatch, SetStateAction } from "react";
-import { SelfReportPicker } from "../SelfReportPicker";
+import { AchievementLevelPicker } from "../AchievementLevelPicker";
 import { ChapterCurriculumSuggest } from "../ChapterCurriculumSuggest";
 import { CurriculumSuggest } from "../CurriculumSuggest";
 import { CurriculumSubtopicPicker } from "../CurriculumSubtopicPicker";
+import { SUBJECT_TEMPLATES } from "../../data/subjectTemplates";
 import {
-  CHAPTER_CAPABLE_SUBJECT_KEYS,
-  INITIAL_UNDERSTANDING_LABELS,
-  SUBJECT_LABELS,
-  VOCAB_SUBJECT_KEYS,
-  curriculumSubjectFor,
   makeBlankChapter,
   makeBlankSubtopic,
   makeBlankVocabRange,
   type DraftChapter,
+  type DraftSubject,
   type DraftSubtopic,
   type DraftVocabRange,
-  type SubjectKey,
 } from "./onboardingTypes";
 
 interface Props {
-  subjectKey: SubjectKey;
+  subject: DraftSubject;
   /** 全教科ぶんの下書き配列。この教科ぶんは内部でフィルタして描画する（暗記範囲の「対応する章」選択で
    * 同じ教科の章一覧が必要なため、フィルタ済みの配列だけでなく更新用の setState もそのまま受け取る） */
   chapters: DraftChapter[];
@@ -31,22 +27,26 @@ interface Props {
 /**
  * 教科ごとの内容入力ステップ（章・小項目・暗記範囲）。教科はステップで固定されるため、
  * 章・暗記範囲それぞれの「教科を選ぶドロップダウン」は出さない（docs/feature-onboarding-wizard.md）。
+ * capability（章を持てるか・暗記範囲を持てるか）は教科名ではなく template（段階5）から判定する。
  */
 export function OnboardingStepSubjectContent({
-  subjectKey,
+  subject,
   chapters,
   setChapters,
   vocabRanges,
   setVocabRanges,
 }: Props) {
-  const isChapterCapable = CHAPTER_CAPABLE_SUBJECT_KEYS.includes(subjectKey);
-  const isVocabCapable = VOCAB_SUBJECT_KEYS.includes(subjectKey);
-  const subjectChapters = chapters.filter((c) => c.subjectKey === subjectKey);
-  const subjectVocabRanges = vocabRanges.filter((v) => v.subjectKey === subjectKey);
+  const template = SUBJECT_TEMPLATES[subject.templateKey];
+  const isChapterCapable = template.chapterCapable;
+  const isVocabCapable = template.vocabCapable;
+  const curriculumSubject = template.curriculumSubject;
+  const achievementLevels = template.studyPolicy.levels;
+  const subjectChapters = chapters.filter((c) => c.subjectInstanceId === subject.instanceId);
+  const subjectVocabRanges = vocabRanges.filter((v) => v.subjectInstanceId === subject.instanceId);
   const namedSubjectChapters = subjectChapters.filter((c) => c.name.trim() !== "");
 
   const addChapter = () => {
-    setChapters((prev) => [...prev, makeBlankChapter(subjectKey)]);
+    setChapters((prev) => [...prev, makeBlankChapter(subject.instanceId)]);
   };
 
   const updateChapter = (key: string, patch: Partial<DraftChapter>) => {
@@ -84,7 +84,7 @@ export function OnboardingStepSubjectContent({
   };
 
   const addVocabRange = () => {
-    setVocabRanges((prev) => [...prev, makeBlankVocabRange(subjectKey)]);
+    setVocabRanges((prev) => [...prev, makeBlankVocabRange(subject.instanceId)]);
   };
 
   const updateVocabRange = (key: string, patch: Partial<DraftVocabRange>) => {
@@ -100,7 +100,7 @@ export function OnboardingStepSubjectContent({
       {isChapterCapable && (
         <section className="card">
           <h2>章の登録</h2>
-          <p className="muted">章ごとに「名前・今の理解度（自己申告）」を入れてください。</p>
+          <p className="muted">章ごとに「名前・今の理解度」を入れてください。</p>
 
           {subjectChapters.map((c) => (
             <div key={c.key} className="chapter-draft">
@@ -112,8 +112,8 @@ export function OnboardingStepSubjectContent({
                     value={c.name}
                     onChange={(e) => updateChapter(c.key, { name: e.target.value })}
                   />
-                  {curriculumSubjectFor(subjectKey) && (
-                    <ChapterCurriculumSuggest query={c.name} subject={curriculumSubjectFor(subjectKey)!} />
+                  {curriculumSubject && (
+                    <ChapterCurriculumSuggest query={c.name} subject={curriculumSubject} />
                   )}
                 </div>
                 <button type="button" className="icon-btn" aria-label="削除" onClick={() => removeChapter(c.key)}>
@@ -124,10 +124,10 @@ export function OnboardingStepSubjectContent({
                 <div className="subtopic-block-head">
                   <span className="muted small">小項目（任意・プリントの見出しなど2〜4個）</span>
                   <div className="subtopic-block-actions">
-                    {curriculumSubjectFor(subjectKey) && (
+                    {curriculumSubject && (
                       <CurriculumSubtopicPicker
                         chapterName={c.name}
-                        subject={curriculumSubjectFor(subjectKey)!}
+                        subject={curriculumSubject}
                         onAdd={(candidates) => {
                           setChapters((prev) =>
                             prev.map((chapter) =>
@@ -154,7 +154,7 @@ export function OnboardingStepSubjectContent({
                     </button>
                   </div>
                 </div>
-                {curriculumSubjectFor(subjectKey) && (
+                {curriculumSubject && (
                   <p className="muted small">
                     小項目名を入力すると、カリキュラム参考データとの一致で難易度が自動入力されます（手動で上書き可）。
                   </p>
@@ -169,10 +169,10 @@ export function OnboardingStepSubjectContent({
                         value={st.name}
                         onChange={(e) => updateSubtopic(c.key, st.key, { name: e.target.value })}
                       />
-                      {curriculumSubjectFor(subjectKey) && (
+                      {curriculumSubject && (
                         <CurriculumSuggest
                           query={st.name}
-                          subject={curriculumSubjectFor(subjectKey)!}
+                          subject={curriculumSubject}
                           onSelect={(result) => updateSubtopic(c.key, st.key, { difficultyLevel: result.difficultyLevel })}
                         />
                       )}
@@ -180,11 +180,14 @@ export function OnboardingStepSubjectContent({
                     {st.difficultyLevel !== null && (
                       <span className="muted small">難易度（カリキュラム参考・5段階）：{st.difficultyLevel}</span>
                     )}
-                    <SelfReportPicker
-                      value={st.selfReport}
-                      onChange={(v) => updateSubtopic(c.key, st.key, { selfReport: v })}
-                      labels={INITIAL_UNDERSTANDING_LABELS}
-                    />
+                    <div className="self-report-block">
+                      <span className="self-report-label">今の理解度</span>
+                      <AchievementLevelPicker
+                        value={st.achievedLevel}
+                        onChange={(v) => updateSubtopic(c.key, st.key, { achievedLevel: v as 1 | 2 | 3 | 4 | 5 })}
+                        levels={achievementLevels}
+                      />
+                    </div>
                     <div className="subtopic-problem-row">
                       <label className="field inline">
                         <span className="muted small">基礎問題数</span>
@@ -238,26 +241,12 @@ export function OnboardingStepSubjectContent({
               </div>
               {c.subtopics.length === 0 && (
                 <div className="self-report-block">
-                  <span className="self-report-label">今の理解度（自己申告）</span>
-                  <SelfReportPicker
-                    value={c.selfReport}
-                    onChange={(v) => updateChapter(c.key, { selfReport: v })}
-                    labels={INITIAL_UNDERSTANDING_LABELS}
+                  <span className="self-report-label">今の理解度</span>
+                  <AchievementLevelPicker
+                    value={c.achievedLevel}
+                    onChange={(v) => updateChapter(c.key, { achievedLevel: v as 1 | 2 | 3 | 4 | 5 })}
+                    levels={achievementLevels}
                   />
-                  <label className="field">
-                    <span className="muted small">直近の正答率（任意・%、わかれば）</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={c.correctRate ?? ""}
-                      onChange={(e) =>
-                        updateChapter(c.key, {
-                          correctRate: e.target.value === "" ? null : clampPercent(Number(e.target.value)),
-                        })
-                      }
-                    />
-                  </label>
                 </div>
               )}
             </div>
@@ -325,7 +314,7 @@ export function OnboardingStepSubjectContent({
                   />
                 </label>
               </div>
-              {CHAPTER_CAPABLE_SUBJECT_KEYS.includes(subjectKey) && (
+              {template.chapterCapable && (
                 <label className="field">
                   <span className="muted small">対応する章（任意・教科書レッスンに紐づける場合のみ）</span>
                   <select
@@ -351,14 +340,8 @@ export function OnboardingStepSubjectContent({
       )}
 
       <p className="muted small">
-        {SUBJECT_LABELS[subjectKey]}について、章か暗記範囲のどちらか一方は登録してください（両方登録してもかまいません）。
+        {subject.name}について、章か暗記範囲のどちらか一方は登録してください（両方登録してもかまいません）。
       </p>
     </>
   );
-}
-
-/** ユーザー入力の正答率（%）を 0〜100 にクランプする */
-function clampPercent(value: number): number {
-  if (Number.isNaN(value)) return 0;
-  return Math.min(100, Math.max(0, value));
 }

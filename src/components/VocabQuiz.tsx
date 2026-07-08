@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { getTodaysVocabChunks } from "../logic";
-import {
-  DEFAULT_VOCAB_HEADING,
-  DEFAULT_VOCAB_ITEM_WORD,
-  VOCAB_HEADING_BY_SUBJECT,
-  VOCAB_ITEM_WORD_BY_SUBJECT,
-} from "./vocabLabels";
+import { resolveTemplate } from "../data/subjectTemplates";
 
 // 「完璧になった」は復元不能（取り消し手段が範囲丸ごと削除＝進捗全消去しかない）ため、
 // 誤タップ即確定を避ける2段階確認にする。この待ち時間を過ぎたら確認状態を自動解除する
@@ -33,8 +28,10 @@ export function VocabQuiz({
     () => data.subjects.find((s) => s.id === subjectId),
     [data.subjects, subjectId],
   );
-  const heading = (subject && VOCAB_HEADING_BY_SUBJECT[subject.name]) ?? DEFAULT_VOCAB_HEADING;
-  const itemWord = (subject && VOCAB_ITEM_WORD_BY_SUBJECT[subject.name]) ?? DEFAULT_VOCAB_ITEM_WORD;
+  // subject が見つからない（データ不整合など）ケース向けのフォールバック表示名は
+  // 元 vocabLabels.ts の DEFAULT_VOCAB_HEADING/DEFAULT_VOCAB_ITEM_WORD と同じ値を維持する。
+  const heading = subject ? resolveTemplate(subject).vocabHeading : "今日の暗記";
+  const itemWord = subject ? resolveTemplate(subject).vocabItemWord : "暗記事項";
 
   // どのカードから開いたかで出題対象をその教科の暗記範囲だけに絞り込む（修正1、
   // docs/feature-memorization.md）。以前は data.vocabRanges を教科問わずそのまま渡していたため、

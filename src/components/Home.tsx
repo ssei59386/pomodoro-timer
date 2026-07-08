@@ -13,13 +13,13 @@ import {
   type ForecastDecisionPrompt,
 } from "../logic";
 import type { Chapter, ChapterSubtopic } from "../types";
-import { VOCAB_HEADING_BY_SUBJECT, VOCAB_ITEM_WORD_BY_SUBJECT } from "./vocabLabels";
+import { resolveTemplate } from "../data/subjectTemplates";
 
 // logic.ts の buildSubtopicReasons が生成するラベルと一致させる。
 // 通常の理由チップ列からは除外し、カード上部の独立したバッジとして目立たせる表示専用の分岐。
 const HINT_REASON_LABEL = "先生のヒントあり";
 
-// VOCAB_HEADING_BY_SUBJECT に無い教科（数学・理科）は暗記カードの対象外。
+// vocabCapable が false の教科（数学・理科）は暗記カードの対象外。
 
 // 仕様書 §7.2 ホーム（今日やること）
 export function Home({
@@ -146,7 +146,7 @@ export function Home({
   // 教科ごとに範囲を絞ってから getTodaysVocabChunks を呼ぶ。
   const vocabBySubject = useMemo(() => {
     return data.subjects
-      .filter((subject) => VOCAB_HEADING_BY_SUBJECT[subject.name])
+      .filter((subject) => resolveTemplate(subject).vocabCapable)
       .map((subject) => {
         const rangesForSubject = data.vocabRanges.filter((r) => r.subjectId === subject.id);
         const todaysChunks = getTodaysVocabChunks(rangesForSubject, data.vocabChunks, [subject], today);
@@ -241,8 +241,9 @@ export function Home({
           )}
           <ul className="plan-list">
             {vocabBySubject.map(({ subject, todaysChunks, minutes }) => {
-              const heading = VOCAB_HEADING_BY_SUBJECT[subject.name];
-              const itemWord = VOCAB_ITEM_WORD_BY_SUBJECT[subject.name];
+              const template = resolveTemplate(subject);
+              const heading = template.vocabHeading;
+              const itemWord = template.vocabItemWord;
               return (
                 <li key={`vocab-${subject.id}`} className="plan-card vocab-plan-card">
                   <div className="plan-card-top">

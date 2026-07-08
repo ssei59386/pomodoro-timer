@@ -2,7 +2,7 @@
 // 理解度の各段階が何を意味し、次に何をすればよいかを教科ごとに1つの情報源として持つ。
 // 「勉強方針」画面（src/components/StudyPolicy.tsx）はこのデータを表示するだけで、
 // 判定ロジック（3日連続トリガー等）はここには置かない（Phase 2、logic.ts 側）。
-import type { SubjectKey } from "../components/onboarding/onboardingTypes";
+import type { SubjectTemplateKey } from "./subjectTemplates";
 
 /** 理解度の1段階（1〜5）。既存の 0.0〜1.0 スケールに 0.2 刻みで対応する（理解度4 = 0.8 = DEFAULT_TARGET_UNDERSTANDING） */
 export interface UnderstandingLevel {
@@ -14,7 +14,7 @@ export interface UnderstandingLevel {
 }
 
 export interface SubjectStudyPolicy {
-  subjectKey: SubjectKey;
+  subjectKey: SubjectTemplateKey;
   levels: UnderstandingLevel[];
   /** 教科固有の補足説明（英語の単語/文法・読解トラックの説明など） */
   extraNote?: string;
@@ -56,7 +56,7 @@ const ENGLISH_EXTRA_NOTE =
   "文法は教科書の理解（半分で理解度2、全部で理解度3）と、文法ワークを3回解けるようになったら理解度4、という基準です。" +
   "文法と読解が分かれていない教材なら、精読（全文を訳せる）と文法ワーク完了の両方で理解度4とみなしてください。";
 
-export const STUDY_POLICY_BY_SUBJECT: Partial<Record<SubjectKey, SubjectStudyPolicy>> = {
+export const STUDY_POLICY_BY_SUBJECT: Partial<Record<SubjectTemplateKey, SubjectStudyPolicy>> = {
   math: { subjectKey: "math", levels: MATH_SCIENCE_LEVELS },
   science: { subjectKey: "science", levels: MATH_SCIENCE_LEVELS },
   english: { subjectKey: "english", levels: MATH_SCIENCE_LEVELS, extraNote: ENGLISH_EXTRA_NOTE },
@@ -64,7 +64,7 @@ export const STUDY_POLICY_BY_SUBJECT: Partial<Record<SubjectKey, SubjectStudyPol
 };
 
 /** 「勉強方針」画面に表示する順序。国語は理解度ラダーの整理が後回し（docs/feature-study-policy.md）のため対象外 */
-export const STUDY_POLICY_SUBJECT_ORDER: SubjectKey[] = ["math", "science", "english", "social"];
+export const STUDY_POLICY_SUBJECT_ORDER: SubjectTemplateKey[] = ["math", "science", "english", "social"];
 
 /**
  * 後悔防止トリガーの説明（docs/feature-study-policy.md「この機能が解決したい本当の課題」

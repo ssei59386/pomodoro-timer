@@ -11,6 +11,7 @@ import type {
   VocabChunk,
   VocabRange,
 } from "./types";
+import { levelToUnderstanding } from "./data/subjectTemplates";
 
 // ---- 調整可能な定数 ----------------------------------------------------
 
@@ -47,6 +48,16 @@ export function computeObserved(correctRate: number, selfReport: number): number
 export function updateUnderstanding(oldUnderstanding: number, observed: number): number {
   const next = SMOOTHING_ALPHA * observed + (1 - SMOOTHING_ALPHA) * oldUnderstanding;
   return clamp01(next);
+}
+
+/**
+ * セッションの観測理解度を算出する（段階2）。
+ * achievedLevel（達成段階の直接申告）があればそれを理解度へ直接マップした値を返し、
+ * 無ければ従来どおり正答率・自己申告から computeObserved で合成した値を返す（レガシー経路）。
+ */
+export function sessionObservedUnderstanding(session: StudySession): number {
+  if (session.achievedLevel !== undefined) return levelToUnderstanding(session.achievedLevel);
+  return computeObserved(session.correctRate ?? 0, session.selfReport ?? 0);
 }
 
 /**
@@ -405,10 +416,17 @@ function buildSubtopicReasons(
  * 理解度の更新（§6.1）と lastStudiedDate の更新を行う。
  */
 export function applySessionToChapter(chapter: Chapter, session: StudySession): Chapter {
-  const observed = computeObserved(session.correctRate, session.selfReport);
+  // achievedLevel（達成段階の直接申告）があれば理解度を直接セットする（平滑化しない）。
+  // 達成段階は宣言的な状態でノイズを含まないため、平滑化はむしろ実態とのズレを生む。
+  // 無ければ従来どおり computeObserved + updateUnderstanding の平滑化にフォールバックする
+  // （レガシーセッション・旧テストとの互換のため）。
+  const understanding =
+    session.achievedLevel !== undefined
+      ? levelToUnderstanding(session.achievedLevel)
+      : updateUnderstanding(chapter.understanding, computeObserved(session.correctRate ?? 0, session.selfReport ?? 0));
   return {
     ...chapter,
-    understanding: updateUnderstanding(chapter.understanding, observed),
+    understanding,
     lastStudiedDate: session.date,
   };
 }
@@ -424,11 +442,14 @@ export function applySessionToSubtopic(chapter: Chapter, subtopicId: string, ses
   const index = subtopics.findIndex((s) => s.id === subtopicId);
   if (index === -1) return chapter;
 
-  const observed = computeObserved(session.correctRate, session.selfReport);
   const target = subtopics[index];
+  const understanding =
+    session.achievedLevel !== undefined
+      ? levelToUnderstanding(session.achievedLevel)
+      : updateUnderstanding(target.understanding ?? 0, computeObserved(session.correctRate ?? 0, session.selfReport ?? 0));
   const updatedSubtopic: ChapterSubtopic = {
     ...target,
-    understanding: updateUnderstanding(target.understanding ?? 0, observed),
+    understanding,
     lastStudiedDate: session.date,
   };
 
@@ -613,8 +634,10 @@ function median(values: number[]): number {
  *
  * 各セッションについて「(そのセッションの観測理解度 − 直前の理解度) ÷ 分」を1分あたりの伸びの
  * サンプルとみなす。「直前の理解度」は、同じ章/小項目（subtopicId があればそれ、無ければ
- * chapterId）のセッションを日付順に並べ、updateUnderstanding と同じ平滑化式でその場で再現する
- * （グループの最初のセッションだけは「直前」が無いためサンプルを作らず、平滑化の起点にする）。
+ * chapterId）のセッションを日付順に並べ、sessionObservedUnderstanding をそのまま直接セットして
+ * その場で再現する（段階2：achievedLevel は宣言的な値のため平滑化しない。レガシー経路の
+ * computeObserved 値も同じ直接セット式で積み上げる）。
+ * （グループの最初のセッションだけは「直前」が無いためサンプルを作らず、積み上げの起点にする）。
  * サンプルは単純平均ではなく中央値で集計する（1回の絶好調/絶不調セッションに引きずられないため）。
  * サンプル数が MIN_SESSIONS_FOR_PACE_MULTIPLIER 未満なら、まだ信頼できないとして補正なし（1.0）を返す。
  * 最終的な倍率は PACE_MULTIPLIER_MIN 〜 PACE_MULTIPLIER_MAX にクランプする。
@@ -641,11 +664,12 @@ export function subjectPaceMultiplier(
     const sorted = [...list].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     let running: number | null = null;
     for (const session of sorted) {
-      const observed = computeObserved(session.correctRate, session.selfReport);
+      const observed = sessionObservedUnderstanding(session);
       if (running !== null && session.minutes > 0) {
         samples.push((observed - running) / session.minutes);
       }
-      running = running === null ? observed : updateUnderstanding(running, observed);
+      // 達成段階の直接セット化（段階2）に合わせ、履歴再現も平滑化ではなく直接セットで積み上げる。
+      running = observed;
     }
   }
 

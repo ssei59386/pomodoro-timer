@@ -95,19 +95,19 @@ describe("SessionRecord", () => {
     expect(called).toBe(true);
   });
 
-  it("章があるとき、章選択・時間入力・正答率スライダー・手応え選択・保存ボタンが表示される", () => {
+  it("章があるとき、章選択・時間入力・達成段階選択・保存ボタンが表示される", () => {
     localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
     renderSessionRecord({});
 
     expect(screen.getByText("勉強した章")).toBeDefined();
     expect(document.querySelector("select")).not.toBeNull();
     expect(document.querySelector('input[type="number"]')).not.toBeNull();
-    expect(document.querySelector('input[type="range"]')).not.toBeNull();
     expect(screen.getByRole("radiogroup")).toBeDefined();
+    expect(screen.getAllByRole("radio")).toHaveLength(5);
     expect(screen.getByText("記録して理解度を更新")).toBeDefined();
   });
 
-  it("保存ボタンを押すと recordSession が正しい入力でセッションを記録する", () => {
+  it("保存ボタンを押すと recordSession が正しい入力（達成段階込み）でセッションを記録する", () => {
     localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
     renderSessionRecord({});
 
@@ -117,11 +117,8 @@ describe("SessionRecord", () => {
     const minutesInput = document.querySelector('input[type="number"]') as HTMLInputElement;
     fireEvent.change(minutesInput, { target: { value: "30" } });
 
-    const rangeInput = document.querySelector('input[type="range"]') as HTMLInputElement;
-    fireEvent.change(rangeInput, { target: { value: "80" } });
-
-    const selfReportButtons = screen.getAllByRole("radio");
-    fireEvent.click(selfReportButtons[3]); // 4: できる
+    const achievedLevelButtons = screen.getAllByRole("radio");
+    fireEvent.click(achievedLevelButtons[3]); // 段階4
 
     const saveButton = screen.getByText("記録して理解度を更新");
     fireEvent.click(saveButton);
@@ -130,8 +127,7 @@ describe("SessionRecord", () => {
     expect(latestData?.sessions[0]).toMatchObject({
       chapterId: "c1",
       minutes: 30,
-      correctRate: 0.8,
-      selfReport: 4,
+      achievedLevel: 4,
     });
   });
 

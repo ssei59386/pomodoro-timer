@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   computeObserved,
   updateUnderstanding,
+  sessionObservedUnderstanding,
   selfReportToInitialUnderstanding,
   computeInitialUnderstanding,
   averageInitialUnderstanding,
@@ -86,6 +87,7 @@ import type {
   VocabChunk,
   VocabRange,
 } from "./types";
+import { levelToUnderstanding } from "./data/subjectTemplates";
 
 const today = new Date(2026, 5, 29); // 2026-06-29
 
@@ -623,6 +625,37 @@ describe("applySessionToChapter", () => {
     expect(updated.understanding).toBeCloseTo(0.6);
     expect(updated.lastStudiedDate).toBe("2026-06-29");
   });
+
+  it("段階2：achievedLevel があれば理解度を段階値へ直接セットする（平滑化しない）", () => {
+    const c = chapter({ understanding: 0.3 });
+    const session: StudySession = {
+      id: "x",
+      chapterId: "c1",
+      date: "2026-06-29",
+      minutes: 45,
+      achievedLevel: 4,
+    };
+    const updated = applySessionToChapter(c, session);
+    // 直接セット：level/5 = 0.8。平滑化式 0.5*0.8+0.5*0.3=0.55 にはならないことの対比。
+    expect(updated.understanding).toBeCloseTo(0.8);
+    expect(updated.understanding).not.toBeCloseTo(0.55, 1);
+    expect(updated.lastStudiedDate).toBe("2026-06-29");
+  });
+
+  it("段階2：achievedLevel があれば correctRate/selfReport が入っていても無視される", () => {
+    const c = chapter({ understanding: 0.3 });
+    const session: StudySession = {
+      id: "x",
+      chapterId: "c1",
+      date: "2026-06-29",
+      minutes: 45,
+      achievedLevel: 2,
+      correctRate: 1,
+      selfReport: 5,
+    };
+    const updated = applySessionToChapter(c, session);
+    expect(updated.understanding).toBeCloseTo(0.4);
+  });
 });
 
 describe("applySessionToSubtopic", () => {
@@ -686,6 +719,57 @@ describe("applySessionToSubtopic", () => {
     const updatedA = updated.subtopics?.find((s) => s.id === "st-a");
     // observed=0.8, new=0.5*0.8+0.5*0=0.4
     expect(updatedA?.understanding).toBeCloseTo(0.4);
+  });
+
+  it("段階2：achievedLevel があれば小項目の理解度も段階値へ直接セットする（平滑化しない）", () => {
+    const subtopics = [subtopic({ id: "st-a", understanding: 0.3, lastStudiedDate: null })];
+    const c = chapter({ subtopics });
+    const levelSession: StudySession = {
+      id: "x",
+      chapterId: "c1",
+      subtopicId: "st-a",
+      date: "2026-06-29",
+      minutes: 45,
+      achievedLevel: 4,
+    };
+    const updated = applySessionToSubtopic(c, "st-a", levelSession);
+    const updatedA = updated.subtopics?.find((s) => s.id === "st-a");
+    // 直接セット：level/5 = 0.8。平滑化式 0.5*0.8+0.5*0.3=0.55 にはならないことの対比。
+    expect(updatedA?.understanding).toBeCloseTo(0.8);
+    expect(updatedA?.understanding).not.toBeCloseTo(0.55, 1);
+    expect(updatedA?.lastStudiedDate).toBe("2026-06-29");
+  });
+});
+
+describe("sessionObservedUnderstanding（段階2：観測理解度の統一入口）", () => {
+  it("achievedLevel があれば levelToUnderstanding(level) をそのまま返す", () => {
+    const session: StudySession = {
+      id: "x",
+      chapterId: "c1",
+      date: "2026-06-29",
+      minutes: 45,
+      achievedLevel: 3,
+    };
+    expect(sessionObservedUnderstanding(session)).toBeCloseTo(levelToUnderstanding(3));
+    expect(sessionObservedUnderstanding(session)).toBeCloseTo(0.6);
+  });
+
+  it("achievedLevel が無ければ computeObserved(correctRate, selfReport) にフォールバックする（レガシー経路）", () => {
+    const session: StudySession = {
+      id: "x",
+      chapterId: "c1",
+      date: "2026-06-29",
+      minutes: 45,
+      correctRate: 0.8,
+      selfReport: 4,
+    };
+    expect(sessionObservedUnderstanding(session)).toBeCloseTo(computeObserved(0.8, 4));
+    expect(sessionObservedUnderstanding(session)).toBeCloseTo(0.8);
+  });
+
+  it("achievedLevel も correctRate/selfReport も無ければ 0 扱い（フォールバックのデフォルト）", () => {
+    const session: StudySession = { id: "x", chapterId: "c1", date: "2026-06-29", minutes: 45 };
+    expect(sessionObservedUnderstanding(session)).toBe(0);
   });
 });
 
@@ -950,6 +1034,15 @@ describe("教科ごとの学習ペース倍率（subjectPaceMultiplier、フェ�
     return ids.map((id) => chapter({ id, subjectId: "s1" }));
   }
 
+  function achievedLevelSession(
+    chapterId: string,
+    date: string,
+    level: 1 | 2 | 3 | 4 | 5,
+    minutes = 1,
+  ): StudySession {
+    return { id: `${chapterId}-${date}-level`, chapterId, date, minutes, achievedLevel: level };
+  }
+
   // 2セッション/entity = 1サンプル/entity なので、entity数を MIN_SESSIONS_FOR_PACE_MULTIPLIER に
   // 合わせればちょうど閾値ぴったりのサンプル数になる（境界のentity数を動的に作る）
   const idsAtThreshold = Array.from({ length: MIN_SESSIONS_FOR_PACE_MULTIPLIER }, (_, i) => `c${i}`);
@@ -998,6 +1091,28 @@ describe("教科ごとの学習ペース倍率（subjectPaceMultiplier、フェ�
     const chapters = [chapter({ id: "c1", subjectId: "s1" }), chapter({ id: "cOther", subjectId: "s2" })];
     const sessions = [paceSession("cOther", "2026-06-01", 0), paceSession("cOther", "2026-06-02", 1)];
     expect(subjectPaceMultiplier(sessions, chapters, "s1")).toBe(1.0);
+  });
+
+  it("段階2の回帰確認：achievedLevel ベースのセッション履歴でも妥当な倍率（上限クランプ）を返す", () => {
+    const chapters = makeChapters(idsAtThreshold);
+    const sessions = idsAtThreshold.flatMap((id) => [
+      achievedLevelSession(id, "2026-06-01", 1),
+      achievedLevelSession(id, "2026-06-02", 5),
+    ]);
+    expect(subjectPaceMultiplier(sessions, chapters, "s1")).toBeCloseTo(PACE_MULTIPLIER_MAX, 5);
+  });
+
+  it("段階2の回帰確認：3セッション以上の履歴でも直接セット（running=observed）でサンプルが再現される", () => {
+    // 各グループ：段階2(0.4)→段階3(0.6)→段階4(0.8)。直接セットなのでサンプルは
+    // どちらも (0.6-0.4)/45=(0.8-0.6)/45=0.2/45 で一致する（平滑化なら値がずれてしまう）。
+    const chapters = makeChapters(idsAtThreshold);
+    const sessions = idsAtThreshold.flatMap((id) => [
+      achievedLevelSession(id, "2026-06-01", 2, SESSION_MINUTES),
+      achievedLevelSession(id, "2026-06-02", 3, SESSION_MINUTES),
+      achievedLevelSession(id, "2026-06-03", 4, SESSION_MINUTES),
+    ]);
+    // rate = 0.2/45、基準値は 0.5/45 なので比率0.4 < PACE_MULTIPLIER_MIN(0.5) → 下限にクランプ
+    expect(subjectPaceMultiplier(sessions, chapters, "s1")).toBeCloseTo(PACE_MULTIPLIER_MIN, 5);
   });
 });
 

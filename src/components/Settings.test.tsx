@@ -321,4 +321,59 @@ describe("Settings", () => {
     expect(latestData?.vocabRanges).toHaveLength(1);
     expect(latestData?.vocabRanges[0].id).toBe("r-japanese");
   });
+
+  it("教科名の入力欄を編集すると updateSubject 経由で名前が更新される", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSettings();
+
+    const nameInput = screen.getByLabelText("教科名") as HTMLInputElement;
+    expect(nameInput.value).toBe("数学");
+    fireEvent.change(nameInput, { target: { value: "数学I" } });
+
+    expect(latestData?.subjects.find((s) => s.id === "s1")?.name).toBe("数学I");
+  });
+
+  it("教科を追加フォームからテンプレート・名前・テスト日を指定すると addSubject 経由で教科が追加される", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
+    renderSettings();
+
+    const templateSelect = screen.getByLabelText("テンプレート") as HTMLSelectElement;
+    fireEvent.change(templateSelect, { target: { value: "social" } });
+
+    const newSubjectNameInput = screen.getByLabelText("新しい教科の名前") as HTMLInputElement;
+    expect(newSubjectNameInput.value).toBe("社会");
+    fireEvent.change(newSubjectNameInput, { target: { value: "保健体育" } });
+
+    const newSubjectTestDateInput = screen.getByLabelText("新しい教科のテスト日") as HTMLInputElement;
+    fireEvent.change(newSubjectTestDateInput, { target: { value: "2026-09-01" } });
+
+    fireEvent.click(screen.getByText("＋ 教科を追加"));
+
+    expect(latestData?.subjects).toHaveLength(2);
+    const added = latestData?.subjects.find((s) => s.name === "保健体育");
+    expect(added).toMatchObject({ name: "保健体育", testDate: "2026-09-01", templateKey: "social" });
+  });
+
+  it("教科の削除ボタンを押すと確認状態になり、本当に削除するとその教科の章・記録がカスケード削除される", () => {
+    localStorage.setItem(
+      "study-planner-data-v1",
+      JSON.stringify({
+        ...onboardedData,
+        sessions: [
+          { id: "sess1", chapterId: "c1", date: "2026-07-01", minutes: 30, achievedLevel: 3 },
+        ],
+      }),
+    );
+    renderSettings();
+
+    const removeSubjectButtons = screen.getAllByLabelText("教科を削除");
+    fireEvent.click(removeSubjectButtons[0]);
+    expect(screen.getByText("本当に削除する")).toBeDefined();
+
+    fireEvent.click(screen.getByText("本当に削除する"));
+
+    expect(latestData?.subjects).toHaveLength(0);
+    expect(latestData?.chapters).toHaveLength(0);
+    expect(latestData?.sessions).toHaveLength(0);
+  });
 });

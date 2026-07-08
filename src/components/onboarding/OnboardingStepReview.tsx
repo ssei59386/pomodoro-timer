@@ -1,7 +1,5 @@
-import type { SubjectKey } from "./onboardingTypes";
-
 export interface ReviewSubjectSummary {
-  subjectKey: SubjectKey;
+  instanceId: string;
   label: string;
   testDate: string;
   chapterCount: number;
@@ -13,7 +11,7 @@ interface Props {
   weeklyTotalMinutes: number;
   overrideDayCount: number;
   onEditTestDates: () => void;
-  onEditSubjectContent: (subjectKey: SubjectKey) => void;
+  onEditSubjectContent: (instanceId: string) => void;
   onEditSchedule: () => void;
   onEditOverrides: () => void;
 }
@@ -45,14 +43,14 @@ export function OnboardingStepReview({
       </div>
 
       {subjects.map((s) => (
-        <div key={s.subjectKey} className="review-row">
+        <div key={s.instanceId} className="review-row">
           <div className="review-row-body">
             <span className="review-row-title">{s.label}</span>
             <span className="muted small">
               章 {s.chapterCount} 件 ／ 暗記範囲 {s.vocabRangeCount} 件
             </span>
           </div>
-          <button type="button" className="link-btn" onClick={() => onEditSubjectContent(s.subjectKey)}>
+          <button type="button" className="link-btn" onClick={() => onEditSubjectContent(s.instanceId)}>
             編集
           </button>
         </div>

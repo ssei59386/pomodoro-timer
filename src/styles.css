@@ -311,13 +311,16 @@ input[type="range"] {
   flex: 1;
 }
 
-.subject-select-list {
+/* 教科の複数登録対応（段階5）：オンボーディング「使う教科を選ぶ」ステップで追加済み教科の一覧と、
+   新規追加フォーム（テンプレート選択＋教科名＋追加ボタン）を表示する。 */
+.subject-instance-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  margin-bottom: 16px;
 }
 
-.subject-select-row {
+.subject-instance-row {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -326,13 +329,21 @@ input[type="range"] {
   border-bottom: 1px solid var(--border);
 }
 
-.subject-select-row:last-child {
+.subject-instance-row:last-child {
   border-bottom: none;
 }
 
-.subject-select-row input[type="checkbox"] {
-  width: 20px;
-  height: 20px;
+.subject-instance-row input[type="text"] {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.subject-add-form {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
 }
 
 .test-date-block {
@@ -879,6 +890,74 @@ input[type="range"] {
   line-height: 1.2;
 }
 
+/* ---- 達成段階ピッカー（段階4：sr-textの10px問題を避け、縦積み・折り返し可能に） ---- */
+.achievement-level-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.al-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+  text-align: left;
+}
+
+.al-option.selected {
+  border-color: var(--primary);
+  background: #eff6ff;
+}
+
+.al-num {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.al-option.selected .al-num {
+  background: var(--primary);
+  color: #fff;
+}
+
+.al-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.al-achieved {
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.al-option.selected .al-achieved {
+  color: var(--primary);
+}
+
+.al-next {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--muted);
+}
+
 /* ---- ホーム（今日やること） ---- */
 .summary-pill {
   display: inline-block;
@@ -1380,6 +1459,17 @@ input[type="range"] {
   padding: 9px;
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.subject-name-input {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.subject-remove-confirm {
+  flex-direction: column;
+  align-items: flex-start;
+  margin-bottom: 12px;
 }
 
 .memorize-mode-item-list {

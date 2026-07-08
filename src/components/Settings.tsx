@@ -7,11 +7,15 @@ import {
   validateVocabRangeDraft,
 } from "../logic";
 import type { Chapter, ChapterMetadata, ChapterSubtopic, Subject } from "../types";
+import { resolveTemplate, SUBJECT_TEMPLATES, type SubjectTemplateKey } from "../data/subjectTemplates";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 import { CalendarOverrides } from "./CalendarOverrides";
 import { CurriculumSuggest } from "./CurriculumSuggest";
 import { ChapterCurriculumSuggest } from "./ChapterCurriculumSuggest";
 import { CurriculumSubtopicPicker } from "./CurriculumSubtopicPicker";
+
+/** テンプレート選択の並び順（オンボーディングの SUBJECT_ORDER と揃える） */
+const TEMPLATE_KEY_ORDER: SubjectTemplateKey[] = ["math", "science", "english", "social", "japanese"];
 
 /**
  * 単語帳の範囲登録フォームの下書き（Settings は既に確定済みの Subject/Chapter を持つため、
@@ -37,6 +41,8 @@ export function Settings() {
   const {
     data,
     updateSubject,
+    addSubject,
+    removeSubject,
     updateChapter,
     addChapter,
     removeChapter,
@@ -59,6 +65,24 @@ export function Settings() {
   // （details/summary のネイティブclickトグルがReact 18環境で機能しないPlaywright実機検証結果を受け、
   // 自前の開閉状態管理に切り替え）。デフォルトは閉じた状態（未登録キー = false 扱い）。
   const [openMetadata, setOpenMetadata] = useState<Record<string, boolean>>({});
+
+  // 教科の複数登録（段階4）：新規追加フォームの下書き。テンプレートを変えたら名前も
+  // そのテンプレの初期名にリセットする（ユーザーが名前を編集済みでも上書きされるが、
+  // テンプレ変更自体が「作り直す」意図の操作なので許容する）。
+  const [newSubjectTemplateKey, setNewSubjectTemplateKey] = useState<SubjectTemplateKey>("math");
+  const [newSubjectName, setNewSubjectName] = useState(SUBJECT_TEMPLATES.math.defaultName);
+  const [newSubjectTestDate, setNewSubjectTestDate] = useState("");
+  // 教科削除の確認状態（不可逆操作 — 章・記録・暗記範囲もカスケード削除されるため）。
+  // 一度に確認できるのは1教科のみでよいので、確認中の subjectId だけを保持する。
+  const [confirmingRemoveSubjectId, setConfirmingRemoveSubjectId] = useState<string | null>(null);
+
+  const handleAddSubject = () => {
+    const trimmedName = newSubjectName.trim();
+    if (!trimmedName || !newSubjectTestDate) return;
+    addSubject({ name: trimmedName, testDate: newSubjectTestDate, templateKey: newSubjectTemplateKey });
+    setNewSubjectName(SUBJECT_TEMPLATES[newSubjectTemplateKey].defaultName);
+    setNewSubjectTestDate("");
+  };
 
   const toggleMetadata = (chapterId: string) => {
     setOpenMetadata((prev) => ({ ...prev, [chapterId]: !prev[chapterId] }));
@@ -170,9 +194,45 @@ export function Settings() {
 
       {data.subjects.map((subject) => {
         const chapters = data.chapters.filter((c) => c.subjectId === subject.id);
+        const template = resolveTemplate(subject);
         return (
           <section key={subject.id} className="card">
-            <h3>{subject.name}</h3>
+            <div className="settings-chapter-row subject-name-row">
+              <input
+                type="text"
+                className="grow subject-name-input"
+                aria-label="教科名"
+                value={subject.name}
+                onChange={(e) => updateSubject({ ...subject, name: e.target.value })}
+              />
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="教科を削除"
+                onClick={() => setConfirmingRemoveSubjectId(subject.id)}
+              >
+                ✕
+              </button>
+            </div>
+            {confirmingRemoveSubjectId === subject.id && (
+              <div className="confirm-row subject-remove-confirm">
+                <p className="error-inline">
+                  「{subject.name}」を削除すると、この教科の章・記録・暗記範囲もすべて削除されます。元に戻せません。
+                </p>
+                <button
+                  className="danger"
+                  onClick={() => {
+                    removeSubject(subject.id);
+                    setConfirmingRemoveSubjectId(null);
+                  }}
+                >
+                  本当に削除する
+                </button>
+                <button className="secondary" onClick={() => setConfirmingRemoveSubjectId(null)}>
+                  やめる
+                </button>
+              </div>
+            )}
             <label className="field">
               <span>テスト日</span>
               <input
@@ -185,7 +245,7 @@ export function Settings() {
               <p className="error-inline">テスト日が過去の日付になっています。</p>
             )}
 
-            {subject.name !== "社会" && subject.name !== "国語" && (
+            {template.chapterCapable && (
               <>
                 <h4 className="sub-head">章</h4>
                 {chapters.map((c) => (
@@ -198,8 +258,8 @@ export function Settings() {
                       value={c.name}
                       onChange={(e) => updateChapter({ ...c, name: e.target.value })}
                     />
-                    {(subject.name === "数学" || subject.name === "理科") && (
-                      <ChapterCurriculumSuggest query={c.name} subject={subject.name} />
+                    {template.curriculumSubject !== null && (
+                      <ChapterCurriculumSuggest query={c.name} subject={template.curriculumSubject} />
                     )}
                   </div>
                   <button
@@ -284,10 +344,10 @@ export function Settings() {
                       小項目（任意）— 学習範囲を細かく分けて管理したい場合に使えます
                     </span>
                     <div className="subtopic-block-actions">
-                      {(subject.name === "数学" || subject.name === "理科") && (
+                      {template.curriculumSubject !== null && (
                         <CurriculumSubtopicPicker
                           chapterName={c.name}
-                          subject={subject.name}
+                          subject={template.curriculumSubject!}
                           onAdd={(candidates) => {
                             updateChapter({
                               ...c,
@@ -308,7 +368,7 @@ export function Settings() {
                       </button>
                     </div>
                   </div>
-                  {(subject.name === "数学" || subject.name === "理科") && (
+                  {template.curriculumSubject !== null && (
                     <p className="muted small">
                       小項目名を入力すると、カリキュラム参考データとの一致で難易度が自動入力されます（手動で上書き可）。
                     </p>
@@ -325,10 +385,10 @@ export function Settings() {
                             updateSubtopicField(c, st.id, { name: e.target.value })
                           }
                         />
-                        {(subject.name === "数学" || subject.name === "理科") && (
+                        {template.curriculumSubject !== null && (
                           <CurriculumSuggest
                             query={st.name}
-                            subject={subject.name}
+                            subject={template.curriculumSubject!}
                             onSelect={(result) =>
                               updateSubtopicField(c, st.id, {
                                 difficultyLevel: result.difficultyLevel,
@@ -421,7 +481,7 @@ export function Settings() {
               </>
             )}
 
-            {subject.name !== "数学" && subject.name !== "理科" && (
+            {template.vocabCapable && (
               <>
                 <h4 className="sub-head">暗記範囲</h4>
                 <p className="muted small">
@@ -514,6 +574,54 @@ export function Settings() {
           </section>
         );
       })}
+
+      <section className="card">
+        <h3>教科を追加</h3>
+        <p className="muted">
+          テンプレートを選ぶと、その教科の振る舞い（章を持てるか・暗記範囲を持てるか）が決まります。同じテンプレートで複数教科（例：数学I・数学A）も登録できます。テンプレートは追加後に変更できません。
+        </p>
+        <label className="field">
+          <span>テンプレート</span>
+          <select
+            value={newSubjectTemplateKey}
+            onChange={(e) => {
+              const key = e.target.value as SubjectTemplateKey;
+              setNewSubjectTemplateKey(key);
+              setNewSubjectName(SUBJECT_TEMPLATES[key].defaultName);
+            }}
+          >
+            {TEMPLATE_KEY_ORDER.map((key) => (
+              <option key={key} value={key}>
+                {SUBJECT_TEMPLATES[key].defaultName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>新しい教科の名前</span>
+          <input
+            type="text"
+            value={newSubjectName}
+            onChange={(e) => setNewSubjectName(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          <span>新しい教科のテスト日</span>
+          <input
+            type="date"
+            value={newSubjectTestDate}
+            onChange={(e) => setNewSubjectTestDate(e.target.value)}
+          />
+        </label>
+        <button
+          type="button"
+          className="secondary"
+          disabled={!newSubjectName.trim() || !newSubjectTestDate}
+          onClick={handleAddSubject}
+        >
+          ＋ 教科を追加
+        </button>
+      </section>
 
       {memorizeModeItems.length > 0 && (
         <section className="card">

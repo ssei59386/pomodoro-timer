@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useStore } from "../store";
-import {
-  REGRET_PREVENTION_TRIGGER_POINTS,
-  STUDY_POLICY_BY_SUBJECT,
-  STUDY_POLICY_SUBJECT_ORDER,
-} from "../data/studyPolicy";
-import { SUBJECT_LABELS, type SubjectKey } from "./onboarding/onboardingTypes";
+import { REGRET_PREVENTION_TRIGGER_POINTS } from "../data/studyPolicy";
+import { resolveTemplate, type SubjectTemplateKey } from "../data/subjectTemplates";
+
+// 国語の勉強方針ラダーは未整備（docs/feature-study-policy.md で後回しと明記）。
+// subjectTemplates.ts の japanese.studyPolicy は型を満たすためだけの社会ラダー流用の
+// プレースホルダーなので、この画面では意図的に対象外のままにする（既存の挙動を維持）。
+const STUDY_POLICY_EXCLUDED_TEMPLATE_KEYS: SubjectTemplateKey[] = ["japanese"];
 
 // 「勉強方針」画面（docs/feature-study-policy.md Phase 1）。理解度の各段階が何を意味していて
 // 次に何をすればいいかを教科ごとに示す、純粋な表示専用画面（ロジックは src/data/studyPolicy.ts）。
@@ -16,15 +17,16 @@ export function StudyPolicy({ onDone }: { onDone: () => void }) {
   const { data } = useStore();
   // 生徒が実際に登録している教科のラダーだけ表示する（未登録の教科まで並べると、
   // 触ったことのない教科の説明が混ざって紛らわしいため。ux-reviewer指摘）。
-  const registeredSubjectNames = new Set(data.subjects.map((s) => s.name));
-  const visibleSubjectKeys = STUDY_POLICY_SUBJECT_ORDER.filter((key) =>
-    registeredSubjectNames.has(SUBJECT_LABELS[key]),
+  // 教科は複数登録できる（段階4）ため、教科名ではなく Subject インスタンスごとにカードを出す
+  // （数学I/数学Aのように同テンプレートの教科が複数あっても、それぞれ別カードで自然に並ぶ）。
+  const visibleSubjects = data.subjects.filter(
+    (s) => !STUDY_POLICY_EXCLUDED_TEMPLATE_KEYS.includes(resolveTemplate(s).key),
   );
 
   // 最初の教科だけ開いた状態にしておく（全部畳んだ状態から始めると、何があるか一目で
   // 伝わらないため）。
-  const [openSubjectKey, setOpenSubjectKey] = useState<SubjectKey | null>(
-    visibleSubjectKeys[0] ?? null,
+  const [openSubjectId, setOpenSubjectId] = useState<string | null>(
+    visibleSubjects[0]?.id ?? null,
   );
 
   return (
@@ -45,19 +47,18 @@ export function StudyPolicy({ onDone }: { onDone: () => void }) {
         </ul>
       </section>
 
-      {visibleSubjectKeys.map((subjectKey) => {
-        const policy = STUDY_POLICY_BY_SUBJECT[subjectKey];
-        if (!policy) return null;
-        const isOpen = openSubjectKey === subjectKey;
+      {visibleSubjects.map((subject) => {
+        const policy = resolveTemplate(subject).studyPolicy;
+        const isOpen = openSubjectId === subject.id;
         return (
-          <section key={subjectKey} className="card study-policy-subject-card">
+          <section key={subject.id} className="card study-policy-subject-card">
             <button
               type="button"
               className="study-policy-subject-toggle"
-              onClick={() => setOpenSubjectKey((prev) => (prev === subjectKey ? null : subjectKey))}
+              onClick={() => setOpenSubjectId((prev) => (prev === subject.id ? null : subject.id))}
               aria-expanded={isOpen}
             >
-              <h3>{SUBJECT_LABELS[subjectKey]}</h3>
+              <h3>{subject.name}</h3>
               <span className="study-policy-toggle-icon">{isOpen ? "閉じる ▲" : "見る ▼"}</span>
             </button>
 

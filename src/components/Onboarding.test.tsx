@@ -40,8 +40,15 @@ function clickStart() {
   fireEvent.click(screen.getByText("この内容で始める"));
 }
 
-function selectSubject(label: string) {
-  fireEvent.click(screen.getByLabelText(label));
+/**
+ * テンプレートを選んで教科を1件追加する（教科の複数登録対応、段階5）。テンプレート未指定なら
+ * デフォルトの「数学」のまま追加する。追加直後の教科名はテンプレートの初期名と一致する。
+ */
+function addSubject(templateLabel = "数学") {
+  const select = screen.getByLabelText("テンプレート") as HTMLSelectElement;
+  const option = within(select).getByText(templateLabel) as HTMLOptionElement;
+  fireEvent.change(select, { target: { value: option.value } });
+  fireEvent.click(screen.getByText("＋ 教科を追加"));
 }
 
 function setTestDate(subjectLabel: string, date: string) {
@@ -54,9 +61,9 @@ function fillWeeklySlot() {
   fireEvent.change(timeInputs[1], { target: { value: "19:00" } });
 }
 
-/** 教科を1つ選び、テスト日を入れて、その教科の内容ステップまで進める */
+/** 教科を1つ追加し、テスト日を入れて、その教科の内容ステップまで進める */
 function goToSubjectContent(subjectLabel: string, testDate = "2099-08-01") {
-  selectSubject(subjectLabel);
+  addSubject(subjectLabel);
   clickNext(); // subjects -> testDates
   setTestDate(subjectLabel, testDate);
   clickNext(); // testDates -> subjectContent
@@ -92,12 +99,12 @@ describe("Onboarding（App経由の統合テスト）", () => {
     expect(localStorage.getItem("study-planner-onboarding-draft-v1")).toBeNull();
   });
 
-  it("使う教科を選ばずに次へに進もうとするとエラーになり、オンボーディングのままになる", () => {
+  it("使う教科を追加せずに次へに進もうとするとエラーになり、オンボーディングのままになる", () => {
     renderApp();
 
     clickNext();
 
-    expect(screen.getByText("使う教科を1つ以上選んでください。")).toBeDefined();
+    expect(screen.getByText("使う教科を1つ以上追加してください。")).toBeDefined();
     expect(screen.getByRole("heading", { name: "はじめの設定" })).toBeDefined();
 
     const saved = JSON.parse(localStorage.getItem("study-planner-data-v1") ?? "{}") as AppData;
@@ -143,7 +150,7 @@ describe("Onboarding（ステップ移動）", () => {
   it("「＜ 戻る」で1つ前のステップへ戻り、入力済みの内容は保持される", () => {
     renderOnboarding();
 
-    selectSubject("数学");
+    addSubject("数学");
     clickNext(); // subjects -> testDates
     setTestDate("数学", "2099-08-01");
 
@@ -155,11 +162,68 @@ describe("Onboarding（ステップ移動）", () => {
   });
 });
 
+describe("Onboarding（教科の複数登録）", () => {
+  it("同じテンプレートを2回追加して数学I/数学Aを別のテスト日で登録すると、両方が別の Subject として保存される", () => {
+    renderOnboarding();
+
+    // テンプレートは「数学」のまま2回追加し、それぞれ名前を編集して数学I/数学Aにする
+    addSubject("数学");
+    addSubject("数学");
+
+    const nameInputs = screen.getAllByLabelText("数学（教科名を編集）");
+    expect(nameInputs).toHaveLength(2);
+    fireEvent.change(nameInputs[0], { target: { value: "数学I" } });
+    fireEvent.change(nameInputs[1], { target: { value: "数学A" } });
+
+    clickNext(); // subjects -> testDates
+    setTestDate("数学I", "2099-08-01");
+    setTestDate("数学A", "2099-09-01");
+    clickNext(); // testDates -> subjectContent(数学I)
+
+    expect(screen.getByRole("heading", { name: /数学Iの内容/ })).toBeDefined();
+    fireEvent.change(screen.getByPlaceholderText("章名（例：二次関数）"), { target: { value: "二次関数" } });
+    clickNext(); // subjectContent(数学I) -> subjectContent(数学A)
+
+    expect(screen.getByRole("heading", { name: /数学Aの内容/ })).toBeDefined();
+    fireEvent.change(screen.getByPlaceholderText("章名（例：二次関数）"), { target: { value: "整数の性質" } });
+    finishFromContentStep();
+
+    expect(latestData?.onboarded).toBe(true);
+    const mathI = latestData?.subjects.find((s) => s.name === "数学I");
+    const mathA = latestData?.subjects.find((s) => s.name === "数学A");
+    expect(mathI).toBeDefined();
+    expect(mathA).toBeDefined();
+    expect(mathI?.id).not.toBe(mathA?.id);
+    expect(mathI?.testDate).toBe("2099-08-01");
+    expect(mathA?.testDate).toBe("2099-09-01");
+    expect(mathI?.templateKey).toBe("math");
+    expect(mathA?.templateKey).toBe("math");
+
+    const chapterI = latestData?.chapters.find((c) => c.name === "二次関数");
+    const chapterA = latestData?.chapters.find((c) => c.name === "整数の性質");
+    expect(chapterI?.subjectId).toBe(mathI?.id);
+    expect(chapterA?.subjectId).toBe(mathA?.id);
+  });
+
+  it("追加した教科は「使う教科を選ぶ」ステップで削除できる", () => {
+    renderOnboarding();
+
+    addSubject("数学");
+    addSubject("理科");
+    expect(screen.getAllByLabelText(/（教科名を編集）/)).toHaveLength(2);
+
+    fireEvent.click(screen.getByLabelText("数学を削除"));
+
+    expect(screen.getAllByLabelText(/（教科名を編集）/)).toHaveLength(1);
+    expect(screen.queryByLabelText("理科を削除")).not.toBeNull();
+  });
+});
+
 describe("Onboarding（テスト日ステップのバリデーション）", () => {
   it("テスト日が未入力のまま次へに進もうとするとエラーになる", () => {
     renderOnboarding();
 
-    selectSubject("数学");
+    addSubject("数学");
     clickNext(); // subjects -> testDates
     clickNext(); // 未入力のまま次へ
 
@@ -169,7 +233,7 @@ describe("Onboarding（テスト日ステップのバリデーション）", () 
   it("過去日だとエラーになる", () => {
     renderOnboarding();
 
-    selectSubject("数学");
+    addSubject("数学");
     clickNext(); // subjects -> testDates
     setTestDate("数学", "2020-01-01");
     clickNext();
@@ -211,7 +275,7 @@ describe("Onboarding（下書き永続化）", () => {
   it("数歩進めてアンマウント→再マウントすると、入力内容とステップ位置が復元される", () => {
     const { unmount } = renderOnboarding();
 
-    selectSubject("数学");
+    addSubject("数学");
     clickNext(); // subjects -> testDates
     setTestDate("数学", "2099-08-01");
     clickNext(); // testDates -> subjectContent(math)
@@ -509,7 +573,7 @@ describe("Onboarding（社会・国語の暗記範囲）", () => {
   it("国語のテスト日が未入力のまま次へに進もうとするとエラーになる", () => {
     renderOnboarding();
 
-    selectSubject("国語");
+    addSubject("国語");
     clickNext(); // subjects -> testDates
     clickNext(); // テスト日未入力のまま次へ
 

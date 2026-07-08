@@ -11,6 +11,7 @@ import type {
   AppData,
   AvailabilitySettings,
   Chapter,
+  ForecastDecisionState,
   StudySession,
   Subject,
   VocabChunk,
@@ -67,6 +68,10 @@ interface StoreValue {
   /** 暗記モードから理解モードに戻す（取り消し手段。Home のインライン「元に戻す」/Settings 一覧の両方から呼ばれる） */
   restoreUnderstandMode: (chapterId: string, subtopicId: string | null) => void;
   updateSubject: (subject: Subject) => void;
+  /** 教科を新規追加する（段階3：教科の複数登録） */
+  addSubject: (subject: Omit<Subject, "id">) => void;
+  /** 教科を削除する。その教科に属する章・セッション・単語帳範囲/枠・後悔防止トリガー状態・今日の計画をカスケードで削除する */
+  removeSubject: (subjectId: string) => void;
   updateChapter: (chapter: Chapter) => void;
   addChapter: (chapter: Omit<Chapter, "id">) => void;
   removeChapter: (chapterId: string) => void;
@@ -80,6 +85,25 @@ interface StoreValue {
   /** 単語帳の範囲とその枠をまとめて削除する */
   removeVocabRange: (rangeId: string) => void;
   resetAll: () => void;
+}
+
+// 章削除（removeChapter/removeSubject共通）に伴う、forecastDecisions/todayPlanの
+// カスケードプルーン。キーは chapterId が先頭（forecastDecisionKey参照）なので前方一致で判定する。
+function pruneForecastDecisions(
+  decisions: Record<string, ForecastDecisionState> | undefined,
+  removedChapterIds: Set<string>,
+): Record<string, ForecastDecisionState> | undefined {
+  if (!decisions) return decisions;
+  const entries = Object.entries(decisions).filter(([key]) => {
+    const chapterId = key.slice(0, key.indexOf(":"));
+    return !removedChapterIds.has(chapterId);
+  });
+  return Object.fromEntries(entries);
+}
+
+function pruneTodayPlan(plan: AppData["todayPlan"], removedChapterIds: Set<string>): AppData["todayPlan"] {
+  if (!plan) return plan;
+  return { ...plan, itemKeys: plan.itemKeys.filter((item) => !removedChapterIds.has(item.chapterId)) };
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -193,6 +217,34 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }));
       },
 
+      addSubject: (subject) => {
+        setData((prev) => ({
+          ...prev,
+          subjects: [...prev.subjects, { ...subject, id: uid() }],
+        }));
+      },
+
+      removeSubject: (subjectId) => {
+        setData((prev) => {
+          const removedChapterIds = new Set(
+            prev.chapters.filter((c) => c.subjectId === subjectId).map((c) => c.id),
+          );
+          const removedRangeIds = new Set(
+            prev.vocabRanges.filter((r) => r.subjectId === subjectId).map((r) => r.id),
+          );
+          return {
+            ...prev,
+            subjects: prev.subjects.filter((s) => s.id !== subjectId),
+            chapters: prev.chapters.filter((c) => c.subjectId !== subjectId),
+            sessions: prev.sessions.filter((s) => !removedChapterIds.has(s.chapterId)),
+            vocabRanges: prev.vocabRanges.filter((r) => r.subjectId !== subjectId),
+            vocabChunks: prev.vocabChunks.filter((c) => !removedRangeIds.has(c.rangeId)),
+            forecastDecisions: pruneForecastDecisions(prev.forecastDecisions, removedChapterIds),
+            todayPlan: pruneTodayPlan(prev.todayPlan, removedChapterIds),
+          };
+        });
+      },
+
       updateChapter: (chapter) => {
         setData((prev) => ({
           ...prev,
@@ -208,11 +260,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       removeChapter: (chapterId) => {
-        setData((prev) => ({
-          ...prev,
-          chapters: prev.chapters.filter((c) => c.id !== chapterId),
-          sessions: prev.sessions.filter((s) => s.chapterId !== chapterId),
-        }));
+        setData((prev) => {
+          const removedChapterIds = new Set([chapterId]);
+          return {
+            ...prev,
+            chapters: prev.chapters.filter((c) => c.id !== chapterId),
+            sessions: prev.sessions.filter((s) => s.chapterId !== chapterId),
+            forecastDecisions: pruneForecastDecisions(prev.forecastDecisions, removedChapterIds),
+            todayPlan: pruneTodayPlan(prev.todayPlan, removedChapterIds),
+          };
+        });
       },
 
       setAvailability: (availability) => {

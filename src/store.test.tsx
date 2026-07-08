@@ -46,6 +46,13 @@ const availability: AvailabilitySettings = {
   dateOverrides: {},
 };
 
+// ensureTodayPlan/todayPlanプルーンの検証には「2026-07-01に十分な空き時間がある」ことが要る
+// （weeklySchedule基準の availability は曜日が合わないと0分になり得るため、日付上書きで確実にする）。
+const plannableAvailability: AvailabilitySettings = {
+  weeklySchedule: {},
+  dateOverrides: { "2026-07-01": [{ start: "18:00", end: "20:00" }] },
+};
+
 beforeEach(() => {
   localStorage.clear();
   latest = null;
@@ -181,6 +188,170 @@ describe("StoreProvider / useStore", () => {
     });
     expect(getStore().data.chapters.map((c) => c.id)).not.toContain("c1");
     expect(getStore().data.chapters).toHaveLength(1);
+  });
+
+  it("addSubject で subjects が増える", () => {
+    renderStore();
+    act(() => {
+      getStore().completeOnboarding({
+        subjects: [subject],
+        chapters: [chapter()],
+        availability,
+      });
+    });
+
+    act(() => {
+      getStore().addSubject({ name: "英語", testDate: "2026-09-01" });
+    });
+
+    expect(getStore().data.subjects).toHaveLength(2);
+    const added = getStore().data.subjects.find((s) => s.name === "英語");
+    expect(added).toBeDefined();
+    expect(added?.id).not.toBe("");
+    expect(added?.testDate).toBe("2026-09-01");
+  });
+
+  it("removeSubject で対象教科と、その章・セッション・vocabRange・vocabChunk・forecastDecisions・todayPlanをカスケード削除し、無関係な他教科は残る", () => {
+    renderStore();
+
+    const otherSubject: Subject = { id: "s2", name: "理科", testDate: "2026-08-05" };
+    const otherChapter = chapter({ id: "c2", subjectId: "s2", name: "力学" });
+
+    const vocabRange: VocabRange = {
+      id: "r1",
+      subjectId: "s1",
+      label: "ターゲット1900",
+      startNumber: 1,
+      endNumber: 20,
+    };
+    const otherVocabRange: VocabRange = {
+      id: "r2",
+      subjectId: "s2",
+      label: "セミナー化学",
+      startNumber: 1,
+      endNumber: 20,
+    };
+    const vocabChunks: VocabChunk[] = [
+      {
+        id: "r1-1-20",
+        rangeId: "r1",
+        startNumber: 1,
+        endNumber: 20,
+        introduced: false,
+        box: 0,
+        nextReviewDate: null,
+        completed: false,
+      },
+      {
+        id: "r2-1-20",
+        rangeId: "r2",
+        startNumber: 1,
+        endNumber: 20,
+        introduced: false,
+        box: 0,
+        nextReviewDate: null,
+        completed: false,
+      },
+    ];
+
+    act(() => {
+      getStore().completeOnboarding({
+        subjects: [subject, otherSubject],
+        chapters: [chapter(), otherChapter],
+        availability: plannableAvailability,
+        vocabRanges: [vocabRange, otherVocabRange],
+        vocabChunks,
+      });
+    });
+
+    act(() => {
+      getStore().recordSession({
+        chapterId: "c1",
+        date: "2026-07-01",
+        minutes: 45,
+        correctRate: 0.8,
+        selfReport: 4,
+      });
+    });
+    act(() => {
+      getStore().recordSession({
+        chapterId: "c2",
+        date: "2026-07-01",
+        minutes: 30,
+        correctRate: 0.5,
+        selfReport: 3,
+      });
+    });
+
+    act(() => {
+      getStore().ensureTodayPlan(new Date("2026-07-01"));
+    });
+    // c1（対象教科の章）が今日の計画に含まれることを前提にする
+    expect(getStore().data.todayPlan?.itemKeys.some((k) => k.chapterId === "c1")).toBe(true);
+
+    act(() => {
+      // forecastDecisions を直接投入して削除対象/非対象の両方を検証する
+      getStore().continueDecision("c1", null, new Date("2026-07-01"));
+    });
+    act(() => {
+      getStore().continueDecision("c2", null, new Date("2026-07-01"));
+    });
+    expect(Object.keys(getStore().data.forecastDecisions ?? {})).toEqual(
+      expect.arrayContaining(["c1:", "c2:"]),
+    );
+
+    act(() => {
+      getStore().removeSubject("s1");
+    });
+
+    const result = getStore().data;
+    expect(result.subjects.map((s) => s.id)).toEqual(["s2"]);
+    expect(result.chapters.map((c) => c.id)).toEqual(["c2"]);
+    expect(result.sessions.map((s) => s.chapterId)).toEqual(["c2"]);
+    expect(result.vocabRanges.map((r) => r.id)).toEqual(["r2"]);
+    expect(result.vocabChunks.map((c) => c.id)).toEqual(["r2-1-20"]);
+    expect(Object.keys(result.forecastDecisions ?? {})).toEqual(["c2:"]);
+    expect(result.todayPlan?.itemKeys.some((k) => k.chapterId === "c1")).toBe(false);
+    expect(result.todayPlan?.itemKeys.some((k) => k.chapterId === "c2")).toBe(true);
+  });
+
+  it("removeChapter が forecastDecisions / todayPlan からも当該章のキーをプルーンする", () => {
+    renderStore();
+
+    act(() => {
+      getStore().completeOnboarding({
+        subjects: [subject],
+        chapters: [chapter()],
+        availability: plannableAvailability,
+      });
+    });
+
+    act(() => {
+      getStore().recordSession({
+        chapterId: "c1",
+        date: "2026-07-01",
+        minutes: 45,
+        correctRate: 0.8,
+        selfReport: 4,
+      });
+    });
+
+    act(() => {
+      getStore().ensureTodayPlan(new Date("2026-07-01"));
+    });
+    expect(getStore().data.todayPlan?.itemKeys.some((k) => k.chapterId === "c1")).toBe(true);
+
+    act(() => {
+      getStore().continueDecision("c1", null, new Date("2026-07-01"));
+    });
+    expect(getStore().data.forecastDecisions?.["c1:"]).toBeDefined();
+
+    act(() => {
+      getStore().removeChapter("c1");
+    });
+
+    expect(getStore().data.forecastDecisions?.["c1:"]).toBeUndefined();
+    expect(getStore().data.todayPlan?.itemKeys.some((k) => k.chapterId === "c1")).toBe(false);
   });
 
   it("setAvailability が availability を更新する", () => {

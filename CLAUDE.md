@@ -100,6 +100,15 @@ Still-open backlog items from that history (not yet scoped/resolved, low priorit
 
 **Curriculum reference data (math + science): RESOLVED, both fully built and integrated** into the "見通し" feature's suggestion layer (`src/data/curriculumSearch.ts`). Full research-task history is in **`docs/curriculum-data.md`**.
 
+## セッション引き継ぎメモ（2026-07-09、教科テンプレート化＋達成段階エンジン 段階1〜5完了時点）
+
+**進行中の大型機能。詳細は `docs/feature-subject-templates.md` を必ず読むこと**（決定事項・段階別実装ログ・残作業が全部そこにある）。承認済みプラン全文は（リポジトリ外）`~/.claude/plans/soft-swinging-hippo.md`。要点のみここに残す:
+
+- ユーザー要望「教科を複数登録できるように」＋「理解度の入れ方の言葉の食い違いをなくす」から着手。**両方まとめて一度に**、要件2は「記録の仕組みごと作り替え（＝下記 Phase 3 相当）」をユーザーが明示選択。
+- **段階1〜5 完了**（テスト394件全通過・build成功・tscクリーン）。教科を**テンプレから自由に複数追加/削除**（数学I・数学A、保健体育等）でき、記録画面が**達成段階(1〜5)選択**に統一、`SubjectKey` 固定を撤廃し `src/data/subjectTemplates.ts` の `resolveTemplate` に一本化、`vocabLabels.ts` は削除。
+- **残り**：段階6（社会を `chapterCapable:true` に＝章＋周回化、vocabは併存維持／`SelfReportPicker.tsx`・`INITIAL_UNDERSTANDING_LABELS` 等の未使用コード掃除）、段階7（任意・**要ユーザー確認**：英語の文法/読解トラック分割）、**実機QA未実施**。
+- 決定事項 D1（社会vocabは消さず併存）/ D2（テンプレは追加時固定）/ D3（既存understanding値は移行せず次回記録でスナップ）は `docs/feature-subject-templates.md` 参照。覆すなら要相談。
+
 ## セッション引き継ぎメモ（2026-07-08、勉強方針・後悔防止トリガー機能 Phase 1+2 完了時点）
 
 **オンボーディングの本格ウィザード化は完了済み**（`docs/feature-onboarding-wizard.md` 参照）。

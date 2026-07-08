@@ -1,14 +1,23 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import { toISODate } from "../logic";
-import { SelfReportPicker } from "./SelfReportPicker";
+import { resolveTemplate } from "../data/subjectTemplates";
+import { AchievementLevelPicker } from "./AchievementLevelPicker";
 
-// 仕様書 §7.3 セッション記録
-// 対象の章を選び、かけた時間・演習の正答率・手応え（5段階）を入力 → 保存で理解度更新（§6.1）
+// 仕様書 §7.3 セッション記録（段階4：達成段階ベースの記録に置き換え）
+// 対象の章を選び、かけた時間・達成段階（教科ごとのラダー、1〜5）を入力 → 保存で理解度を更新する。
+// 理解度は段階/5 を直接セットする（平滑化なし。docs/feature-study-policy.md 決定事項 D3）。
 
 // select の「章全体として記録」オプション用の値。空文字列は未選択プレースホルダーに使うため、
 // 実際の選択肢としては別の値を割り当て、onChange で subtopicId の空文字列に正規化する。
 const WHOLE_CHAPTER_VALUE = "__whole_chapter__";
+
+/** 現在の理解度（0.0〜1.0）から達成段階の初期選択を逆算する。未設定なら中間の3。 */
+function computeInitialAchievedLevel(understanding: number | undefined | null): 1 | 2 | 3 | 4 | 5 {
+  if (understanding === undefined || understanding === null) return 3;
+  const level = Math.min(5, Math.max(1, Math.round(understanding * 5)));
+  return level as 1 | 2 | 3 | 4 | 5;
+}
 
 export function SessionRecord({
   preselectChapterId,
@@ -35,8 +44,8 @@ export function SessionRecord({
   // 空にした瞬間に Number("") が 0 になり Math.max(1, 0) で強制的に 1 へ戻されると、
   // 実機で「1が消せず145のような値になってしまう」不具合が起きるため。
   const [minutes, setMinutes] = useState<number | "">(45);
-  const [correctPercent, setCorrectPercent] = useState(70); // 0〜100% で入力
-  const [selfReport, setSelfReport] = useState(3);
+  // 達成段階（1〜5）。初期値は対象章/小項目の現在の理解度から逆算する（下の effect 参照）。
+  const [achievedLevel, setAchievedLevel] = useState<1 | 2 | 3 | 4 | 5>(3);
   // 未入力を許容する任意項目のため null 初期値（minutes 等の必須数値入力とは異なる）
   const [problemsCompleted, setProblemsCompleted] = useState<number | null>(null);
   // 小項目を選んだときだけ使う基礎/発展の内訳（章全体記録時の problemsCompleted とは別軸）
@@ -63,11 +72,28 @@ export function SessionRecord({
     setProblemsCompleted(null);
   }, [subtopicId]);
 
+  // 章/小項目を切り替えるたびに、達成段階の初期選択もその対象の現在理解度から追従させる。
+  // chapterId 単独の変更（小項目を持たない章→持たない章、等）でも subtopicId が実質的に
+  // 変化しない場合があるため、両方を依存にして必ず再計算する（data.chapters は意図的に
+  // 依存から外す — 保存後の理解度更新でこの effect が再発火し、選んだばかりの段階が
+  // 理解度から逆算した値に巻き戻ってしまうのを防ぐため）。
+  useEffect(() => {
+    const chapter = data.chapters.find((c) => c.id === chapterId);
+    const subtopic = subtopicId ? chapter?.subtopics?.find((st) => st.id === subtopicId) : undefined;
+    const understanding = subtopicId ? subtopic?.understanding : chapter?.understanding;
+    setAchievedLevel(computeInitialAchievedLevel(understanding));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chapterId, subtopicId]);
+
   const subjectName = (subjectId: string) =>
     data.subjects.find((s) => s.id === subjectId)?.name ?? "";
 
   const selectedChapter = data.chapters.find((c) => c.id === chapterId);
   const subtopics = selectedChapter?.subtopics ?? [];
+  const selectedSubject = selectedChapter
+    ? data.subjects.find((s) => s.id === selectedChapter.subjectId)
+    : undefined;
+  const achievementLevels = selectedSubject ? resolveTemplate(selectedSubject).studyPolicy.levels : [];
 
   const handleSave = () => {
     if (!chapterId) return;
@@ -76,8 +102,7 @@ export function SessionRecord({
       subtopicId: subtopicId || undefined,
       date: toISODate(new Date()),
       minutes: Math.max(1, Number(minutes) || 0),
-      correctRate: correctPercent / 100,
-      selfReport,
+      achievedLevel,
       problemsCompleted: subtopicId ? undefined : problemsCompleted ?? undefined,
       basicProblemsCompleted: subtopicId ? basicProblemsCompleted ?? undefined : undefined,
       advancedProblemsCompleted: subtopicId ? advancedProblemsCompleted ?? undefined : undefined,
@@ -105,7 +130,7 @@ export function SessionRecord({
     <div className="screen">
       <div className="screen-head">
         <h2>セッション記録</h2>
-        <p className="muted">勉強した内容を記録すると、その章の理解度が更新されます。</p>
+        <p className="muted">勉強した内容を記録すると、その章の理解度が達成段階に応じて更新されます。</p>
       </div>
 
       <label className="field">
@@ -158,17 +183,14 @@ export function SessionRecord({
         />
       </label>
 
-      <label className="field">
-        <span>正答率：{correctPercent}%</span>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          step={5}
-          value={correctPercent}
-          onChange={(e) => setCorrectPercent(Number(e.target.value))}
+      <div className="self-report-block">
+        <span className="self-report-label">今どこまで達成できた？</span>
+        <AchievementLevelPicker
+          value={achievedLevel}
+          onChange={(n) => setAchievedLevel(n as 1 | 2 | 3 | 4 | 5)}
+          levels={achievementLevels}
         />
-      </label>
+      </div>
 
       {subtopicId ? (
         <div className="subtopic-problem-row-wrap">
@@ -220,11 +242,6 @@ export function SessionRecord({
           <span className="muted small">任意（基礎/発展の内訳は問いません）</span>
         </label>
       )}
-
-      <div className="self-report-block">
-        <span className="self-report-label">手応え（自己申告）</span>
-        <SelfReportPicker value={selfReport} onChange={setSelfReport} />
-      </div>
 
       <button className="primary big" onClick={handleSave} disabled={saved}>
         {saved ? "保存しました ✓" : "記録して理解度を更新"}

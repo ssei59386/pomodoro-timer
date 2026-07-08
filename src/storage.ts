@@ -1,5 +1,6 @@
 // 仕様書 §4: データ保存は端末ローカル。最小版は localStorage で割り切る。
 import type { AppData } from "./types";
+import { reverseNameToTemplateKey } from "./data/subjectTemplates";
 
 const STORAGE_KEY = "study-planner-data-v1";
 
@@ -21,11 +22,17 @@ export function loadData(): AppData {
     if (!raw) return initialData;
     const parsed = JSON.parse(raw) as Partial<AppData>;
     // 欠損フィールドは初期値で補完しておく（前方互換のため）
-    return {
+    const merged: AppData = {
       ...initialData,
       ...parsed,
       availability: { ...initialData.availability, ...parsed.availability },
     };
+    // templateKey 未設定の既存データ（正規5教科名のみ）は名前から逆引きして補う（改名耐性のため次回保存で永続化）
+    merged.subjects = merged.subjects.map((subject) => ({
+      ...subject,
+      templateKey: subject.templateKey ?? reverseNameToTemplateKey(subject.name) ?? "social",
+    }));
+    return merged;
   } catch {
     return initialData;
   }
@@ -64,11 +71,18 @@ export function saveOnboardingDraft<T>(draft: T): void {
   }
 }
 
-export function loadOnboardingDraft<T>(): T | null {
+/**
+ * expectedVersion と一致しない下書き（＝形が変わった旧バージョンの下書き）は破棄して null を返す
+ * （教科の複数登録対応・段階5で OnboardingDraft が version 1→2 に変わった際、旧形式のまま
+ * 読み込んでしまうと型が壊れるため）。オンボーディング途中中断者のみへの影響で軽微。
+ */
+export function loadOnboardingDraft<T extends { version: number }>(expectedVersion: number): T | null {
   try {
     const raw = localStorage.getItem(ONBOARDING_DRAFT_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as T;
+    const parsed = JSON.parse(raw) as T;
+    if (parsed.version !== expectedVersion) return null;
+    return parsed;
   } catch {
     return null;
   }

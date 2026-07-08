@@ -1,12 +1,19 @@
 // 仕様書 §5 データモデル（最小版）
+import type { SubjectTemplateKey } from "./data/subjectTemplates";
 
 /** 教科 */
 export interface Subject {
   id: string;
-  /** "数学" / "理科"（Phase 0 はこの2教科のみ） */
+  /** 自由文字列（数学I/保健体育等も可）。教科ごとの振る舞いは templateKey が決める */
   name: string;
   /** この教科の定期テスト実施日（ISO 8601 の日付文字列 "YYYY-MM-DD"） */
   testDate: string;
+  /**
+   * 教科テンプレート識別子（教科の複数登録対応、段階1）。未設定の既存データは
+   * data/subjectTemplates.ts の resolveTemplate() が name から逆引きする（storage.ts の
+   * loadData() でも正規化して永続化する）。
+   */
+  templateKey?: SubjectTemplateKey;
 }
 
 /** 章の学習メタデータ（演習問題数、学習範囲、難易度など） */
@@ -51,6 +58,8 @@ export interface ChapterSubtopic {
   teacherHinted?: boolean;
   /** 後悔防止トリガーで「切り替える」を選んだ結果（Phase 2）。未設定は 'understand' 扱い */
   studyMode?: StudyMode;
+  /** 英語の文法/読解トラック区分（段階6で使用。現時点では型のみ、未設定はトラック区別なし扱い） */
+  track?: "grammar" | "reading";
 }
 
 /** 章 ＝ 理解度管理の最小単位 */
@@ -89,10 +98,15 @@ export interface StudySession {
   date: string;
   /** かけた時間（分） */
   minutes: number;
-  /** 演習の正答率（0.0〜1.0） */
-  correctRate: number;
-  /** 手応えの自己申告（1〜5の5段階） */
-  selfReport: number;
+  /** 演習の正答率（0.0〜1.0）。達成段階ベース記録（achievedLevel）では未使用 */
+  correctRate?: number;
+  /** 手応えの自己申告（1〜5の5段階）。達成段階ベース記録（achievedLevel）では未使用 */
+  selfReport?: number;
+  /**
+   * 達成段階ベースの理解度更新用（docs/feature-study-policy.md Phase3）。
+   * 設定時はこちらが理解度更新の入力として優先される（correctRate/selfReport の平滑化は使わない）。
+   */
+  achievedLevel?: 1 | 2 | 3 | 4 | 5;
   /** このセッションで解いた問題数（任意、基礎/発展の内訳は問わない）。章全体として記録したセッション用 */
   problemsCompleted?: number;
   /** 小項目を指定したセッションでの、基礎問題を解いた数（任意） */

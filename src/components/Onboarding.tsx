@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import type { Chapter, Subject, TimeSlot, VocabChunk, VocabRange } from "../types";
 import {
   DEFAULT_TARGET_UNDERSTANDING,
-  computeInitialUnderstanding,
   averageInitialUnderstanding,
   generateChunksForRange,
   hasAnyValidTimeSlotInSchedule,
@@ -14,15 +13,13 @@ import {
 } from "../logic";
 import { useStore, uid } from "../store";
 import { clearOnboardingDraft, loadOnboardingDraft, saveOnboardingDraft } from "../storage";
+import { SUBJECT_TEMPLATES, levelToUnderstanding } from "../data/subjectTemplates";
 import {
-  CHAPTER_CAPABLE_SUBJECT_KEYS,
-  SUBJECT_LABELS,
-  SUBJECT_ORDER,
   makeBlankChapter,
   type DraftChapter,
+  type DraftSubject,
   type DraftVocabRange,
   type OnboardingDraft,
-  type SubjectKey,
 } from "./onboarding/onboardingTypes";
 import { OnboardingStepSubjects } from "./onboarding/OnboardingStepSubjects";
 import { OnboardingStepTestDates } from "./onboarding/OnboardingStepTestDates";
@@ -32,33 +29,33 @@ import { OnboardingStepOverrides } from "./onboarding/OnboardingStepOverrides";
 import { OnboardingStepReview, type ReviewSubjectSummary } from "./onboarding/OnboardingStepReview";
 
 // 仕様書 §7.1 初期設定 / オンボーディング（本格ステップ式ウィザード版、docs/feature-onboarding-wizard.md）。
-// 数学・理科・英語・社会・国語の5教科と各教科のテスト日、章（名前・自己申告）、勉強可能時間を登録。
-// 社会・国語は暗記専用教科（章を持たず、暗記範囲のみ）— docs/feature-memorization.md 確定設計v4。
+// 教科は固定5種のテンプレート（数学・理科・英語・社会・国語）から自由に追加でき、同じテンプレートを
+// 複数回追加することもできる（教科の複数登録対応、段階5）。教科ごとのテスト日、章（名前・達成段階）、
+// 勉強可能時間を登録する。章を持てるか・暗記範囲を持てるかは SUBJECT_TEMPLATES（段階1）が決める。
 //
 // ステップは「使う教科を選ぶ→テスト日→教科ごとの内容→勉強できる時間→特別な予定→確認画面」の順。
 // Androidの物理戻る/スワイプバックとの統合は今回スコープ外（画面内の「戻る」ボタンのみ対応、
 // docs/feature-onboarding-wizard.md「未確認・実装後にやること」参照）。
 
-/** ウィザードの1ステップ。教科ごとの内容ステップは selectedSubjects から動的に組み立てる */
+/** ウィザードの1ステップ。教科ごとの内容ステップは subjects（追加した教科インスタンス）から動的に組み立てる */
 type Step =
   | { kind: "subjects" }
   | { kind: "testDates" }
-  | { kind: "subjectContent"; subjectKey: SubjectKey; indexInContent: number; totalContent: number }
+  | { kind: "subjectContent"; subject: DraftSubject; indexInContent: number; totalContent: number }
   | { kind: "schedule" }
   | { kind: "overrides" }
   | { kind: "review" };
 
-function buildSteps(selectedSubjects: SubjectKey[]): Step[] {
-  const contentSubjects = SUBJECT_ORDER.filter((s) => selectedSubjects.includes(s));
+function buildSteps(subjects: DraftSubject[]): Step[] {
   return [
     { kind: "subjects" },
     { kind: "testDates" },
-    ...contentSubjects.map(
-      (subjectKey, i): Step => ({
+    ...subjects.map(
+      (subject, i): Step => ({
         kind: "subjectContent",
-        subjectKey,
+        subject,
         indexInContent: i,
-        totalContent: contentSubjects.length,
+        totalContent: subjects.length,
       }),
     ),
     { kind: "schedule" },
@@ -74,7 +71,7 @@ function titleFor(step: Step): string {
     case "testDates":
       return "テスト日を登録";
     case "subjectContent":
-      return `${SUBJECT_LABELS[step.subjectKey]}の内容（教科 ${step.indexInContent + 1}/${step.totalContent}）`;
+      return `${step.subject.name}の内容（教科 ${step.indexInContent + 1}/${step.totalContent}）`;
     case "schedule":
       return "勉強できる時間";
     case "overrides":
@@ -87,13 +84,11 @@ function titleFor(step: Step): string {
 function introTextFor(step: Step): string {
   switch (step.kind) {
     case "subjects":
-      // 注意：選んだ教科の「章・暗記範囲・テスト日」は後から設定で編集できるが、教科そのものを
-      // 後から増やす手段は現状ない（store に addSubject が無く、Settings にも追加UIが無い。
-      // 増やすにはデータのリセットが必要）。ここで「追加できる」と約束すると選び忘れた生徒が
-      // 詰むため、事実どおり「今すべて選ぶ」よう促す文言にする（ux-reviewer P0 指摘）。
-      return "テストがある教科をすべて選んでください。ここで選んだ教科について、このあと章や暗記範囲を入力していきます。あとから教科を増やすのは今はできないので、忘れずに選んでおきましょう。";
+      // 教科は Settings からも追加・変更できるようになったため（段階3の addSubject/removeSubject）、
+      // 「あとから増やせない」ことを前提にした注意書きは撤去した（教科の複数登録対応、段階5）。
+      return "テストがある教科を選んで追加してください。同じ教科テンプレートを複数回追加することもできます（例：数学Iと数学Aを別々のテスト日で登録）。あとから設定でも教科を追加・変更できます。";
     case "testDates":
-      return "選んだ教科ごとに定期テストの日付を入力してください。";
+      return "追加した教科ごとに定期テストの日付を入力してください。";
     case "subjectContent":
       return "この教科の章や暗記範囲を登録します。あとから設定でも編集できます。";
     case "schedule":
@@ -108,14 +103,11 @@ function introTextFor(step: Step): string {
 export function Onboarding() {
   const { completeOnboarding } = useStore();
 
-  const [initialDraft] = useState(() => loadOnboardingDraft<OnboardingDraft>());
+  // version 不一致（旧 version 1 の下書き）は破棄され null が返る。教科の複数登録対応（段階5）で
+  // OnboardingDraft の形が変わったため、途中中断者のみ最初からになる（影響軽微、feature-onboarding-wizard.md参照）。
+  const [initialDraft] = useState(() => loadOnboardingDraft<OnboardingDraft>(2));
 
-  const [selectedSubjects, setSelectedSubjects] = useState<SubjectKey[]>(
-    initialDraft?.selectedSubjects ?? [],
-  );
-  const [testDates, setTestDates] = useState<Partial<Record<SubjectKey, string>>>(
-    initialDraft?.testDates ?? {},
-  );
+  const [subjects, setSubjects] = useState<DraftSubject[]>(initialDraft?.subjects ?? []);
   const [chapters, setChapters] = useState<DraftChapter[]>(initialDraft?.chapters ?? []);
   const [vocabRanges, setVocabRanges] = useState<DraftVocabRange[]>(initialDraft?.vocabRanges ?? []);
   const [weeklySchedule, setWeeklySchedule] = useState<Partial<Record<number, TimeSlot[]>>>(
@@ -125,7 +117,7 @@ export function Onboarding() {
     initialDraft?.dateOverrides ?? {},
   );
 
-  const steps = buildSteps(selectedSubjects);
+  const steps = buildSteps(subjects);
   const [currentIndex, setCurrentIndex] = useState(() =>
     Math.min(Math.max(initialDraft?.currentStepIndex ?? 0, 0), steps.length - 1),
   );
@@ -147,16 +139,15 @@ export function Onboarding() {
   // 別キーに下書きを保存し、途中でタブを閉じても再開できるようにする（docs/feature-onboarding-wizard.md）。
   useEffect(() => {
     saveOnboardingDraft<OnboardingDraft>({
-      version: 1,
-      selectedSubjects,
-      testDates,
+      version: 2,
+      subjects,
       chapters,
       vocabRanges,
       weeklySchedule,
       dateOverrides,
       currentStepIndex: safeIndex,
     });
-  }, [selectedSubjects, testDates, chapters, vocabRanges, weeklySchedule, dateOverrides, safeIndex]);
+  }, [subjects, chapters, vocabRanges, weeklySchedule, dateOverrides, safeIndex]);
 
   const goToIndex = (index: number) => {
     setStepError(null);
@@ -184,17 +175,17 @@ export function Onboarding() {
 
   const handleNext = () => {
     if (currentStep.kind === "subjects") {
-      if (selectedSubjects.length === 0) {
-        fail("使う教科を1つ以上選んでください。");
+      if (subjects.length === 0) {
+        fail("使う教科を1つ以上追加してください。");
         return;
       }
-      // 章を持てる教科は、入力を始めやすいよう空の章を1つ用意しておく（この教科にまだ章が無ければ）
+      // 章を持てる教科は、入力を始めやすいよう空の章を1つ用意しておく（この教科インスタンスにまだ章が無ければ）
       setChapters((prev) => {
         const additions: DraftChapter[] = [];
-        for (const subjectKey of selectedSubjects) {
-          if (!CHAPTER_CAPABLE_SUBJECT_KEYS.includes(subjectKey)) continue;
-          if (!prev.some((c) => c.subjectKey === subjectKey)) {
-            additions.push(makeBlankChapter(subjectKey));
+        for (const subject of subjects) {
+          if (!SUBJECT_TEMPLATES[subject.templateKey].chapterCapable) continue;
+          if (!prev.some((c) => c.subjectInstanceId === subject.instanceId)) {
+            additions.push(makeBlankChapter(subject.instanceId));
           }
         }
         return additions.length > 0 ? [...prev, ...additions] : prev;
@@ -205,8 +196,8 @@ export function Onboarding() {
 
     if (currentStep.kind === "testDates") {
       const today = new Date();
-      for (const subjectKey of selectedSubjects) {
-        const dateError = validateTestDate(SUBJECT_LABELS[subjectKey], testDates[subjectKey] ?? "", today);
+      for (const subject of subjects) {
+        const dateError = validateTestDate(subject.name, subject.testDate, today);
         if (dateError) {
           fail(dateError);
           return;
@@ -217,13 +208,15 @@ export function Onboarding() {
     }
 
     if (currentStep.kind === "subjectContent") {
-      const { subjectKey } = currentStep;
-      const namedChapters = chapters.filter((c) => c.subjectKey === subjectKey && c.name.trim() !== "");
+      const { subject } = currentStep;
+      const namedChapters = chapters.filter(
+        (c) => c.subjectInstanceId === subject.instanceId && c.name.trim() !== "",
+      );
       // 何かしら入力されている（ラベル or 開始/終了番号のいずれか）行だけをバリデーション対象にする。
       // ＋ボタンで足しただけの空行はスキップ扱いにする（次へをブロックしない）。
       const attemptedVocabRanges = vocabRanges.filter(
         (v) =>
-          v.subjectKey === subjectKey &&
+          v.subjectInstanceId === subject.instanceId &&
           (v.label.trim() !== "" || v.startNumber !== null || v.endNumber !== null),
       );
       for (const v of attemptedVocabRanges) {
@@ -274,21 +267,28 @@ export function Onboarding() {
 
   const submit = () => {
     // ここまでの各ステップのバリデーションを通過済みなので、最終送信では組み立てのみ行う。
-    const subjects: Subject[] = [];
-    const subjectIdByKey: Partial<Record<SubjectKey, string>> = {};
-    for (const subjectKey of SUBJECT_ORDER) {
-      if (!selectedSubjects.includes(subjectKey)) continue;
+    const builtSubjects: Subject[] = [];
+    const subjectIdByInstanceId: Record<string, string> = {};
+    for (const draftSubject of subjects) {
       const id = uid();
-      subjectIdByKey[subjectKey] = id;
-      subjects.push({ id, name: SUBJECT_LABELS[subjectKey], testDate: testDates[subjectKey] ?? "" });
+      subjectIdByInstanceId[draftSubject.instanceId] = id;
+      builtSubjects.push({
+        id,
+        name: draftSubject.name.trim(),
+        testDate: draftSubject.testDate,
+        templateKey: draftSubject.templateKey,
+      });
     }
 
-    // ステップ0（使う教科を選ぶ）で外した教科のデータが万一残っていても送信しない
-    // （selectedSubjects が使用教科の正。旧実装の「章/暗記から使用教科を逆算する」方式はやめた）。
-    const named = chapters.filter((c) => selectedSubjects.includes(c.subjectKey) && c.name.trim() !== "");
+    // ステップ0（使う教科を選ぶ）で削除した教科インスタンスのデータが万一残っていても送信しない
+    // （subjects が使用教科インスタンスの正）。
+    const subjectInstanceIds = new Set(subjects.map((s) => s.instanceId));
+    const named = chapters.filter(
+      (c) => subjectInstanceIds.has(c.subjectInstanceId) && c.name.trim() !== "",
+    );
     const attemptedVocabRanges = vocabRanges.filter(
       (v) =>
-        selectedSubjects.includes(v.subjectKey) &&
+        subjectInstanceIds.has(v.subjectInstanceId) &&
         (v.label.trim() !== "" || v.startNumber !== null || v.endNumber !== null),
     );
 
@@ -299,18 +299,15 @@ export function Onboarding() {
       const chapterId = uid();
       chapterIdByKey.set(c.key, chapterId);
       const namedSubtopics = c.subtopics.filter((st) => st.name.trim() !== "");
-      // 初回はセッションが無いので、自己申告（＋わかれば直近の正答率）から初期理解度を決める（§6.1）。
-      // 小項目に分けて自己申告していれば、その平均を使う（より精緻な初期値）。
+      // 初回はセッションが無いので、達成段階の初期選択から理解度を決める（記録画面と同じ言葉に統一、
+      // docs/feature-study-policy.md）。小項目に分けて入力していれば、その平均を使う（より精緻な初期値）。
       const understanding =
         namedSubtopics.length > 0
-          ? averageInitialUnderstanding(namedSubtopics.map((st) => st.selfReport))
-          : computeInitialUnderstanding(
-              c.selfReport,
-              c.correctRate !== null ? clampPercent(c.correctRate) / 100 : undefined,
-            );
+          ? averageInitialUnderstanding(namedSubtopics.map((st) => st.achievedLevel))
+          : levelToUnderstanding(c.achievedLevel);
       return {
         id: chapterId,
-        subjectId: subjectIdByKey[c.subjectKey]!,
+        subjectId: subjectIdByInstanceId[c.subjectInstanceId]!,
         name: c.name.trim(),
         understanding,
         targetUnderstanding: DEFAULT_TARGET_UNDERSTANDING,
@@ -320,7 +317,7 @@ export function Onboarding() {
             ? namedSubtopics.map((st) => ({
                 id: uid(),
                 name: st.name.trim(),
-                understanding: computeInitialUnderstanding(st.selfReport),
+                understanding: levelToUnderstanding(st.achievedLevel),
                 basicProblems: st.basicProblems ?? undefined,
                 advancedProblems: st.advancedProblems ?? undefined,
                 difficultyLevel: st.difficultyLevel ?? undefined,
@@ -332,7 +329,7 @@ export function Onboarding() {
 
     const builtVocabRanges: VocabRange[] = attemptedVocabRanges.map((v) => ({
       id: uid(),
-      subjectId: subjectIdByKey[v.subjectKey]!,
+      subjectId: subjectIdByInstanceId[v.subjectInstanceId]!,
       label: v.label.trim(),
       chapterId: v.chapterKey ? chapterIdByKey.get(v.chapterKey) : undefined,
       startNumber: v.startNumber!,
@@ -343,7 +340,7 @@ export function Onboarding() {
     );
 
     completeOnboarding({
-      subjects,
+      subjects: builtSubjects,
       chapters: builtChapters,
       availability: { weeklySchedule, dateOverrides },
       vocabRanges: builtVocabRanges,
@@ -352,15 +349,14 @@ export function Onboarding() {
     clearOnboardingDraft();
   };
 
-  const contentSubjects = SUBJECT_ORDER.filter((s) => selectedSubjects.includes(s));
-  const reviewSubjects: ReviewSubjectSummary[] = contentSubjects.map((subjectKey) => ({
-    subjectKey,
-    label: SUBJECT_LABELS[subjectKey],
-    testDate: testDates[subjectKey] ?? "",
-    chapterCount: chapters.filter((c) => c.subjectKey === subjectKey && c.name.trim() !== "").length,
+  const reviewSubjects: ReviewSubjectSummary[] = subjects.map((s) => ({
+    instanceId: s.instanceId,
+    label: s.name,
+    testDate: s.testDate,
+    chapterCount: chapters.filter((c) => c.subjectInstanceId === s.instanceId && c.name.trim() !== "").length,
     vocabRangeCount: vocabRanges.filter(
       (v) =>
-        v.subjectKey === subjectKey &&
+        v.subjectInstanceId === s.instanceId &&
         (v.label.trim() !== "" || v.startNumber !== null || v.endNumber !== null),
     ).length,
   }));
@@ -385,20 +381,23 @@ export function Onboarding() {
       {stepError && <p className="error">{stepError}</p>}
 
       {currentStep.kind === "subjects" && (
-        <OnboardingStepSubjects selectedSubjects={selectedSubjects} onChange={setSelectedSubjects} />
+        <OnboardingStepSubjects subjects={subjects} onChange={setSubjects} />
       )}
 
       {currentStep.kind === "testDates" && (
         <OnboardingStepTestDates
-          subjects={contentSubjects}
-          testDates={testDates}
-          onChange={(subjectKey, date) => setTestDates((prev) => ({ ...prev, [subjectKey]: date }))}
+          subjects={subjects}
+          onChange={(instanceId, date) =>
+            setSubjects((prev) =>
+              prev.map((s) => (s.instanceId === instanceId ? { ...s, testDate: date } : s)),
+            )
+          }
         />
       )}
 
       {currentStep.kind === "subjectContent" && (
         <OnboardingStepSubjectContent
-          subjectKey={currentStep.subjectKey}
+          subject={currentStep.subject}
           chapters={chapters}
           setChapters={setChapters}
           vocabRanges={vocabRanges}
@@ -424,8 +423,8 @@ export function Onboarding() {
           weeklyTotalMinutes={weeklyTotalMinutes}
           overrideDayCount={overrideDayCount}
           onEditTestDates={() => goToStepMatching((s) => s.kind === "testDates")}
-          onEditSubjectContent={(subjectKey) =>
-            goToStepMatching((s) => s.kind === "subjectContent" && s.subjectKey === subjectKey)
+          onEditSubjectContent={(instanceId) =>
+            goToStepMatching((s) => s.kind === "subjectContent" && s.subject.instanceId === instanceId)
           }
           onEditSchedule={() => goToStepMatching((s) => s.kind === "schedule")}
           onEditOverrides={() => goToStepMatching((s) => s.kind === "overrides")}
@@ -444,10 +443,4 @@ export function Onboarding() {
       </div>
     </div>
   );
-}
-
-/** ユーザー入力の正答率（%）を 0〜100 にクランプする */
-function clampPercent(value: number): number {
-  if (Number.isNaN(value)) return 0;
-  return Math.min(100, Math.max(0, value));
 }
