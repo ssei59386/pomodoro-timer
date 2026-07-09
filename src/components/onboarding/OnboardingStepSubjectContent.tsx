@@ -4,6 +4,7 @@ import { ChapterCurriculumSuggest } from "../ChapterCurriculumSuggest";
 import { CurriculumSuggest } from "../CurriculumSuggest";
 import { CurriculumSubtopicPicker } from "../CurriculumSubtopicPicker";
 import { SUBJECT_TEMPLATES } from "../../data/subjectTemplates";
+import { studyLevelsForTrack } from "../../data/studyPolicy";
 import {
   makeBlankChapter,
   makeBlankSubtopic,
@@ -180,46 +181,46 @@ export function OnboardingStepSubjectContent({
                     {st.difficultyLevel !== null && (
                       <span className="muted small">難易度（カリキュラム参考・5段階）：{st.difficultyLevel}</span>
                     )}
+                    {template.trackCapable && (
+                      <label className="field inline">
+                        <span className="muted small">トラック（任意・記録時の達成段階の言葉が変わります）</span>
+                        <select
+                          value={st.track ?? ""}
+                          onChange={(e) =>
+                            updateSubtopic(c.key, st.key, {
+                              track: e.target.value === "" ? null : (e.target.value as "grammar" | "reading"),
+                            })
+                          }
+                        >
+                          <option value="">区別しない</option>
+                          <option value="grammar">文法</option>
+                          <option value="reading">読解</option>
+                        </select>
+                      </label>
+                    )}
                     <div className="self-report-block">
                       <span className="self-report-label">今の理解度</span>
                       <AchievementLevelPicker
                         value={st.achievedLevel}
                         onChange={(v) => updateSubtopic(c.key, st.key, { achievedLevel: v as 1 | 2 | 3 | 4 | 5 })}
-                        levels={achievementLevels}
+                        levels={studyLevelsForTrack(achievementLevels, st.track ?? undefined)}
                       />
                     </div>
-                    <div className="subtopic-problem-row">
-                      <label className="field inline">
-                        <span className="muted small">基礎問題数</span>
-                        <input
-                          type="number"
-                          min={0}
-                          placeholder="教科書の例題+問題集の基礎問題"
-                          value={st.basicProblems ?? ""}
-                          onChange={(e) =>
-                            updateSubtopic(c.key, st.key, {
-                              basicProblems: e.target.value === "" ? null : Math.max(0, Number(e.target.value)),
-                            })
-                          }
-                        />
-                        <span className="muted small">任意・教科書の例題＋問題集の基礎レベル問題の合計</span>
-                      </label>
-                      <label className="field inline">
-                        <span className="muted small">発展問題数</span>
-                        <input
-                          type="number"
-                          min={0}
-                          placeholder="教科書+問題集の発展問題"
-                          value={st.advancedProblems ?? ""}
-                          onChange={(e) =>
-                            updateSubtopic(c.key, st.key, {
-                              advancedProblems: e.target.value === "" ? null : Math.max(0, Number(e.target.value)),
-                            })
-                          }
-                        />
-                        <span className="muted small">任意・教科書＋問題集の発展レベル問題の合計</span>
-                      </label>
-                    </div>
+                    <label className="field inline">
+                      <span className="muted small">基礎問題数</span>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="教科書の例題+問題集の基礎問題"
+                        value={st.basicProblems ?? ""}
+                        onChange={(e) =>
+                          updateSubtopic(c.key, st.key, {
+                            basicProblems: e.target.value === "" ? null : Math.max(0, Number(e.target.value)),
+                          })
+                        }
+                      />
+                      <span className="muted small">任意・教科書の例題＋問題集の基礎レベル問題の合計</span>
+                    </label>
                     <label className="subtopic-hint-row">
                       <input
                         type="checkbox"

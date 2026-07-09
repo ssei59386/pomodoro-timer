@@ -319,9 +319,9 @@ export function Onboarding() {
                 name: st.name.trim(),
                 understanding: levelToUnderstanding(st.achievedLevel),
                 basicProblems: st.basicProblems ?? undefined,
-                advancedProblems: st.advancedProblems ?? undefined,
                 difficultyLevel: st.difficultyLevel ?? undefined,
                 teacherHinted: st.teacherHinted,
+                track: st.track ?? undefined,
               }))
             : undefined,
       };

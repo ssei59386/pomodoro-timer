@@ -37,7 +37,7 @@ There is no lint script configured.
 **Core domain model** (`src/types.ts`):
 - `Subject` — math/science, has a `testDate`.
 - `Chapter` — the unit of understanding tracking. Holds `understanding` (0.0–1.0), `targetUnderstanding` (default 0.8), `lastStudiedDate`, optional `metadata` (exercise count, learning scope, difficulty — informational, not used in scoring), and optional `subtopics` (see below). (`pointWeight` was removed 2026-07-07 — see `docs/pointweight-removal-2026-07-07.md`.)
-- `ChapterSubtopic` — a chapter can optionally be broken into subtopics, each independently tracking `understanding`, `basicProblems`/`advancedProblems` (target problem counts), `teacherHinted` (priority boost), etc. Chapters without subtopics keep working exactly as they did in Phase 0 (dual-path design throughout `logic.ts`) — see `docs/feature-mitoshi.md` for the full design.
+- `ChapterSubtopic` — a chapter can optionally be broken into subtopics, each independently tracking `understanding`, `basicProblems` (target basic-problem count), `teacherHinted` (priority boost), etc. Chapters without subtopics keep working exactly as they did in Phase 0 (dual-path design throughout `logic.ts`) — see `docs/feature-mitoshi.md` for the full design. **発展問題(`advancedProblems`/`advancedProblemsCompleted`)は 2026-07-09 に廃止**（数えにくく達成段階ラダーの段階5「発展問題が解ける」と二重管理のため。ユーザー判断）。型フィールドは後方互換で残置してあるが読み書きしない。時間見積もり・ペース判定は基礎問題数＋理解度の伸びしろのみ。`track?: "grammar"|"reading"`（英語のみ、段階7）で記録画面のラダーが切り替わる。
 - `StudySession` — a logged study session (chapter or subtopic, minutes, correctRate, selfReport, problem counts) that drives understanding updates.
 - `AvailabilitySettings` — weekly recurring time slots (`weeklySchedule`, keyed by day-of-week 0–6) plus `dateOverrides` for one-off days (e.g. travel). This indirection is deliberate: a future calendar integration would only need to replace the input source, since plan generation always asks "how many minutes available on date X" via `availableMinutesForDate`.
 
@@ -105,8 +105,8 @@ Still-open backlog items from that history (not yet scoped/resolved, low priorit
 **進行中の大型機能。詳細は `docs/feature-subject-templates.md` を必ず読むこと**（決定事項・段階別実装ログ・残作業が全部そこにある）。承認済みプラン全文は（リポジトリ外）`~/.claude/plans/soft-swinging-hippo.md`。要点のみここに残す:
 
 - ユーザー要望「教科を複数登録できるように」＋「理解度の入れ方の言葉の食い違いをなくす」から着手。**両方まとめて一度に**、要件2は「記録の仕組みごと作り替え（＝下記 Phase 3 相当）」をユーザーが明示選択。
-- **段階1〜5 完了**（テスト394件全通過・build成功・tscクリーン）。教科を**テンプレから自由に複数追加/削除**（数学I・数学A、保健体育等）でき、記録画面が**達成段階(1〜5)選択**に統一、`SubjectKey` 固定を撤廃し `src/data/subjectTemplates.ts` の `resolveTemplate` に一本化、`vocabLabels.ts` は削除。
-- **残り**：段階6（社会を `chapterCapable:true` に＝章＋周回化、vocabは併存維持／`SelfReportPicker.tsx`・`INITIAL_UNDERSTANDING_LABELS` 等の未使用コード掃除）、段階7（任意・**要ユーザー確認**：英語の文法/読解トラック分割）、**実機QA未実施**。
+- **段階1〜7 完了**（テスト400件全通過・build成功・tscクリーン・段階6/7とも実機QA済み）。教科を**テンプレから自由に複数追加/削除**（数学I・数学A、保健体育等）でき、記録画面が**達成段階(1〜5)選択**に統一、`SubjectKey` 固定を撤廃し `src/data/subjectTemplates.ts` の `resolveTemplate` に一本化、`vocabLabels.ts` は削除。段階6で**社会を `chapterCapable:true` に章化**（vocab併存＝D1、英語と同じchapter+vocab両対応）、`SelfReportPicker.tsx`＋付随CSSを削除。段階7で**英語の文法/読解トラック分割**（`studyPolicy.ts` に `ENGLISH_GRAMMAR_LEVELS`/`ENGLISH_READING_LEVELS`＋`studyLevelsForTrack`、テンプレに `trackCapable`、小項目 `track` で記録画面のラダー切替、オンボ/設定にトラック選択UI）。
+- **残り**：機能追加としてはほぼ完了。教科CRUD全体の実機QA（保健体育追加・数学I/数学A複製・削除カスケード等）の観点が未消化（詳細 `docs/feature-subject-templates.md`）。
 - 決定事項 D1（社会vocabは消さず併存）/ D2（テンプレは追加時固定）/ D3（既存understanding値は移行せず次回記録でスナップ）は `docs/feature-subject-templates.md` 参照。覆すなら要相談。
 
 ## セッション引き継ぎメモ（2026-07-08、勉強方針・後悔防止トリガー機能 Phase 1+2 完了時点）

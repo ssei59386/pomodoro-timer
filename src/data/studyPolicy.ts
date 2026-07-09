@@ -49,6 +49,56 @@ const SOCIAL_LEVELS: UnderstandingLevel[] = [
   { level: 5, achieved: "十分に定着している", next: "維持・応用" },
 ];
 
+/**
+ * 英語・文法トラックの達成段階（段階7）。ENGLISH_EXTRA_NOTE の基準をそのままラダー化：
+ * 教科書の文法理解が半分で2・全部で3、文法ワークを3回解けるようになったら4。
+ * 英語の小項目に track:"grammar" が設定されている場合、記録画面はこのラダーに切り替わる。
+ */
+export const ENGLISH_GRAMMAR_LEVELS: UnderstandingLevel[] = [
+  { level: 1, achieved: "まだ手つかず", next: "教科書の文法説明を読み進める" },
+  { level: 2, achieved: "教科書の文法説明を半分まで理解した", next: "残りの文法説明も理解する" },
+  { level: 3, achieved: "教科書の文法説明を全部理解した", next: "文法ワークを繰り返し解く" },
+  {
+    level: 4,
+    achieved: "文法ワークを3回解けるようになった（次に進んでOK）",
+    next: "応用・入試レベルの問題に挑戦する",
+  },
+  { level: 5, achieved: "応用問題も解ける", next: "維持・応用（他の単元にも時間を回してOK）" },
+];
+
+/**
+ * 英語・読解トラックの達成段階（段階7）。ENGLISH_EXTRA_NOTE の基準をそのままラダー化：
+ * テスト範囲の長文をいくつかに等分し、1本を完璧に訳せるごとに1段階進む。
+ * 英語の小項目に track:"reading" が設定されている場合、記録画面はこのラダーに切り替わる。
+ */
+export const ENGLISH_READING_LEVELS: UnderstandingLevel[] = [
+  { level: 1, achieved: "まだ手つかず", next: "テスト範囲の長文をいくつかに分け、1本目を精読する" },
+  { level: 2, achieved: "範囲の一部（約1/4）を完璧に訳せる", next: "次のまとまりを精読して訳せるようにする" },
+  { level: 3, achieved: "範囲の約半分を完璧に訳せる", next: "残りの長文も精読していく" },
+  {
+    level: 4,
+    achieved: "範囲の大部分（約3/4）を完璧に訳せる（次に進んでOK）",
+    next: "範囲全体をスラスラ訳せるよう仕上げる",
+  },
+  { level: 5, achieved: "テスト範囲の長文を全部スラスラ訳せる", next: "維持・応用（他の単元にも時間を回してOK）" },
+];
+
+/** 小項目のトラック区分（英語の文法/読解）。未設定はトラック区別なし＝親教科の基本ラダー */
+export type SubtopicTrack = "grammar" | "reading";
+
+/**
+ * 小項目の track に応じた達成段階ラダーを返す。track 未設定なら base（親教科の基本ラダー）を
+ * そのまま返す。track は英語の小項目にのみ設定される（他教科では常に undefined＝base）。
+ */
+export function studyLevelsForTrack(
+  base: UnderstandingLevel[],
+  track: SubtopicTrack | undefined,
+): UnderstandingLevel[] {
+  if (track === "grammar") return ENGLISH_GRAMMAR_LEVELS;
+  if (track === "reading") return ENGLISH_READING_LEVELS;
+  return base;
+}
+
 const ENGLISH_EXTRA_NOTE =
   "英単語はこの理解度ラダーの対象外です。既存の暗記システム（Leitner方式の復習）にそのまま任せてください。" +
   "また、文法と読解が教材上はっきり分かれている場合は、章の中で「文法」「読解」を別の小項目として登録できます。" +

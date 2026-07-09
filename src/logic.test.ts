@@ -28,7 +28,6 @@ import {
   estimateSubtopicRemainingMinutes,
   CONCEPT_LEARNING_COST_MINUTES,
   MINUTES_PER_BASIC_PROBLEM,
-  MINUTES_PER_ADVANCED_PROBLEM,
   learnedProblemRates,
   MIN_SESSIONS_FOR_LEARNED_RATE,
   TEACHER_HINT_PRIORITY_BOOST,
@@ -902,20 +901,18 @@ describe("小項目の所要時間見積もり（estimateSubtopicRemainingMinute
     expect(estimateSubtopicRemainingMinutes(st, today).conceptMinutes).toBe(CONCEPT_LEARNING_COST_MINUTES);
   });
 
-  it("基礎/発展の問題数 × 理解度ギャップ(remainingRatio) で時間が計算される", () => {
-    const st = subtopic({ understanding: 0.5, lastStudiedDate: null, basicProblems: 10, advancedProblems: 4 });
+  it("基礎の問題数 × 理解度ギャップ(remainingRatio) で時間が計算される", () => {
+    const st = subtopic({ understanding: 0.5, lastStudiedDate: null, basicProblems: 10 });
     const estimate = estimateSubtopicRemainingMinutes(st, today);
     const remainingRatio = 0.5; // 1 - 0.5
     expect(estimate.basicMinutes).toBeCloseTo(10 * MINUTES_PER_BASIC_PROBLEM * remainingRatio);
-    expect(estimate.advancedMinutes).toBeCloseTo(4 * MINUTES_PER_ADVANCED_PROBLEM * remainingRatio);
-    expect(estimate.totalMinutes).toBeCloseTo(estimate.conceptMinutes + estimate.basicMinutes + estimate.advancedMinutes);
+    expect(estimate.totalMinutes).toBeCloseTo(estimate.conceptMinutes + estimate.basicMinutes);
   });
 
-  it("問題数が未設定なら基礎/発展の時間は0", () => {
+  it("問題数が未設定なら基礎の時間は0", () => {
     const st = subtopic({ understanding: 0.5, lastStudiedDate: null });
     const estimate = estimateSubtopicRemainingMinutes(st, today);
     expect(estimate.basicMinutes).toBe(0);
-    expect(estimate.advancedMinutes).toBe(0);
   });
 
   it("理解度が高いほど残り時間が短くなる（同じ問題数で比較）", () => {
@@ -935,46 +932,43 @@ describe("小項目の所要時間見積もり（estimateSubtopicRemainingMinute
   });
 
   it("rates 引数を渡すと、その学習済みレートで計算される", () => {
-    const st = subtopic({ understanding: 0.5, lastStudiedDate: null, basicProblems: 10, advancedProblems: 4 });
-    const rates = { basicMinutesPerProblem: 100, advancedMinutesPerProblem: 200 };
+    const st = subtopic({ understanding: 0.5, lastStudiedDate: null, basicProblems: 10 });
+    const rates = { basicMinutesPerProblem: 100 };
     const estimate = estimateSubtopicRemainingMinutes(st, today, rates);
     const remainingRatio = 0.5;
     expect(estimate.basicMinutes).toBeCloseTo(10 * 100 * remainingRatio);
-    expect(estimate.advancedMinutes).toBeCloseTo(4 * 200 * remainingRatio);
   });
 
-  it("rates 引数を省略した場合は従来通りデフォルト値（MINUTES_PER_BASIC_PROBLEM/MINUTES_PER_ADVANCED_PROBLEM）が使われる", () => {
-    const st = subtopic({ understanding: 0.5, lastStudiedDate: null, basicProblems: 10, advancedProblems: 4 });
+  it("rates 引数を省略した場合は従来通りデフォルト値（MINUTES_PER_BASIC_PROBLEM）が使われる", () => {
+    const st = subtopic({ understanding: 0.5, lastStudiedDate: null, basicProblems: 10 });
     const estimate = estimateSubtopicRemainingMinutes(st, today);
     const remainingRatio = 0.5;
     expect(estimate.basicMinutes).toBeCloseTo(10 * MINUTES_PER_BASIC_PROBLEM * remainingRatio);
-    expect(estimate.advancedMinutes).toBeCloseTo(4 * MINUTES_PER_ADVANCED_PROBLEM * remainingRatio);
   });
 
   it("フェーズ6：paceMultiplier を省略した場合は1（補正なし）として扱われる", () => {
-    const st = subtopic({ understanding: 0.5, lastStudiedDate: null, basicProblems: 10, advancedProblems: 4 });
+    const st = subtopic({ understanding: 0.5, lastStudiedDate: null, basicProblems: 10 });
     const withoutMultiplier = estimateSubtopicRemainingMinutes(st, today);
     const withMultiplierOne = estimateSubtopicRemainingMinutes(
       st,
       today,
-      { basicMinutesPerProblem: MINUTES_PER_BASIC_PROBLEM, advancedMinutesPerProblem: MINUTES_PER_ADVANCED_PROBLEM },
+      { basicMinutesPerProblem: MINUTES_PER_BASIC_PROBLEM },
       1,
     );
     expect(withMultiplierOne.totalMinutes).toBeCloseTo(withoutMultiplier.totalMinutes);
   });
 
   it("フェーズ6：paceMultiplier で全体を割った値が返る（速いペースほど短く見積もる）", () => {
-    const st = subtopic({ understanding: 0.5, lastStudiedDate: null, basicProblems: 10, advancedProblems: 4 });
+    const st = subtopic({ understanding: 0.5, lastStudiedDate: null, basicProblems: 10 });
     const base = estimateSubtopicRemainingMinutes(st, today);
     const faster = estimateSubtopicRemainingMinutes(
       st,
       today,
-      { basicMinutesPerProblem: MINUTES_PER_BASIC_PROBLEM, advancedMinutesPerProblem: MINUTES_PER_ADVANCED_PROBLEM },
+      { basicMinutesPerProblem: MINUTES_PER_BASIC_PROBLEM },
       2,
     );
     expect(faster.totalMinutes).toBeCloseTo(base.totalMinutes / 2);
     expect(faster.basicMinutes).toBeCloseTo(base.basicMinutes / 2);
-    expect(faster.advancedMinutes).toBeCloseTo(base.advancedMinutes / 2);
   });
 });
 
@@ -1132,17 +1126,16 @@ describe("演習時間の実測値学習（learnedProblemRates）", () => {
 
   const chapters = [chapter({ id: "c1", subjectId: "s1" })];
 
-  it("純粋な基礎/発展セッションが MIN_SESSIONS_FOR_LEARNED_RATE 件未満ならデフォルト値を返す", () => {
+  it("基礎セッションが MIN_SESSIONS_FOR_LEARNED_RATE 件未満ならデフォルト値を返す", () => {
     const sessions = [
       makeSession({ id: "1", basicProblemsCompleted: 5 }),
       makeSession({ id: "2", basicProblemsCompleted: 5 }),
     ];
     const rates = learnedProblemRates(sessions, chapters, "s1");
     expect(rates.basicMinutesPerProblem).toBe(MINUTES_PER_BASIC_PROBLEM);
-    expect(rates.advancedMinutesPerProblem).toBe(MINUTES_PER_ADVANCED_PROBLEM);
   });
 
-  it("純粋な基礎セッションが MIN_SESSIONS_FOR_LEARNED_RATE 件以上あれば、その実測平均を返す", () => {
+  it("基礎セッションが MIN_SESSIONS_FOR_LEARNED_RATE 件以上あれば、その実測平均を返す", () => {
     expect(MIN_SESSIONS_FOR_LEARNED_RATE).toBe(3);
     const sessions = [
       makeSession({ id: "1", minutes: 50, basicProblemsCompleted: 5 }), // 10分/問
@@ -1151,31 +1144,17 @@ describe("演習時間の実測値学習（learnedProblemRates）", () => {
     ];
     const rates = learnedProblemRates(sessions, chapters, "s1");
     expect(rates.basicMinutesPerProblem).toBeCloseTo(10);
-    // 発展は対象セッションが無いのでデフォルトのまま
-    expect(rates.advancedMinutesPerProblem).toBe(MINUTES_PER_ADVANCED_PROBLEM);
   });
 
-  it("発展セッションについても同様に学習される", () => {
+  it("旧データの advancedProblemsCompleted は無視され、基礎の実測は正しく学習される（発展廃止・2026-07-09）", () => {
     const sessions = [
-      makeSession({ id: "1", minutes: 60, advancedProblemsCompleted: 3 }), // 20分/問
-      makeSession({ id: "2", minutes: 80, advancedProblemsCompleted: 4 }), // 20分/問
-      makeSession({ id: "3", minutes: 100, advancedProblemsCompleted: 5 }), // 20分/問
-    ];
-    const rates = learnedProblemRates(sessions, chapters, "s1");
-    expect(rates.advancedMinutesPerProblem).toBeCloseTo(20);
-    expect(rates.basicMinutesPerProblem).toBe(MINUTES_PER_BASIC_PROBLEM);
-  });
-
-  it("基礎と発展が混在するセッションは学習対象から除外される", () => {
-    const sessions = [
-      makeSession({ id: "1", minutes: 50, basicProblemsCompleted: 5, advancedProblemsCompleted: 2 }),
+      makeSession({ id: "1", minutes: 50, basicProblemsCompleted: 5, advancedProblemsCompleted: 2 }), // 10分/問
       makeSession({ id: "2", minutes: 50, basicProblemsCompleted: 5, advancedProblemsCompleted: 2 }),
       makeSession({ id: "3", minutes: 50, basicProblemsCompleted: 5, advancedProblemsCompleted: 2 }),
     ];
     const rates = learnedProblemRates(sessions, chapters, "s1");
-    // 全セッションが混在扱いで除外されるため、両方デフォルト値のまま
-    expect(rates.basicMinutesPerProblem).toBe(MINUTES_PER_BASIC_PROBLEM);
-    expect(rates.advancedMinutesPerProblem).toBe(MINUTES_PER_ADVANCED_PROBLEM);
+    // basic>0 のセッションとして数え、発展の値は見積もりに影響しない
+    expect(rates.basicMinutesPerProblem).toBeCloseTo(10);
   });
 
   it("対象外の教科・章のセッションは無視される", () => {
@@ -1223,9 +1202,10 @@ describe("実績ベースのペース判定", () => {
         makeSession({ id: "c", subtopicId: "st-b", basicProblemsCompleted: 10, advancedProblemsCompleted: 10 }),
         makeSession({ id: "d", chapterId: "c2", subtopicId: "st-a", basicProblemsCompleted: 99 }),
       ];
-      // st-b は同じ ID 文字列でも別データとして扱われる（subtopicId のみで絞り込むため、意図通りの仕様）
+      // st-b は同じ ID 文字列でも別データとして扱われる（subtopicId のみで絞り込むため、意図通りの仕様）。
+      // 基礎のみ集計する（発展廃止・2026-07-09。旧データの advancedProblemsCompleted は無視）。
       const result = cumulativeSubtopicProblemsCompleted(sessions, "st-a");
-      expect(result).toEqual({ basic: 3 + 2 + 99, advanced: 1 });
+      expect(result).toBe(3 + 2 + 99);
     });
 
     it("recentSubtopicProblemsCompleted は指定日数より古いセッションを除外する", () => {
@@ -1235,7 +1215,7 @@ describe("実績ベースのペース判定", () => {
         makeSession({ id: "old", date: "2026-06-01", basicProblemsCompleted: 100 }), // 28日前
       ];
       const result = recentSubtopicProblemsCompleted(sessions, "st-a", today, RECENT_ACTIVITY_WINDOW_DAYS);
-      expect(result).toEqual({ basic: 5, advanced: 0 });
+      expect(result).toBe(5);
     });
   });
 
@@ -1282,21 +1262,19 @@ describe("実績ベースのペース判定", () => {
     const testDate = "2026-07-13"; // today から2週間後 → weeksLeft=2
 
     it("目標問題数が未設定なら null", () => {
-      const st = subtopic({ id: "st-a", basicProblems: undefined, advancedProblems: undefined });
+      const st = subtopic({ id: "st-a", basicProblems: undefined });
       const result = subtopicProblemTier(st, [], testDate, today);
       expect(result.basic).toBeNull();
-      expect(result.advanced).toBeNull();
     });
 
-    it("テストまで残り3日以下なら、実績があっても basic/advanced とも null（詰め込み期は判定しない）", () => {
-      const st = subtopic({ id: "st-a", basicProblems: 20, advancedProblems: 20 });
+    it("テストまで残り3日以下なら、実績があっても basic は null（詰め込み期は判定しない）", () => {
+      const st = subtopic({ id: "st-a", basicProblems: 20 });
       const sessions = [
-        makeSession({ subtopicId: "st-a", date: "2026-06-29", basicProblemsCompleted: 1, advancedProblemsCompleted: 1 }),
+        makeSession({ subtopicId: "st-a", date: "2026-06-29", basicProblemsCompleted: 1 }),
       ];
       const nearTestDate = "2026-07-01"; // today (2026-06-29) から2日後
       const result = subtopicProblemTier(st, sessions, nearTestDate, today);
       expect(result.basic).toBeNull();
-      expect(result.advanced).toBeNull();
     });
 
     it("残り問題数が0以下なら on_track", () => {
@@ -1328,19 +1306,10 @@ describe("実績ベースのペース判定", () => {
       expect(result.basic).toBe("at_risk");
     });
 
-    it("basic/advanced はそれぞれ独立して判定される", () => {
-      const st = subtopic({ id: "st-a", basicProblems: 20, advancedProblems: undefined });
-      const sessions = [makeSession({ subtopicId: "st-a", basicProblemsCompleted: 10 })];
-      const result = subtopicProblemTier(st, sessions, testDate, today);
-      expect(result.basic).toBe("on_track");
-      expect(result.advanced).toBeNull();
-    });
-
     it("セッションが一度も記録されていない場合、本来 at_risk になる条件（直近実績0）でも slightly_behind に留める（登録直後との区別がつかないため悪いほうに倒さない）", () => {
-      const st = subtopic({ id: "st-a", basicProblems: 20, advancedProblems: 10 });
+      const st = subtopic({ id: "st-a", basicProblems: 20 });
       const result = subtopicProblemTier(st, [], testDate, today);
       expect(result.basic).toBe("slightly_behind");
-      expect(result.advanced).toBe("slightly_behind");
     });
 
     it("対象小項目以外のセッションしか無い場合はセッション0件と同じ扱いになり slightly_behind に留める", () => {

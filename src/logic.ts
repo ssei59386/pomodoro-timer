@@ -537,14 +537,16 @@ export function scoreChapterOrSubtopics(chapter: Chapter, subject: Subject, toda
   }));
 }
 
-// ---- 小項目の所要時間見積もり（基礎/発展の2軸） ------------------------
+// ---- 小項目の所要時間見積もり（基礎問題のみ） ------------------------
+// 発展問題は 2026-07-09 に廃止（数えにくく達成段階ラダーの段階5と二重管理のため）。
+// 見積もり・ペース判定は基礎問題数と理解度の伸びしろのみで行う。
+// StudySession.advancedProblemsCompleted / ChapterSubtopic.advancedProblems の型は
+// 後方互換のため残置してあるが、読み書きはしない。
 
 /** 理解度がこの値未満のときだけ「概念学習コスト」を上乗せする（毎回の再計算で重複計上しないよう閾値化） */
 export const CONCEPT_LEARNING_COST_MINUTES = 20;
 /** 基礎問題1問あたりの目安時間（分）。実測データがまだ十分に貯まっていないときのデフォルト値 */
 export const MINUTES_PER_BASIC_PROBLEM = 13;
-/** 発展問題1問あたりの目安時間（分）。実測データがまだ十分に貯まっていないときのデフォルト値 */
-export const MINUTES_PER_ADVANCED_PROBLEM = 25;
 
 /** 理解度がこの値未満なら、まだ概念そのものを学べていないとみなす閾値 */
 const CONCEPT_UNDERSTANDING_THRESHOLD = 0.2;
@@ -552,7 +554,6 @@ const CONCEPT_UNDERSTANDING_THRESHOLD = 0.2;
 export interface SubtopicTimeEstimate {
   conceptMinutes: number;
   basicMinutes: number;
-  advancedMinutes: number;
   totalMinutes: number;
 }
 
@@ -561,15 +562,14 @@ export const MIN_SESSIONS_FOR_LEARNED_RATE = 3;
 
 export interface LearnedProblemRates {
   basicMinutesPerProblem: number;
-  advancedMinutesPerProblem: number;
 }
 
 /**
- * 教科ごとに、演習1問あたりの実際にかかった時間を過去のセッション記録から学習する。
- * 「基礎だけ」または「発展だけ」を記録した純粋なセッション（両方が混在するセッションは
- * 時間の内訳が分からないため除外）を対象に、`session.minutes / 完了数` の単純平均を取る。
+ * 教科ごとに、基礎問題1問あたりの実際にかかった時間を過去のセッション記録から学習する。
+ * 基礎問題を記録したセッションを対象に、`session.minutes / 完了数` の単純平均を取る。
  * 対象セッションが MIN_SESSIONS_FOR_LEARNED_RATE 件未満なら、まだ学習値を信頼せず
- * MINUTES_PER_BASIC_PROBLEM / MINUTES_PER_ADVANCED_PROBLEM のデフォルト値を返す。
+ * MINUTES_PER_BASIC_PROBLEM のデフォルト値を返す。
+ * （発展問題は 2026-07-09 に廃止。基礎のみを学習対象とする）
  */
 export function learnedProblemRates(
   sessions: StudySession[],
@@ -578,27 +578,14 @@ export function learnedProblemRates(
 ): LearnedProblemRates {
   const chapterIds = new Set(chapters.filter((c) => c.subjectId === subjectId).map((c) => c.id));
 
-  function pureSessions(kind: "basic" | "advanced"): StudySession[] {
-    return sessions.filter((s) => {
-      if (!s.subtopicId || !chapterIds.has(s.chapterId)) return false;
-      const basic = s.basicProblemsCompleted ?? 0;
-      const advanced = s.advancedProblemsCompleted ?? 0;
-      return kind === "basic" ? basic > 0 && advanced === 0 : advanced > 0 && basic === 0;
-    });
+  const pure = sessions.filter(
+    (s) => s.subtopicId && chapterIds.has(s.chapterId) && (s.basicProblemsCompleted ?? 0) > 0,
+  );
+  if (pure.length < MIN_SESSIONS_FOR_LEARNED_RATE) {
+    return { basicMinutesPerProblem: MINUTES_PER_BASIC_PROBLEM };
   }
-
-  function average(kind: "basic" | "advanced", fallback: number): number {
-    const pure = pureSessions(kind);
-    if (pure.length < MIN_SESSIONS_FOR_LEARNED_RATE) return fallback;
-    const key = kind === "basic" ? "basicProblemsCompleted" : "advancedProblemsCompleted";
-    const rates = pure.map((s) => s.minutes / (s[key] ?? 1));
-    return rates.reduce((a, b) => a + b, 0) / rates.length;
-  }
-
-  return {
-    basicMinutesPerProblem: average("basic", MINUTES_PER_BASIC_PROBLEM),
-    advancedMinutesPerProblem: average("advanced", MINUTES_PER_ADVANCED_PROBLEM),
-  };
+  const rates = pure.map((s) => s.minutes / (s.basicProblemsCompleted ?? 1));
+  return { basicMinutesPerProblem: rates.reduce((a, b) => a + b, 0) / rates.length };
 }
 
 // ---- 「見通し」機能フェーズ6：教科ごとの学習ペース倍率 ----
@@ -693,7 +680,6 @@ export function estimateSubtopicRemainingMinutes(
   today: Date,
   rates: LearnedProblemRates = {
     basicMinutesPerProblem: MINUTES_PER_BASIC_PROBLEM,
-    advancedMinutesPerProblem: MINUTES_PER_ADVANCED_PROBLEM,
   },
   paceMultiplier: number = 1,
 ): SubtopicTimeEstimate {
@@ -701,12 +687,10 @@ export function estimateSubtopicRemainingMinutes(
   const remainingRatio = 1 - currentUnderstanding;
   const conceptMinutes = currentUnderstanding < CONCEPT_UNDERSTANDING_THRESHOLD ? CONCEPT_LEARNING_COST_MINUTES : 0;
   const basicMinutes = (subtopic.basicProblems ?? 0) * rates.basicMinutesPerProblem * remainingRatio;
-  const advancedMinutes = (subtopic.advancedProblems ?? 0) * rates.advancedMinutesPerProblem * remainingRatio;
   return {
     conceptMinutes: conceptMinutes / paceMultiplier,
     basicMinutes: basicMinutes / paceMultiplier,
-    advancedMinutes: advancedMinutes / paceMultiplier,
-    totalMinutes: (conceptMinutes + basicMinutes + advancedMinutes) / paceMultiplier,
+    totalMinutes: (conceptMinutes + basicMinutes) / paceMultiplier,
   };
 }
 
@@ -772,39 +756,30 @@ export function sessionsForSubtopic(sessions: StudySession[], subtopicId: string
   return sessions.filter((s) => s.subtopicId === subtopicId);
 }
 
-/** その小項目のセッションで、これまでに解いた基礎/発展問題数の累計 */
+/** その小項目のセッションで、これまでに解いた基礎問題数の累計（発展は 2026-07-09 に廃止） */
 export function cumulativeSubtopicProblemsCompleted(
   sessions: StudySession[],
   subtopicId: string,
-): { basic: number; advanced: number } {
-  const target = sessionsForSubtopic(sessions, subtopicId);
-  return target.reduce(
-    (acc, s) => ({
-      basic: acc.basic + (s.basicProblemsCompleted ?? 0),
-      advanced: acc.advanced + (s.advancedProblemsCompleted ?? 0),
-    }),
-    { basic: 0, advanced: 0 },
+): number {
+  return sessionsForSubtopic(sessions, subtopicId).reduce(
+    (acc, s) => acc + (s.basicProblemsCompleted ?? 0),
+    0,
   );
 }
 
-/** 直近 days 日以内（today を含む）に解いた基礎/発展問題数の合計 */
+/** 直近 days 日以内（today を含む）に解いた基礎問題数の合計（発展は 2026-07-09 に廃止） */
 export function recentSubtopicProblemsCompleted(
   sessions: StudySession[],
   subtopicId: string,
   today: Date,
   days: number = RECENT_ACTIVITY_WINDOW_DAYS,
-): { basic: number; advanced: number } {
-  const target = sessionsForSubtopic(sessions, subtopicId).filter((s) => {
-    const elapsed = daysSince(s.date, today);
-    return elapsed >= 0 && elapsed <= days;
-  });
-  return target.reduce(
-    (acc, s) => ({
-      basic: acc.basic + (s.basicProblemsCompleted ?? 0),
-      advanced: acc.advanced + (s.advancedProblemsCompleted ?? 0),
-    }),
-    { basic: 0, advanced: 0 },
-  );
+): number {
+  return sessionsForSubtopic(sessions, subtopicId)
+    .filter((s) => {
+      const elapsed = daysSince(s.date, today);
+      return elapsed >= 0 && elapsed <= days;
+    })
+    .reduce((acc, s) => acc + (s.basicProblemsCompleted ?? 0), 0);
 }
 
 /** 直近 days 日以内に、その小項目のセッションが1件でも記録されているか */
@@ -848,12 +823,10 @@ export function subtopicUnderstandingTier(
 export interface SubtopicProblemTiers {
   /** 基礎問題数が未設定（0/undefined）なら null（判定不可） */
   basic: ProgressTier | null;
-  /** 発展問題数が未設定（0/undefined）なら null（判定不可） */
-  advanced: ProgressTier | null;
 }
 
 /**
- * 演習消化ペースのティア（基礎/発展それぞれ）。
+ * 演習消化ペースのティア（基礎問題のみ。発展は 2026-07-09 に廃止）。
  * 「残り問題数 ÷ テストまでの残り週数」で本来必要な週次ペースを算出し、
  * 直近 RECENT_ACTIVITY_WINDOW_DAYS 日の実績と比較する。
  * ただし、その小項目にセッションが一度も記録されていない場合（登録直後で
@@ -868,7 +841,7 @@ export function subtopicProblemTier(
   today: Date,
 ): SubtopicProblemTiers {
   if (daysLeft(testDate, today) <= PROBLEM_TIER_MIN_DAYS_LEFT) {
-    return { basic: null, advanced: null };
+    return { basic: null };
   }
   const weeksLeft = daysLeft(testDate, today) / 7;
   const cumulative = cumulativeSubtopicProblemsCompleted(sessions, subtopic.id);
@@ -888,8 +861,7 @@ export function subtopicProblemTier(
   }
 
   return {
-    basic: tierFor(subtopic.basicProblems, cumulative.basic, recent.basic),
-    advanced: tierFor(subtopic.advancedProblems, cumulative.advanced, recent.advanced),
+    basic: tierFor(subtopic.basicProblems, cumulative, recent),
   };
 }
 

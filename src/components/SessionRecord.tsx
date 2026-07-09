@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import { toISODate } from "../logic";
 import { resolveTemplate } from "../data/subjectTemplates";
+import { studyLevelsForTrack } from "../data/studyPolicy";
 import { AchievementLevelPicker } from "./AchievementLevelPicker";
 
 // 仕様書 §7.3 セッション記録（段階4：達成段階ベースの記録に置き換え）
@@ -48,9 +49,9 @@ export function SessionRecord({
   const [achievedLevel, setAchievedLevel] = useState<1 | 2 | 3 | 4 | 5>(3);
   // 未入力を許容する任意項目のため null 初期値（minutes 等の必須数値入力とは異なる）
   const [problemsCompleted, setProblemsCompleted] = useState<number | null>(null);
-  // 小項目を選んだときだけ使う基礎/発展の内訳（章全体記録時の problemsCompleted とは別軸）
+  // 小項目を選んだときだけ使う基礎問題の内訳（章全体記録時の problemsCompleted とは別軸）。
+  // 発展問題は 2026-07-09 に廃止（達成段階ラダーの段階5と二重管理のため）。
   const [basicProblemsCompleted, setBasicProblemsCompleted] = useState<number | null>(null);
-  const [advancedProblemsCompleted, setAdvancedProblemsCompleted] = useState<number | null>(null);
   const [saved, setSaved] = useState(false);
 
   // preselectChapterId と preselectSubtopicId は同じ「記録画面へ遷移する」操作から
@@ -68,7 +69,6 @@ export function SessionRecord({
   // （章全体用の problemsCompleted も対象 — 小項目に切り替えて戻った際に古い値が復活しないように）
   useEffect(() => {
     setBasicProblemsCompleted(null);
-    setAdvancedProblemsCompleted(null);
     setProblemsCompleted(null);
   }, [subtopicId]);
 
@@ -93,7 +93,13 @@ export function SessionRecord({
   const selectedSubject = selectedChapter
     ? data.subjects.find((s) => s.id === selectedChapter.subjectId)
     : undefined;
-  const achievementLevels = selectedSubject ? resolveTemplate(selectedSubject).studyPolicy.levels : [];
+  const selectedSubtopic = subtopicId
+    ? subtopics.find((st) => st.id === subtopicId)
+    : undefined;
+  // 英語の文法/読解トラックが設定された小項目なら、そのトラック専用ラダーに切り替える（段階7）。
+  // 章全体記録・トラック未設定の小項目・他教科では親教科の基本ラダーをそのまま使う。
+  const baseAchievementLevels = selectedSubject ? resolveTemplate(selectedSubject).studyPolicy.levels : [];
+  const achievementLevels = studyLevelsForTrack(baseAchievementLevels, selectedSubtopic?.track);
 
   const handleSave = () => {
     if (!chapterId) return;
@@ -105,7 +111,6 @@ export function SessionRecord({
       achievedLevel,
       problemsCompleted: subtopicId ? undefined : problemsCompleted ?? undefined,
       basicProblemsCompleted: subtopicId ? basicProblemsCompleted ?? undefined : undefined,
-      advancedProblemsCompleted: subtopicId ? advancedProblemsCompleted ?? undefined : undefined,
     });
     setSaved(true);
     // 軽いフィードバックの後にダッシュボードへ
@@ -165,6 +170,7 @@ export function SessionRecord({
             {subtopics.map((st) => (
               <option key={st.id} value={st.id}>
                 {st.name}
+                {st.track === "grammar" ? "（文法）" : st.track === "reading" ? "（読解）" : ""}
               </option>
             ))}
             <option value={WHOLE_CHAPTER_VALUE}>章全体として記録</option>
@@ -195,38 +201,22 @@ export function SessionRecord({
       {subtopicId ? (
         <div className="subtopic-problem-row-wrap">
           <p className="muted small">
-            わかる範囲でOKです（両方空欄のままでも保存できます）
+            わかる範囲でOKです（空欄のままでも保存できます）
           </p>
-          <div className="subtopic-problem-row">
-            <label className="field inline">
-              <span>基礎で解いた問題数</span>
-              <input
-                type="number"
-                min={0}
-                value={basicProblemsCompleted ?? ""}
-                onChange={(e) =>
-                  setBasicProblemsCompleted(
-                    e.target.value === "" ? null : Math.max(0, Number(e.target.value)),
-                  )
-                }
-              />
-              <span className="muted small">任意</span>
-            </label>
-            <label className="field inline">
-              <span>発展で解いた問題数</span>
-              <input
-                type="number"
-                min={0}
-                value={advancedProblemsCompleted ?? ""}
-                onChange={(e) =>
-                  setAdvancedProblemsCompleted(
-                    e.target.value === "" ? null : Math.max(0, Number(e.target.value)),
-                  )
-                }
-              />
-              <span className="muted small">任意</span>
-            </label>
-          </div>
+          <label className="field">
+            <span>基礎で解いた問題数</span>
+            <input
+              type="number"
+              min={0}
+              value={basicProblemsCompleted ?? ""}
+              onChange={(e) =>
+                setBasicProblemsCompleted(
+                  e.target.value === "" ? null : Math.max(0, Number(e.target.value)),
+                )
+              }
+            />
+            <span className="muted small">任意</span>
+          </label>
         </div>
       ) : (
         <label className="field">
@@ -239,7 +229,7 @@ export function SessionRecord({
               setProblemsCompleted(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))
             }
           />
-          <span className="muted small">任意（基礎/発展の内訳は問いません）</span>
+          <span className="muted small">任意</span>
         </label>
       )}
 

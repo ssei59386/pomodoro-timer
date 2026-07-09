@@ -15,6 +15,8 @@ export interface SubjectTemplate {
   defaultName: string;
   chapterCapable: boolean;
   vocabCapable: boolean;
+  /** 小項目を文法/読解トラックに分けられるか（段階7）。英語のみ true。記録画面のラダー切替に使う */
+  trackCapable: boolean;
   /** カリキュラム参考データ（src/data/curriculumSearch.ts）の対象教科。数学・理科のみ */
   curriculumSubject: "数学" | "理科" | null;
   studyPolicy: SubjectStudyPolicy;
@@ -38,6 +40,7 @@ export const SUBJECT_TEMPLATES: Record<SubjectTemplateKey, SubjectTemplate> = {
     defaultName: "数学",
     chapterCapable: true,
     vocabCapable: false,
+    trackCapable: false,
     curriculumSubject: "数学",
     studyPolicy: STUDY_POLICY_BY_SUBJECT.math!,
     vocabHeading: "今日の暗記",
@@ -48,6 +51,7 @@ export const SUBJECT_TEMPLATES: Record<SubjectTemplateKey, SubjectTemplate> = {
     defaultName: "理科",
     chapterCapable: true,
     vocabCapable: false,
+    trackCapable: false,
     curriculumSubject: "理科",
     studyPolicy: STUDY_POLICY_BY_SUBJECT.science!,
     vocabHeading: "今日の暗記",
@@ -58,6 +62,7 @@ export const SUBJECT_TEMPLATES: Record<SubjectTemplateKey, SubjectTemplate> = {
     defaultName: "英語",
     chapterCapable: true,
     vocabCapable: true,
+    trackCapable: true,
     curriculumSubject: null,
     studyPolicy: STUDY_POLICY_BY_SUBJECT.english!,
     vocabHeading: "今日の単語",
@@ -66,9 +71,11 @@ export const SUBJECT_TEMPLATES: Record<SubjectTemplateKey, SubjectTemplate> = {
   social: {
     key: "social",
     defaultName: "社会",
-    // 社会の chapterCapable を true にするのは段階6（章＋周回カウントへの移行）。段階1では現行どおり false。
-    chapterCapable: false,
+    // 段階6で章＋周回カウントへ移行。章（周回ベースの達成段階ラダー SOCIAL_LEVELS）と
+    // 暗記範囲(vocab)を併存させる（D1）。英語と同じ chapter+vocab 両対応の組み合わせ。
+    chapterCapable: true,
     vocabCapable: true,
+    trackCapable: false,
     curriculumSubject: null,
     studyPolicy: STUDY_POLICY_BY_SUBJECT.social!,
     vocabHeading: "今日の重要語",
@@ -79,6 +86,7 @@ export const SUBJECT_TEMPLATES: Record<SubjectTemplateKey, SubjectTemplate> = {
     defaultName: "国語",
     chapterCapable: false,
     vocabCapable: true,
+    trackCapable: false,
     curriculumSubject: null,
     studyPolicy: JAPANESE_STUDY_POLICY,
     vocabHeading: "今日の漢字・古文単語",

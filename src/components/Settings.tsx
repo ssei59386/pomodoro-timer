@@ -402,44 +402,44 @@ export function Settings() {
                           難易度（カリキュラム参考・5段階）：{st.difficultyLevel}
                         </span>
                       )}
-                      <div className="subtopic-problem-row">
+                      {template.trackCapable && (
                         <label className="field inline">
-                          <span className="muted small">基礎問題数</span>
-                          <input
-                            type="number"
-                            min={0}
-                            placeholder="教科書の例題+問題集の基礎問題"
-                            value={st.basicProblems ?? ""}
+                          <span className="muted small">トラック（任意・記録時の達成段階の言葉が変わります）</span>
+                          <select
+                            value={st.track ?? ""}
                             onChange={(e) =>
                               updateSubtopicField(c, st.id, {
-                                basicProblems:
-                                  e.target.value === "" ? undefined : Math.max(0, Number(e.target.value)),
+                                track:
+                                  e.target.value === ""
+                                    ? undefined
+                                    : (e.target.value as "grammar" | "reading"),
                               })
                             }
-                          />
-                          <span className="muted small">
-                            任意・教科書の例題＋問題集の基礎レベル問題の合計
-                          </span>
+                          >
+                            <option value="">区別しない</option>
+                            <option value="grammar">文法</option>
+                            <option value="reading">読解</option>
+                          </select>
                         </label>
-                        <label className="field inline">
-                          <span className="muted small">発展問題数</span>
-                          <input
-                            type="number"
-                            min={0}
-                            placeholder="教科書+問題集の発展問題"
-                            value={st.advancedProblems ?? ""}
-                            onChange={(e) =>
-                              updateSubtopicField(c, st.id, {
-                                advancedProblems:
-                                  e.target.value === "" ? undefined : Math.max(0, Number(e.target.value)),
-                              })
-                            }
-                          />
-                          <span className="muted small">
-                            任意・教科書＋問題集の発展レベル問題の合計
-                          </span>
-                        </label>
-                      </div>
+                      )}
+                      <label className="field inline">
+                        <span className="muted small">基礎問題数</span>
+                        <input
+                          type="number"
+                          min={0}
+                          placeholder="教科書の例題+問題集の基礎問題"
+                          value={st.basicProblems ?? ""}
+                          onChange={(e) =>
+                            updateSubtopicField(c, st.id, {
+                              basicProblems:
+                                e.target.value === "" ? undefined : Math.max(0, Number(e.target.value)),
+                            })
+                          }
+                        />
+                        <span className="muted small">
+                          任意・教科書の例題＋問題集の基礎レベル問題の合計
+                        </span>
+                      </label>
                       <label className="subtopic-hint-row">
                         <input
                           type="checkbox"

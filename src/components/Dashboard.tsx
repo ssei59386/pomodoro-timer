@@ -398,9 +398,7 @@ function UnderstandingRow({
     : [];
 
   const problemTier = hasSubtopics
-    ? worstProgressTier(
-        problemTiersBySubtopic.flatMap(({ tiers }) => [tiers.basic, tiers.advanced]),
-      )
+    ? worstProgressTier(problemTiersBySubtopic.map(({ tiers }) => tiers.basic))
     : null;
 
   // 展開リストは状態が悪いものを先に見せる（安定ソート：同じ深刻度同士は元の順序を保つ）
@@ -474,9 +472,6 @@ function UnderstandingRow({
                     <div className="tier-badge-row">
                       <TierBadge label="理解度" tier={stTier} />
                       {stProblemTiers.basic && <TierBadge label="基礎" tier={stProblemTiers.basic} />}
-                      {stProblemTiers.advanced && (
-                        <TierBadge label="発展" tier={stProblemTiers.advanced} />
-                      )}
                     </div>
                   </li>
                 );

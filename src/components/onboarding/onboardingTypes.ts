@@ -31,10 +31,10 @@ export interface DraftSubtopic {
   key: string; // uid()
   name: string;
   achievedLevel: 1 | 2 | 3 | 4 | 5; // 初期理解度（達成段階）、デフォルト 3。記録画面と同じ言葉に統一
-  basicProblems: number | null; // 任意（教科書の例題＋問題集の基礎レベル問題の合計）
-  advancedProblems: number | null; // 任意（教科書＋問題集の発展レベル問題の合計）
+  basicProblems: number | null; // 任意（教科書の例題＋問題集の基礎レベル問題の合計）。発展問題は 2026-07-09 に廃止
   difficultyLevel: 1 | 2 | 3 | 4 | 5 | null; // 任意。カリキュラム候補選択で自動入力、手動上書き可
   teacherHinted: boolean; // 先生からテストに出るヒントがあったかどうか
+  track: "grammar" | "reading" | null; // 英語の文法/読解トラック（段階7）。null=区別しない
 }
 
 /**
@@ -81,9 +81,9 @@ export function makeBlankSubtopic(): DraftSubtopic {
     name: "",
     achievedLevel: 3,
     basicProblems: null,
-    advancedProblems: null,
     difficultyLevel: null,
     teacherHinted: false,
+    track: null,
   };
 }
 

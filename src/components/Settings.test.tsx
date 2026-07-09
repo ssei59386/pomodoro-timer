@@ -136,7 +136,7 @@ describe("Settings", () => {
     expect(latestData?.chapters.find((c) => c.id === "c1")?.subtopics).toHaveLength(1);
   });
 
-  it("小項目の基礎問題数・発展問題数を入力すると反映される", () => {
+  it("小項目の基礎問題数を入力すると反映される（発展問題数は廃止済み）", () => {
     localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
     renderSettings();
 
@@ -146,11 +146,8 @@ describe("Settings", () => {
       latestData?.chapters.find((c) => c.id === "c1")?.subtopics?.[0].basicProblems,
     ).toBe(12);
 
-    const advancedInput = screen.getByPlaceholderText("教科書+問題集の発展問題") as HTMLInputElement;
-    fireEvent.change(advancedInput, { target: { value: "5" } });
-    expect(
-      latestData?.chapters.find((c) => c.id === "c1")?.subtopics?.[0].advancedProblems,
-    ).toBe(5);
+    // 発展問題数の入力欄は撤去されている
+    expect(screen.queryByPlaceholderText("教科書+問題集の発展問題")).toBeNull();
   });
 
   it("小項目名にカリキュラム候補が一致すると候補が表示され、選ぶとdifficultyLevelのみ反映され名前は変わらない", () => {

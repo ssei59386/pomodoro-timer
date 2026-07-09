@@ -548,14 +548,23 @@ describe("Onboarding（社会・国語の暗記範囲）", () => {
     expect(socialSubject).toBeDefined();
     expect(socialSubject?.testDate).toBe("2099-08-01");
     expect(latestData?.vocabRanges[0].subjectId).toBe(socialSubject?.id);
-    // 社会は暗記専用教科で章を持たない設計（docs/feature-memorization.md 確定設計v4）
+    // 社会は章も暗記範囲も持てるが（段階6で章化）、暗記範囲だけ登録した場合は章は作られない
     expect(latestData?.chapters).toHaveLength(0);
   });
 
-  it("社会・国語には章の登録セクション自体が表示されない（暗記範囲のみの教科）", () => {
+  it("社会は章の登録セクションが表示される（段階6で章＋周回化・暗記範囲と併存）", () => {
     renderOnboarding();
 
     goToSubjectContent("社会");
+    expect(screen.getByText("章の登録")).toBeDefined();
+    // 暗記範囲セクションも併存する（D1）
+    expect(screen.getByText("＋ 暗記範囲を追加")).toBeDefined();
+  });
+
+  it("国語には章の登録セクション自体が表示されない（暗記範囲のみの教科）", () => {
+    renderOnboarding();
+
+    goToSubjectContent("国語");
     expect(screen.queryByText("章の登録")).toBeNull();
   });
 

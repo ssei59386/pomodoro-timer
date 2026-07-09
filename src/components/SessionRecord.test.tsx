@@ -213,7 +213,7 @@ describe("SessionRecord", () => {
     });
   });
 
-  it("小項目を選んだ状態で基礎/発展の問題数を入力して保存すると、recordSession に basicProblemsCompleted/advancedProblemsCompleted が渡り problemsCompleted は渡らない", () => {
+  it("小項目を選んだ状態で基礎の問題数を入力して保存すると、recordSession に basicProblemsCompleted が渡り problemsCompleted は渡らない（発展は廃止）", () => {
     localStorage.setItem("study-planner-data-v1", JSON.stringify(onboardedData));
     renderSessionRecord({ preselectChapterId: "c3" });
 
@@ -223,9 +223,8 @@ describe("SessionRecord", () => {
     const numberInputs = document.querySelectorAll(
       'input[type="number"]',
     ) as NodeListOf<HTMLInputElement>;
-    // 0: かけた時間, 1: 基礎で解いた問題数, 2: 発展で解いた問題数
+    // 0: かけた時間, 1: 基礎で解いた問題数（発展欄は廃止済み）
     fireEvent.change(numberInputs[1], { target: { value: "5" } });
-    fireEvent.change(numberInputs[2], { target: { value: "2" } });
 
     fireEvent.click(screen.getByText("記録して理解度を更新"));
 
@@ -234,8 +233,8 @@ describe("SessionRecord", () => {
       chapterId: "c3",
       subtopicId: "st1",
       basicProblemsCompleted: 5,
-      advancedProblemsCompleted: 2,
     });
+    expect(latestData?.sessions[0].advancedProblemsCompleted).toBeUndefined();
     expect(latestData?.sessions[0].problemsCompleted).toBeUndefined();
   });
 
@@ -313,5 +312,37 @@ describe("SessionRecord", () => {
     fireEvent.change(chapterSelect, { target: { value: "c3" } });
     selects = document.querySelectorAll("select") as NodeListOf<HTMLSelectElement>;
     expect(selects[1].value).toBe("");
+  });
+
+  it("英語の文法/読解トラック付き小項目を選ぶと、達成段階のラダーがトラック別の言葉に切り替わる（段階7）", () => {
+    const englishData: AppData = {
+      ...onboardedData,
+      subjects: [{ id: "se", name: "英語", testDate: "2026-08-01", templateKey: "english" }],
+      chapters: [
+        {
+          id: "ce",
+          subjectId: "se",
+          name: "Lesson 5",
+          understanding: 0.4,
+          targetUnderstanding: 0.8,
+          lastStudiedDate: null,
+          subtopics: [
+            { id: "g1", name: "文法パート", track: "grammar" },
+            { id: "r1", name: "読解パート", track: "reading" },
+          ],
+        },
+      ],
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(englishData));
+    renderSessionRecord({ preselectChapterId: "ce", preselectSubtopicId: "g1" });
+
+    // 文法トラック：文法ラダー特有の文言が出る
+    expect(screen.getByText(/教科書の文法説明を全部理解した/)).toBeDefined();
+
+    // 読解トラックへ切り替えると読解ラダーの文言に変わる
+    const subtopicSelect = document.querySelectorAll("select")[1] as HTMLSelectElement;
+    fireEvent.change(subtopicSelect, { target: { value: "r1" } });
+    expect(screen.getByText(/範囲の約半分を完璧に訳せる/)).toBeDefined();
+    expect(screen.queryByText(/教科書の文法説明を全部理解した/)).toBeNull();
   });
 });
