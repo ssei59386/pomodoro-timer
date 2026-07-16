@@ -16,23 +16,30 @@ export const initialData: AppData = {
   onboarded: false,
 };
 
+/**
+ * `initialData` を下敷きに欠損フィールドを補完し、templateKey 未設定の既存データ
+ * （正規5教科名のみ）を名前から逆引きして補う。loadData（localStorageからの復元）と
+ * parseImportedData（バックアップファイルからの復元）の両方が同じ堅牢化を必要とするため共通化する。
+ */
+function normalizeAppData(parsed: Partial<AppData>): AppData {
+  const merged: AppData = {
+    ...initialData,
+    ...parsed,
+    availability: { ...initialData.availability, ...parsed.availability },
+  };
+  merged.subjects = merged.subjects.map((subject) => ({
+    ...subject,
+    templateKey: subject.templateKey ?? reverseNameToTemplateKey(subject.name) ?? "social",
+  }));
+  return merged;
+}
+
 export function loadData(): AppData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return initialData;
     const parsed = JSON.parse(raw) as Partial<AppData>;
-    // 欠損フィールドは初期値で補完しておく（前方互換のため）
-    const merged: AppData = {
-      ...initialData,
-      ...parsed,
-      availability: { ...initialData.availability, ...parsed.availability },
-    };
-    // templateKey 未設定の既存データ（正規5教科名のみ）は名前から逆引きして補う（改名耐性のため次回保存で永続化）
-    merged.subjects = merged.subjects.map((subject) => ({
-      ...subject,
-      templateKey: subject.templateKey ?? reverseNameToTemplateKey(subject.name) ?? "social",
-    }));
-    return merged;
+    return normalizeAppData(parsed);
   } catch {
     return initialData;
   }
@@ -49,6 +56,49 @@ export function saveData(data: AppData): boolean {
 
 export function clearData(): void {
   localStorage.removeItem(STORAGE_KEY);
+}
+
+/** バックアップ書き出し用に整形済みJSON文字列へ変換する（純粋関数、DOM操作はSettings.tsx側で行う） */
+export function exportDataToJson(data: AppData): string {
+  return JSON.stringify(data, null, 2);
+}
+
+/**
+ * 配列の各要素が「オブジェクトかつ id（string）を持つ」ことだけを確認する。
+ * 壊れたバックアップファイル（要素の型が崩れている等）をここで弾かないと、
+ * replaceAllData 後の描画中に例外が起き白画面になりうる（ErrorBoundary はあるが
+ * 事前に弾けるものは弾く）。過剰に厳しくすると正当なバックアップまで拒否してしまうため
+ * id の存在チェック程度に留める（ux-reviewer指摘）。
+ */
+function isValidRecordArray(value: unknown): value is Array<{ id: string }> {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item) => typeof item === "object" && item !== null && typeof (item as { id?: unknown }).id === "string",
+    )
+  );
+}
+
+/**
+ * バックアップファイルの中身（JSON文字列）を AppData に復元する。
+ * 最低限の形状検証（subjects/chapters/sessions が配列で、各要素がidを持つオブジェクトであること）
+ * を通らなければ null を返し、呼び出し側（Settings.tsx）でエラー表示に使う。検証を通ったものは
+ * loadData と同じ堅牢化（normalizeAppData）を適用してから返す。
+ */
+export function parseImportedData(raw: string): AppData | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<AppData>;
+    if (
+      !isValidRecordArray(parsed.subjects) ||
+      !isValidRecordArray(parsed.chapters) ||
+      !isValidRecordArray(parsed.sessions)
+    ) {
+      return null;
+    }
+    return normalizeAppData(parsed);
+  } catch {
+    return null;
+  }
 }
 
 /** 簡易な一意ID生成 */

@@ -1,12 +1,14 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useStore, uid } from "../store";
 import {
   collectMemorizeModeItems,
   DEFAULT_TARGET_UNDERSTANDING,
   isPastDate,
+  toISODate,
   validateVocabRangeDraft,
 } from "../logic";
-import type { Chapter, ChapterMetadata, ChapterSubtopic, Subject } from "../types";
+import { exportDataToJson, parseImportedData } from "../storage";
+import type { AppData, Chapter, ChapterMetadata, ChapterSubtopic, Subject } from "../types";
 import { resolveTemplate, SUBJECT_TEMPLATES, type SubjectTemplateKey } from "../data/subjectTemplates";
 import { WeeklyScheduleEditor } from "./WeeklyScheduleEditor";
 import { CalendarOverrides } from "./CalendarOverrides";
@@ -51,6 +53,7 @@ export function Settings() {
     removeVocabRange,
     restoreUnderstandMode,
     resetAll,
+    replaceAllData,
   } = useStore();
 
   // 暗記モードに切り替えた項目の恒久的な「理解モードに戻す」導線（ux-reviewer指摘：
@@ -75,6 +78,52 @@ export function Settings() {
   // 教科削除の確認状態（不可逆操作 — 章・記録・暗記範囲もカスケード削除されるため）。
   // 一度に確認できるのは1教科のみでよいので、確認中の subjectId だけを保持する。
   const [confirmingRemoveSubjectId, setConfirmingRemoveSubjectId] = useState<string | null>(null);
+
+  // データのバックアップ（エクスポート/インポート）。読み込んだファイルは検証だけ先に済ませ、
+  // 実際の上書きはユーザーの明示確認（confirmingReset と同じ二段階パターン）を経てから行う。
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [pendingImport, setPendingImport] = useState<AppData | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSuccess, setImportSuccess] = useState(false);
+  // iOS Safari の standalone PWA では <a download>+Blob URL がタブでJSONを開くだけになる
+  // 既知の不安定挙動があり、OS任せの表示に頼れない（ux-reviewer指摘）。書き出し完了を
+  // アプリ内で明示表示する。
+  const [exportSuccess, setExportSuccess] = useState(false);
+
+  const handleExport = () => {
+    const json = exportDataToJson(data);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `study-planner-backup-${toISODate(new Date())}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setExportSuccess(true);
+  };
+
+  const handleImportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // 同じファイルを連続選択してもonChangeが発火するようにする
+    if (!file) return;
+    setImportSuccess(false);
+    const text = await file.text();
+    const parsed = parseImportedData(text);
+    if (!parsed) {
+      setImportError("ファイルを読み込めませんでした。このアプリで書き出したバックアップファイルか確認してください。");
+      setPendingImport(null);
+      return;
+    }
+    setImportError(null);
+    setPendingImport(parsed);
+  };
+
+  const handleConfirmImport = () => {
+    if (!pendingImport) return;
+    replaceAllData(pendingImport);
+    setPendingImport(null);
+    setImportSuccess(true);
+  };
 
   const handleAddSubject = () => {
     const trimmedName = newSubjectName.trim();
@@ -656,6 +705,52 @@ export function Settings() {
           </ul>
         </section>
       )}
+
+      <section className="card">
+        <h3>データのバックアップ</h3>
+        <p className="muted">
+          端末を変えたりブラウザのデータを消すとすべて消えてしまいます。ときどき書き出して保存しておくと安心です。書き出したファイルは端末のダウンロードフォルダに保存されます。
+        </p>
+        <div className="backup-actions">
+          <button type="button" className="secondary" onClick={handleExport}>
+            データを書き出す
+          </button>
+          <input
+            ref={importFileInputRef}
+            type="file"
+            accept="application/json,.json"
+            style={{ display: "none" }}
+            onChange={handleImportFileChange}
+          />
+          <button
+            type="button"
+            className="danger-outline"
+            onClick={() => importFileInputRef.current?.click()}
+          >
+            バックアップから復元する
+          </button>
+        </div>
+        {exportSuccess && (
+          <p className="backup-success-message">書き出しました。ダウンロードフォルダに保存されています。</p>
+        )}
+        {importError && <p className="error-inline">{importError}</p>}
+        {importSuccess && <p className="backup-success-message">復元しました。</p>}
+        {pendingImport && (
+          <div className="confirm-row import-confirm-row">
+            <p className="backup-import-preview">
+              このバックアップには 教科{pendingImport.subjects.length}・章{pendingImport.chapters.length}
+              ・記録{pendingImport.sessions.length}件 が入っています。
+            </p>
+            <p className="error-inline">復元すると今のデータはすべて上書きされます。元に戻せません。</p>
+            <button className="danger" onClick={handleConfirmImport}>
+              復元する
+            </button>
+            <button className="secondary" onClick={() => setPendingImport(null)}>
+              やめる
+            </button>
+          </div>
+        )}
+      </section>
 
       <section className="card danger-zone">
         <h3>データのリセット</h3>

@@ -85,6 +85,8 @@ interface StoreValue {
   /** 単語帳の範囲とその枠をまとめて削除する */
   removeVocabRange: (rangeId: string) => void;
   resetAll: () => void;
+  /** バックアップから復元。現在の全データを引数で完全に置き換える */
+  replaceAllData: (data: AppData) => void;
 }
 
 // 章削除（removeChapter/removeSubject共通）に伴う、forecastDecisions/todayPlanの
@@ -315,6 +317,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       resetAll: () => {
         clearData();
         setData(initialData);
+      },
+
+      replaceAllData: (newData) => {
+        setData(() => newData);
       },
     };
   }, [data, saveError]);

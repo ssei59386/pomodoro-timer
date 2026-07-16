@@ -1469,6 +1469,58 @@ input[type="range"] {
   gap: 8px;
 }
 
+/* 復元確認は「p.error-inline + ボタン2つ」を confirm-row（flex-direction指定なし）に
+   入れると横並びに潰れ、390px幅で「やめる」が1文字ずつ改行される致命的崩れが出た
+   （ux-reviewer実機指摘）。教科削除確認（subject-remove-confirm）と同じ扱いにする。 */
+.import-confirm-row {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* ---- データのバックアップ（エクスポート/インポート） ---- */
+/* 書き出し/復元の2ボタンが密着し誤タップ源になっていた（ux-reviewer指摘）ため、
+   gap付きの縦積みコンテナで包む。高さも39px→44pxへ（他画面のタップ領域基準に揃える）。 */
+.backup-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.backup-actions button {
+  min-height: 44px;
+}
+
+/* 書き出し/復元の成功メッセージは全データの完了通知なので .muted.small（脚注扱い）だと
+   軽すぎる（ux-reviewer指摘）。通常サイズ・強調色にする。 */
+.backup-success-message {
+  color: var(--reached);
+  font-size: 14px;
+  font-weight: 600;
+  margin: 8px 0;
+}
+
+.backup-import-preview {
+  margin: 0 0 4px;
+}
+
+/* ---- ErrorBoundary（アプリ全体の最終防衛線） ---- */
+.error-boundary-screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+}
+
+.error-boundary-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
 .footer-note {
   text-align: center;
   margin-top: 24px;
