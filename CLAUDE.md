@@ -100,14 +100,22 @@ Still-open backlog items from that history (not yet scoped/resolved, low priorit
 
 **Curriculum reference data (math + science): RESOLVED, both fully built and integrated** into the "見通し" feature's suggestion layer (`src/data/curriculumSearch.ts`). Full research-task history is in **`docs/curriculum-data.md`**.
 
-## セッション引き継ぎメモ（2026-07-09、教科テンプレート化＋達成段階エンジン 段階1〜5完了時点）
+## セッション引き継ぎメモ（2026-07-09、教科テンプレート化＋達成段階エンジン 段階1〜7＋発展問題廃止 完了・commit/push済み）
 
-**進行中の大型機能。詳細は `docs/feature-subject-templates.md` を必ず読むこと**（決定事項・段階別実装ログ・残作業が全部そこにある）。承認済みプラン全文は（リポジトリ外）`~/.claude/plans/soft-swinging-hippo.md`。要点のみここに残す:
+**進行中だった大型機能は一区切り。詳細は `docs/feature-subject-templates.md` を必ず読むこと**（決定事項・段階別実装ログ・残作業が全部そこにある）。承認済みプラン全文は（リポジトリ外）`~/.claude/plans/soft-swinging-hippo.md`。最新commitは `7b27755`「段階6-7完了＋発展問題を廃止」。要点のみここに残す:
 
 - ユーザー要望「教科を複数登録できるように」＋「理解度の入れ方の言葉の食い違いをなくす」から着手。**両方まとめて一度に**、要件2は「記録の仕組みごと作り替え（＝下記 Phase 3 相当）」をユーザーが明示選択。
-- **段階1〜7 完了**（テスト400件全通過・build成功・tscクリーン・段階6/7とも実機QA済み）。教科を**テンプレから自由に複数追加/削除**（数学I・数学A、保健体育等）でき、記録画面が**達成段階(1〜5)選択**に統一、`SubjectKey` 固定を撤廃し `src/data/subjectTemplates.ts` の `resolveTemplate` に一本化、`vocabLabels.ts` は削除。段階6で**社会を `chapterCapable:true` に章化**（vocab併存＝D1、英語と同じchapter+vocab両対応）、`SelfReportPicker.tsx`＋付随CSSを削除。段階7で**英語の文法/読解トラック分割**（`studyPolicy.ts` に `ENGLISH_GRAMMAR_LEVELS`/`ENGLISH_READING_LEVELS`＋`studyLevelsForTrack`、テンプレに `trackCapable`、小項目 `track` で記録画面のラダー切替、オンボ/設定にトラック選択UI）。
-- **残り**：機能追加としてはほぼ完了。教科CRUD全体の実機QA（保健体育追加・数学I/数学A複製・削除カスケード等）の観点が未消化（詳細 `docs/feature-subject-templates.md`）。
-- 決定事項 D1（社会vocabは消さず併存）/ D2（テンプレは追加時固定）/ D3（既存understanding値は移行せず次回記録でスナップ）は `docs/feature-subject-templates.md` 参照。覆すなら要相談。
+- **段階1〜7 完了**（テスト398件全通過・build成功・tscクリーン・段階6/7とも実機QA済み）。教科を**テンプレから自由に複数追加/削除**（数学I・数学A、保健体育等）でき、記録画面が**達成段階(1〜5)選択**に統一、`SubjectKey` 固定を撤廃し `src/data/subjectTemplates.ts` の `resolveTemplate` に一本化、`vocabLabels.ts` は削除。段階6で**社会を `chapterCapable:true` に章化**（vocab併存＝D1、英語と同じchapter+vocab両対応）、`SelfReportPicker.tsx`＋付随CSSを削除。段階7で**英語の文法/読解トラック分割**（`studyPolicy.ts` に `ENGLISH_GRAMMAR_LEVELS`/`ENGLISH_READING_LEVELS`＋`studyLevelsForTrack`、テンプレに `trackCapable`、小項目 `track` で記録画面のラダー切替、オンボ/設定にトラック選択UI）。
+- その後 **発展問題(`advancedProblems`)を全面廃止**（ユーザー判断。数えにくく達成段階ラダー段階5と二重管理のため）。登録/記録/ダッシュボードの発展UIを全撤去、logic.ts の見積もり・ペース判定を基礎のみに簡素化。型フィールドは後方互換で残置。詳細は `docs/feature-subject-templates.md`「発展問題(advancedProblems)廃止メモ」＋メモリ [[project_advanced_problems_removal_2026_07_09]]。
+- **決定事項** D1（社会vocabは消さず併存）/ D2（テンプレは追加時固定）/ D3（既存understanding値は移行せず次回記録でスナップ）は `docs/feature-subject-templates.md` 参照。覆すなら要相談。
+
+**次にやるとよいこと（2026-07-09 にユーザーへ提案・優先度順）：**
+1. **【最優先・推奨】データのバックアップ機能（エクスポート/インポート）＝未実装**。全データが localStorage のみのため、ブラウザのデータ消去・機種変で全消失するリスクがある。「固まってきた＝本気で使う」段階なので守りを固めるのが先。設定画面にJSON書き出し/読み込みボタンを足すだけの軽い規模。`storage.ts` の `study-planner-data-v1` を丸ごとダンプ/復元。1セッションで入る想定。**ユーザーはこの提案に前向き**（着手時はまず声かけ）。
+2. 続けたくなる仕掛け（連続記録ストリーク・記録時の達成感演出）。
+3. リマインド通知はiOS制約が重く費用対効果微妙、急がない。
+- **今は入れない方針で合意**：AI機能（著作権整理が先）、複数テスト日（1教科1testDate維持）。
+
+**未消化の実機QA観点（低優先）**：教科CRUD全体（保健体育追加・数学I/数学A複製・削除カスケード）。詳細 `docs/feature-subject-templates.md`。
 
 ## セッション引き継ぎメモ（2026-07-08、勉強方針・後悔防止トリガー機能 Phase 1+2 完了時点）
 
