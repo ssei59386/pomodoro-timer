@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
-import { toISODate } from "../logic";
+import { computeStreak, toISODate } from "../logic";
+import type { StudySession } from "../types";
 import { resolveTemplate } from "../data/subjectTemplates";
 import { studyLevelsForTrack } from "../data/studyPolicy";
 import { AchievementLevelPicker } from "./AchievementLevelPicker";
@@ -53,6 +54,10 @@ export function SessionRecord({
   // 発展問題は 2026-07-09 に廃止（達成段階ラダーの段階5と二重管理のため）。
   const [basicProblemsCompleted, setBasicProblemsCompleted] = useState<number | null>(null);
   const [saved, setSaved] = useState(false);
+  // 連続記録ストリークの保存直後表示用。recordSession は setState 非同期のため、
+  // この時点の data.sessions にはまだ今回保存した1件が反映されていない。
+  // computeStreak は date しか見ないので、最小限のオブジェクトを1件足してから計算する。
+  const [savedStreak, setSavedStreak] = useState<number | null>(null);
 
   // preselectChapterId と preselectSubtopicId は同じ「記録画面へ遷移する」操作から
   // 同時に渡ってくるため、1つの effect にまとめて同時にセットする。
@@ -103,15 +108,18 @@ export function SessionRecord({
 
   const handleSave = () => {
     if (!chapterId) return;
+    const today = new Date();
+    const todayISO = toISODate(today);
     recordSession({
       chapterId,
       subtopicId: subtopicId || undefined,
-      date: toISODate(new Date()),
+      date: todayISO,
       minutes: Math.max(1, Number(minutes) || 0),
       achievedLevel,
       problemsCompleted: subtopicId ? undefined : problemsCompleted ?? undefined,
       basicProblemsCompleted: subtopicId ? basicProblemsCompleted ?? undefined : undefined,
     });
+    setSavedStreak(computeStreak([...data.sessions, { date: todayISO } as StudySession], today));
     setSaved(true);
     // 軽いフィードバックの後にダッシュボードへ
     setTimeout(onDone, 700);
@@ -236,6 +244,10 @@ export function SessionRecord({
       <button className="primary big" onClick={handleSave} disabled={saved}>
         {saved ? "保存しました ✓" : "記録して理解度を更新"}
       </button>
+      {/* 煽らないトーンを保つため、3日未満では何も出さない（CEOプロダクト判断）。 */}
+      {saved && savedStreak !== null && savedStreak >= 3 && (
+        <p className="muted small">{savedStreak}日連続で記録できています</p>
+      )}
     </div>
   );
 }

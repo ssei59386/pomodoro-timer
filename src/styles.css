@@ -1071,6 +1071,18 @@ input[type="range"] {
   color: var(--muted);
 }
 
+/* 連続記録ストリーク（Home の screen-head）。reason-chip と同じ控えめな見た目を流用し、
+   煽らないトーンを保つ（絵文字なし、"日連続で記録中" という淡々とした文言のみ）。 */
+.streak-chip {
+  display: inline-block;
+  font-size: 12px;
+  background: #f1f5f9;
+  color: #475569;
+  padding: 3px 9px;
+  border-radius: 999px;
+  margin-top: 4px;
+}
+
 /* ---- ダッシュボード ---- */
 .subject-head {
   display: flex;

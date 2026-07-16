@@ -1635,6 +1635,35 @@ export function buildStudyHistory(
   return result;
 }
 
+/**
+ * 連続記録ストリーク：「その日にセッション記録が1件でもある日」が連続している日数。
+ * buildStudyHistory と同じゆるい基準（記録があれば継続。計画完遂などの厳しい条件にはしない）。
+ * 今日はまだ記録が無くても、昨日までの連続記録は「今日中に記録すれば継続」という生存猶予を
+ * 与える（毎朝ストリークが0に見える不自然さを防ぐ。記録し忘れれば日付が変わって自然に途切れる）。
+ * 上限なし（buildStudyHistory の7日固定窓とは別の専用ロジック）。
+ */
+export function computeStreak(sessions: StudySession[], today: Date): number {
+  const studiedDates = new Set(sessions.map((s) => s.date));
+  const todayISO = toISODate(today);
+
+  let cursor: Date;
+  if (studiedDates.has(todayISO)) {
+    cursor = startOfDay(today);
+  } else {
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (!studiedDates.has(toISODate(yesterday))) return 0;
+    cursor = startOfDay(yesterday);
+  }
+
+  let streak = 0;
+  while (studiedDates.has(toISODate(cursor))) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
 // ---- 小さなユーティリティ ---------------------------------------------
 
 export function clamp01(value: number): number {

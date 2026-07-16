@@ -3,6 +3,7 @@ import { useStore } from "../store";
 import {
   buildPlanFromItemKeys,
   collectForecastDecisionPrompts,
+  computeStreak,
   effectiveStudyMode,
   forecastDecisionKey,
   getTodaysVocabChunks,
@@ -109,6 +110,11 @@ export function Home({
     [data.availability, today],
   );
 
+  // 連続記録ストリーク（CEOプロダクト判断：控えめに後押しするだけで煽らない）。
+  // 3日未満は何のシグナルにもならず、むしろ「たった1日で表示される」ことのほうが
+  // プレッシャーに見えるため、3日以上のときだけDOMごと出す。
+  const streak = useMemo(() => computeStreak(data.sessions, today), [data.sessions, today]);
+
   // todayPlan.date が今日と一致しない場合（日をまたいだ直後、ensureTodayPlan の
   // useEffect がまだ走っていないタイミングなど）は前日分のスナップショットを描画しない
   // ようにするガード（ux-reviewer指摘）。
@@ -181,6 +187,7 @@ export function Home({
         <p className="muted">
           理解度・テストまでの近さから、優先度の高い章や小項目を割り当てています。
         </p>
+        {streak >= 3 && <span className="streak-chip">{streak}日連続で記録中</span>}
         {/* 全部終わった後は「お疲れさま」メッセージの方が優先度が高いので、固定に関する説明文は
             隠してその分の画面上部を空ける（ux-reviewer P1指摘：完了後も毎回全文表示され続けていた）。 */}
         {plan.length > 0 && !allPlanItemsCompleted && (

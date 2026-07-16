@@ -73,6 +73,7 @@ import {
   collectMemorizeModeItems,
   SHORTFALL_STREAK_THRESHOLD_DAYS,
   FORECAST_DECISION_SNOOZE_DAYS,
+  computeStreak,
 } from "./logic";
 import type { ForwardSimulationResult, SubjectForecastSummary } from "./logic";
 import type {
@@ -2393,5 +2394,70 @@ describe("buildStudyHistory", () => {
     const result = buildStudyHistory([], chapters, subjects, today, 3);
     expect(result).toHaveLength(3);
     expect(result.map((d) => d.date)).toEqual(["2026-06-27", "2026-06-28", "2026-06-29"]);
+  });
+});
+
+describe("computeStreak", () => {
+  function session(overrides: Partial<StudySession> = {}): StudySession {
+    return {
+      id: `sess-${Math.random()}`,
+      chapterId: "c1",
+      date: "2026-06-29",
+      minutes: 30,
+      correctRate: 0.8,
+      selfReport: 4,
+      ...overrides,
+    };
+  }
+
+  it("今日を含めて3日連続で記録があれば3を返す", () => {
+    const sessions = [
+      session({ date: "2026-06-27" }),
+      session({ date: "2026-06-28" }),
+      session({ date: "2026-06-29" }),
+    ];
+    expect(computeStreak(sessions, today)).toBe(3);
+  });
+
+  it("今日はまだ記録が無くても昨日まで3日連続なら3を返す（生存猶予）", () => {
+    const sessions = [
+      session({ date: "2026-06-26" }),
+      session({ date: "2026-06-27" }),
+      session({ date: "2026-06-28" }),
+    ];
+    expect(computeStreak(sessions, today)).toBe(3);
+  });
+
+  it("今日も昨日も記録が無ければ0を返す", () => {
+    const sessions = [session({ date: "2026-06-20" })];
+    expect(computeStreak(sessions, today)).toBe(0);
+  });
+
+  it("記録が1日だけなら1を返す", () => {
+    const sessions = [session({ date: "2026-06-29" })];
+    expect(computeStreak(sessions, today)).toBe(1);
+  });
+
+  it("途中で1日空くとそこで止まる", () => {
+    const sessions = [
+      session({ date: "2026-06-25" }),
+      // 06-26 が抜けている
+      session({ date: "2026-06-27" }),
+      session({ date: "2026-06-28" }),
+      session({ date: "2026-06-29" }),
+    ];
+    expect(computeStreak(sessions, today)).toBe(3);
+  });
+
+  it("セッションが空配列なら0を返す", () => {
+    expect(computeStreak([], today)).toBe(0);
+  });
+
+  it("同じ日に複数セッションがあっても1日として数える", () => {
+    const sessions = [
+      session({ id: "a", date: "2026-06-29", minutes: 20 }),
+      session({ id: "b", date: "2026-06-29", minutes: 30 }),
+    ];
+    expect(computeStreak(sessions, today)).toBe(1);
   });
 });
