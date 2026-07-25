@@ -100,6 +100,27 @@ Still-open backlog items from that history (not yet scoped/resolved, low priorit
 
 **Curriculum reference data (math + science): RESOLVED, both fully built and integrated** into the "見通し" feature's suggestion layer (`src/data/curriculumSearch.ts`). Full research-task history is in **`docs/curriculum-data.md`**.
 
+## セッション引き継ぎメモ（2026-07-26、バックアップ機能＋ストリーク＋トリガー1日化＋完了目安表示 完了・commit/push済み）
+
+**このセッションで入れた4件はすべて commit + push 済み（本番反映）**。最新commitは `e8c22e4`。テスト417件全通過・tscクリーン・build成功。engineer 委譲＋自分で差分/ビルド確認する運用で進めた。要点:
+
+- **① データのバックアップ機能（エクスポート/インポート）**＝2026-07-09 の最優先バックログを消化。`storage.ts` に `exportDataToJson`/`parseImportedData`（＋`loadData` と共通の `normalizeAppData` を切り出し）、`store.tsx` に `replaceAllData`、`Settings.tsx` に「データのバックアップ」カード（書き出し／二段階確認付き復元／件数プレビュー）。**トップレベル `ErrorBoundary`（`src/components/ErrorBoundary.tsx`、main.tsx で全体を包む）も追加**＝壊れたデータ復元で白画面になっても「リセットして最初からやり直す」導線が出る安全網。commit `4f94184`。
+- **② 連続記録ストリーク**＝「続けたくなる仕掛け」。`logic.ts` の `computeStreak`（今日未記録でも昨日まで続けば生存扱い、途切れれば黙って0）。Home に3日以上で「◯日連続で記録中」チップ、記録保存後に「◯日連続で記録できています」1行。**CEO判断で新規アニメ/効果音/教科別ストリーク/途切れ罪悪感メッセージは入れない**（アプリの煽らないトーン厳守）。commit `a1f37f2`。
+- **③ 後悔防止トリガーの発動を3日連続→1日に変更**（**ユーザー判断**）。`SHORTFALL_STREAK_THRESHOLD_DAYS` 3→1。スヌーズ（`FORECAST_DECISION_SNOOZE_DAYS`）は3日据え置き。関連UI文言・docs・当メモも更新済み。詳細/経緯は `docs/feature-study-policy.md` と メモリ [[project_forecast_trigger_1day_2026_07_26]]。commit `154a866`。
+- **④ 完了までの目安表示**＝「あとどれくらいで終わるか」をユーザー要望で数値化。`simulateForward` が既に持つ `totalMinutesNeeded`/`projectedCompletionDate` を Dashboard の各章・小項目に「残り約◯分・M月D日ごろ終わる見込み」として表示（`ForecastRemainingNote`）。**順調な項目だけ**表示（達成済み・間に合わない見込みには出さない＝二重にネガティブ情報を出さない）。新規計算ロジックは無し。commit `e8c22e4`。
+
+**セッション中に浮上した未着手のプロダクト論点（次に有力）：**
+- ユーザーの生の課題感＝**「このアプリで一番強く惹かれる部分（＝見通し／このペースで間に合うかの先読み計算）が、使う人の目の前に十分出てきていない」**。①見通しはダッシュボードの奥＋「間に合わない時だけ」しか声をかけず、順調な時に"計算してくれている実感"を日常的に感じる場面が無い。②Home 説明文が「仕組みの説明」止まりで「だから点が伸びる／間に合う」の**効能の言葉**になっていない。→ **提案済みの方向：Home に見通し結果を1行、順調な時にもさりげなく出す（既存の固定説明文と置き換える形で画面を増やさない）。着手前に ux-reviewer と文言トーンを詰める**。④の完了目安表示はこの流れの一部として着手したもの。次セッションはここを深めるのが有力。
+- 「機能の利点を使う人に伝える」は**新画面/ツアーは作らず、各機能が使われるその場に効能の一言を添える**方針でユーザーと合意ずみ（生徒はツアーを読み飛ばす／既存の設計思想＝その場完結の説明文と一貫）。
+
+**引き続き未着手の低優先バックログ：**
+- 続けたくなる仕掛けの残り：**記録時の達成感演出**（ストリークは入れたが演出自体はまだ最小のまま）。
+- `src/components/` 配下の未追跡「〜コピー.tsx」6件は**今回も未確認のまま**（毎回 git status に出続ける）。次に一度ユーザーへ要不要を確認して消すとよい。
+- 数値inputの `Math.max` 即時強制パターンの横展開チェック（未実施）、教科CRUD全体の実機QA（未消化）。
+- リマインド通知（iOS制約重く見送り）、AI機能（著作権整理先）、複数テスト日（1教科1testDate維持）は今も入れない方針。
+
+---
+
 ## セッション引き継ぎメモ（2026-07-09、教科テンプレート化＋達成段階エンジン 段階1〜7＋発展問題廃止 完了・commit/push済み）
 
 **進行中だった大型機能は一区切り。詳細は `docs/feature-subject-templates.md` を必ず読むこと**（決定事項・段階別実装ログ・残作業が全部そこにある）。承認済みプラン全文は（リポジトリ外）`~/.claude/plans/soft-swinging-hippo.md`。最新commitは `7b27755`「段階6-7完了＋発展問題を廃止」。要点のみここに残す:
