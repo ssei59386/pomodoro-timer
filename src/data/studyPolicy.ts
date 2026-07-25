@@ -1,7 +1,7 @@
 // 勉強方針・後悔防止トリガー機能（docs/feature-study-policy.md Phase 1）。
 // 理解度の各段階が何を意味し、次に何をすればよいかを教科ごとに1つの情報源として持つ。
 // 「勉強方針」画面（src/components/StudyPolicy.tsx）はこのデータを表示するだけで、
-// 判定ロジック（3日連続トリガー等）はここには置かない（Phase 2、logic.ts 側）。
+// 判定ロジック（後悔防止トリガー等）はここには置かない（Phase 2、logic.ts 側）。
 import type { SubjectTemplateKey } from "./subjectTemplates";
 
 /** 理解度の1段階（1〜5）。既存の 0.0〜1.0 スケールに 0.2 刻みで対応する（理解度4 = 0.8 = DEFAULT_TARGET_UNDERSTANDING） */
@@ -125,6 +125,6 @@ export const STUDY_POLICY_SUBJECT_ORDER: SubjectTemplateKey[] = ["math", "scienc
 export const REGRET_PREVENTION_TRIGGER_POINTS: string[] = [
   "テストが終わったあとに「この単元にもっと時間をかけていれば…」と後悔するのを防ぐ仕組みです。",
   "数学・理科・英語は、どれだけ時間をかけてもいいので、各段階を完璧にしてから次に進んでOKです。",
-  "ただし3日連続で「このペースだと間に合わなそう」という判定になった時だけ、アプリから声をかけます。",
+  "ただし「このペースだと間に合わなそう」という判定になった日は、アプリから声をかけます。",
   "そのとき「このまま続ける」か「覚えるモードに切り替える」かを自分で選べます。続けるを選べば数日は再確認しません。",
 ];

@@ -429,7 +429,7 @@ function ForecastDecisionCard({
         {itemName}、このままだと他の章が終わらなそうです。
       </p>
       <p className="forecast-decision-reason muted small">
-        3日続けて「このペースだと間に合わなそう」と出ています。
+        「このペースだと間に合わなそう」と出ています。
       </p>
       <div className="forecast-decision-actions">
         <button type="button" className="primary" onClick={onContinue}>

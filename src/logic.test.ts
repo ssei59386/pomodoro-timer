@@ -1654,7 +1654,7 @@ describe("後悔防止トリガー（Phase 2、docs/feature-study-policy.md）",
       expect(next[key].lastEvaluatedDate).toBe("2026-06-29");
     });
 
-    it("連続する日ごとにストリークが積み上がり、3日目で閾値に達する", () => {
+    it("連続する日ごとにストリークが積み上がっていく（カウント自体は発動閾値と独立）", () => {
       const c = chapter({ id: "c1", subtopics: [subtopic({ id: "st1" })] });
       const key = forecastDecisionKey("c1", "st1");
 
@@ -1667,7 +1667,7 @@ describe("後悔防止トリガー（Phase 2、docs/feature-study-policy.md）",
       state = updateForecastDecisions(forecastWith(50), [c], state, day2);
       expect(state[key].shortfallStreak).toBe(2);
       state = updateForecastDecisions(forecastWith(50), [c], state, day3);
-      expect(state[key].shortfallStreak).toBe(SHORTFALL_STREAK_THRESHOLD_DAYS);
+      expect(state[key].shortfallStreak).toBe(3);
     });
 
     it("shortfallMinutes が0に戻った日はストリークが0にリセットされる", () => {
@@ -1720,7 +1720,7 @@ describe("後悔防止トリガー（Phase 2、docs/feature-study-policy.md）",
       expect(shouldPromptForecastDecision(state, "understand", today)).toBe(false);
     });
 
-    it("ストリークが閾値以上なら問いかける（3日で発火）", () => {
+    it("ストリークが閾値以上なら問いかける（1日で発火、2026-07-25にユーザー判断で3日から変更）", () => {
       const state: ForecastDecisionState = {
         shortfallStreak: SHORTFALL_STREAK_THRESHOLD_DAYS,
         lastEvaluatedDate: "2026-06-29",

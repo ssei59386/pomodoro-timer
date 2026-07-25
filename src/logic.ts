@@ -1118,13 +1118,14 @@ export function shouldSurfaceForecastForSubject(
 
 // ---- 後悔防止トリガー（Phase 2、docs/feature-study-policy.md 参照） ----
 // 「テストが終わった後の後悔（この単元にもっと時間をかけていれば…）」を防ぐため、
-// simulateForward の結果を毎日1回だけ評価し、ある章/小項目が3日連続で「間に合わない候補」
-// （shortfallMinutes > 0）に入り続けたら、Home で「続ける／切り替える」を問いかける。
+// simulateForward の結果を毎日1回だけ評価し、ある章/小項目が1日でも「間に合わない候補」
+// （shortfallMinutes > 0）に入ったら、Home で「続ける／切り替える」を問いかける
+// （当初は3日連続だったが、ユーザー判断で1日発動に変更、2026-07-25）。
 // 対象は章を持つ教科（数学・理科・英語）のみ。社会は現状 vocab 専用で章が無いため、
 // chapters配列に社会の章がそもそも存在せず、自動的に対象外になる（Phase 3の章化まで対象外）。
 
-/** 何日連続で shortfall があれば問いかけを出すか（暫定値） */
-export const SHORTFALL_STREAK_THRESHOLD_DAYS = 3;
+/** 何日連続で shortfall があれば問いかけを出すか（当初3、ユーザー判断で1に変更 2026-07-25） */
+export const SHORTFALL_STREAK_THRESHOLD_DAYS = 1;
 
 /** 「続ける」を選んだときに再確認を抑制する日数（暫定値） */
 export const FORECAST_DECISION_SNOOZE_DAYS = 3;
