@@ -1165,6 +1165,12 @@ input[type="range"] {
   font-size: 12px;
 }
 
+/* 「あとどれくらいで終わるか」の見通し（既存 simulateForward データの再利用）。
+   chapter-meta と同程度の控えめなトーンに揃える。 */
+.forecast-remaining-note {
+  margin-top: 4px;
+}
+
 /* ---- 見通し機能フェーズ4：実績ベースのペースバッジ ---- */
 .tier-badge {
   display: inline-block;

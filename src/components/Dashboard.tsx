@@ -4,6 +4,7 @@ import {
   daysLeft,
   decayedUnderstanding,
   effectiveStudyMode,
+  forecastDecisionKey,
   subtopicUnderstandingTier,
   subtopicProblemTier,
   worstProgressTier,
@@ -14,6 +15,7 @@ import {
   buildStudyHistory,
   type ProgressTier,
   type ForwardSimulationResult,
+  type SubtopicForecast,
   type TriageCandidate,
   type DailyStudyHistory,
 } from "../logic";
@@ -62,6 +64,17 @@ export function Dashboard({
   );
 
   const triageCandidates = useMemo(() => triageSubtopics(forecast), [forecast]);
+
+  // 「切る候補」セクションでしか使っていなかった見通しデータ（残り所要分・見込み完了日）を、
+  // 通常の理解度カードでも引けるように章/小項目キーでルックアップできる形にする
+  // （新しい計算ロジックは追加しない。既存の simulateForward の結果を再利用するだけ）。
+  const forecastByKey = useMemo(() => {
+    const map = new Map<string, SubtopicForecast>();
+    for (const f of forecast.subtopics) {
+      map.set(forecastDecisionKey(f.chapterId, f.subtopicId), f);
+    }
+    return map;
+  }, [forecast]);
 
   // 「まとまった不足がある」かつ「その教科に取り組み始めている」の両方を満たす教科だけ見通しを出す
   const subjectsToSurface = useMemo(
@@ -122,6 +135,7 @@ export function Dashboard({
                   subject={subject}
                   sessions={data.sessions}
                   today={today}
+                  forecastByKey={forecastByKey}
                 />
               ))}
             </ul>
@@ -365,16 +379,47 @@ function formatMinutesLabel(minutes: number): string {
   return remainder > 0 ? `${hours}時間${remainder}分` : `${hours}時間`;
 }
 
+/**
+ * "YYYY-MM-DD" を「M月D日」表記に整形する（見通しの完了予定日表示用。年は出さない）。
+ * CalendarOverrides.tsx の formatDateLabel は年込みのため流用せず別物として持つ。
+ */
+function formatShortDateLabel(isoDate: string): string {
+  const [, m, d] = isoDate.split("-");
+  return `${Number(m)}月${Number(d)}日`;
+}
+
+/**
+ * 「あとどれくらいで終わるか」の具体的な目安（フェーズ6.5相当）。既存の見通し
+ * （simulateForward）が既に持っているデータを表示するだけで、新しい計算は行わない。
+ * - 既に目標達成（totalMinutesNeeded<=0）→ 何も出さない（reached表示で十分）
+ * - 間に合わない見込み（projectedCompletionDate===null）→ 何も出さない
+ *   （tier-badge と教科単位の見通しバナーで既に伝わっており、二重にネガティブ情報を出さない）
+ * - 順調（間に合う見込み）→ 「見込み」を必ず使い、断定しないトーンで残り時間・完了予定日を出す
+ */
+function ForecastRemainingNote({ forecast }: { forecast: SubtopicForecast | undefined }) {
+  if (!forecast) return null;
+  if (forecast.totalMinutesNeeded <= 0) return null;
+  if (!forecast.projectedCompletionDate) return null;
+  return (
+    <p className="muted small forecast-remaining-note">
+      残り約{formatMinutesLabel(forecast.totalMinutesNeeded)}・
+      {formatShortDateLabel(forecast.projectedCompletionDate)}ごろ終わる見込み
+    </p>
+  );
+}
+
 function UnderstandingRow({
   chapter,
   subject,
   sessions,
   today,
+  forecastByKey,
 }: {
   chapter: Chapter;
   subject: Subject;
   sessions: StudySession[];
   today: Date;
+  forecastByKey: Map<string, SubtopicForecast>;
 }) {
   const pct = Math.round(decayedUnderstanding(chapter, today) * 100);
   const targetPct = Math.round(chapter.targetUnderstanding * 100);
@@ -442,6 +487,9 @@ function UnderstandingRow({
       <div className="chapter-meta muted">
         {chapter.lastStudiedDate ? `最終学習 ${chapter.lastStudiedDate}` : "未学習"}
       </div>
+      {!hasSubtopics && (
+        <ForecastRemainingNote forecast={forecastByKey.get(forecastDecisionKey(chapter.id, null))} />
+      )}
 
       {hasSubtopics && (
         <>
@@ -473,6 +521,7 @@ function UnderstandingRow({
                       <TierBadge label="理解度" tier={stTier} />
                       {stProblemTiers.basic && <TierBadge label="基礎" tier={stProblemTiers.basic} />}
                     </div>
+                    <ForecastRemainingNote forecast={forecastByKey.get(forecastDecisionKey(chapter.id, st.id))} />
                   </li>
                 );
               })}

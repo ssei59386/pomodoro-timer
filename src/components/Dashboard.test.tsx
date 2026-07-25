@@ -486,3 +486,175 @@ describe("フェーズ5：見通し（前向きシミュレーション）・切
     expect(screen.getByText(/あと約\d+時間(\d+分)?\s*足りない見込みです/)).toBeDefined();
   });
 });
+
+describe("「あとどれくらいで終わるか」の見通し表示（既存 simulateForward データの再利用、新しい計算ロジックは追加していない）", () => {
+  function daysFromNow(n: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return toISODate(d);
+  }
+
+  // 十分な期間・十分な空き時間で、確実に「間に合う見込み」を作るための共通availability
+  const amplAvailability = {
+    weeklySchedule: {
+      0: [{ start: "00:00", end: "01:00" }],
+      1: [{ start: "00:00", end: "01:00" }],
+      2: [{ start: "00:00", end: "01:00" }],
+      3: [{ start: "00:00", end: "01:00" }],
+      4: [{ start: "00:00", end: "01:00" }],
+      5: [{ start: "00:00", end: "01:00" }],
+      6: [{ start: "00:00", end: "01:00" }],
+    },
+    dateOverrides: {},
+  };
+
+  it("小項目を持たない章が順調（間に合う見込み）なら「残り約◯・M月D日ごろ終わる見込み」が表示される", () => {
+    const data: AppData = {
+      subjects: [{ id: "s1", name: "数学", testDate: daysFromNow(30) }],
+      chapters: [
+        {
+          id: "c1",
+          subjectId: "s1",
+          name: "二次関数",
+          understanding: 0.4,
+          targetUnderstanding: 0.8,
+          lastStudiedDate: null,
+        },
+      ],
+      sessions: [],
+      availability: amplAvailability,
+      vocabRanges: [],
+      vocabChunks: [],
+      todayPlan: null,
+      onboarded: true,
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(data));
+    renderDashboard();
+
+    expect(screen.getByText(/残り約.+・\d+月\d+日ごろ終わる見込み/)).toBeDefined();
+  });
+
+  it("小項目が順調（間に合う見込み）なら、内訳を展開すると同じ一文が表示される", () => {
+    const data: AppData = {
+      subjects: [{ id: "s1", name: "数学", testDate: daysFromNow(30) }],
+      chapters: [
+        {
+          id: "c1",
+          subjectId: "s1",
+          name: "確率",
+          understanding: 0.4,
+          targetUnderstanding: 0.8,
+          lastStudiedDate: null,
+          subtopics: [
+            { id: "st1", name: "場合の数", understanding: 0.3, targetUnderstanding: 0.8, basicProblems: 10 },
+          ],
+        },
+      ],
+      sessions: [],
+      availability: amplAvailability,
+      vocabRanges: [],
+      vocabChunks: [],
+      todayPlan: null,
+      onboarded: true,
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(data));
+    renderDashboard();
+
+    expect(screen.queryByText(/ごろ終わる見込み/)).toBeNull();
+    fireEvent.click(screen.getByText("小項目の内訳を見る"));
+    expect(screen.getByText(/残り約.+・\d+月\d+日ごろ終わる見込み/)).toBeDefined();
+  });
+
+  it("間に合わない見込みの小項目では残り時間は表示されない（tier-badge・見通しバナーと二重にネガティブ表示しない）", () => {
+    const data: AppData = {
+      subjects: [{ id: "s1", name: "数学", testDate: daysFromNow(2) }],
+      chapters: [
+        {
+          id: "c1",
+          subjectId: "s1",
+          name: "二次関数",
+          understanding: 0.4,
+          targetUnderstanding: 0.8,
+          lastStudiedDate: null,
+          subtopics: [{ id: "st1", name: "因数分解", understanding: 0, basicProblems: 50 }],
+        },
+      ],
+      sessions: [],
+      availability: {
+        weeklySchedule: {
+          0: [{ start: "00:00", end: "00:30" }],
+          1: [{ start: "00:00", end: "00:30" }],
+          2: [{ start: "00:00", end: "00:30" }],
+          3: [{ start: "00:00", end: "00:30" }],
+          4: [{ start: "00:00", end: "00:30" }],
+          5: [{ start: "00:00", end: "00:30" }],
+          6: [{ start: "00:00", end: "00:30" }],
+        },
+        dateOverrides: {},
+      },
+      vocabRanges: [],
+      vocabChunks: [],
+      todayPlan: null,
+      onboarded: true,
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(data));
+    renderDashboard();
+
+    fireEvent.click(screen.getByText("小項目の内訳を見る"));
+    expect(screen.queryByText(/ごろ終わる見込み/)).toBeNull();
+  });
+
+  it("目標理解度に到達済みの章では残り時間は表示されない", () => {
+    const data: AppData = {
+      subjects: [{ id: "s1", name: "数学", testDate: daysFromNow(30) }],
+      chapters: [
+        {
+          id: "c1",
+          subjectId: "s1",
+          name: "二次関数",
+          understanding: 0.9,
+          targetUnderstanding: 0.8,
+          lastStudiedDate: null,
+        },
+      ],
+      sessions: [],
+      availability: amplAvailability,
+      vocabRanges: [],
+      vocabChunks: [],
+      todayPlan: null,
+      onboarded: true,
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(data));
+    renderDashboard();
+
+    expect(screen.queryByText(/ごろ終わる見込み/)).toBeNull();
+  });
+
+  it("目標理解度に到達済みの小項目では残り時間は表示されない", () => {
+    const data: AppData = {
+      subjects: [{ id: "s1", name: "数学", testDate: daysFromNow(30) }],
+      chapters: [
+        {
+          id: "c1",
+          subjectId: "s1",
+          name: "確率",
+          understanding: 0.9,
+          targetUnderstanding: 0.8,
+          lastStudiedDate: null,
+          subtopics: [{ id: "st1", name: "場合の数", understanding: 0.9, targetUnderstanding: 0.8 }],
+        },
+      ],
+      sessions: [],
+      availability: amplAvailability,
+      vocabRanges: [],
+      vocabChunks: [],
+      todayPlan: null,
+      onboarded: true,
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(data));
+    renderDashboard();
+
+    fireEvent.click(screen.getByText("小項目の内訳を見る"));
+    expect(screen.queryByText(/ごろ終わる見込み/)).toBeNull();
+  });
+});
