@@ -111,6 +111,18 @@ Still-open backlog items from that history (not yet scoped/resolved, low priorit
 
 **Curriculum reference data (math + science): RESOLVED, both fully built and integrated** into the "見通し" feature's suggestion layer (`src/data/curriculumSearch.ts`). Full research-task history is in **`docs/curriculum-data.md`**.
 
+## セッション引き継ぎメモ（2026-07-26 続きのその後、AI壁打ち相談機能 本番投入完了・commit/push済み）
+
+**前々回・前回のセッションで検討していたトラックB（後悔防止トリガーへのAI壁打ち相談）を実装し、本番投入まで完了した。** commit `e05de40`、push済み（`claude/app-dev-per-plan-qur753`）。テスト439件全通過・tscクリーン・build成功。詳細な経緯は自動メモリの`project_ai_advice_feature_2026_07_26.md`に記録済み、要点のみここに残す。
+
+- **実装**: `worker/`配下にCloudflare Worker（`POST /advice`、Workers KVで2層レート制限、CORS、`claude-haiku-4-5-20251001`＋固定システムプロンプトで「落ち着いた伴走者」トーン）。フロントは`src/aiAdvice.ts`（fetch専任）＋`src/components/ForecastDecisionAiChat.tsx`（`ForecastDecisionCard`にインライン統合、会話は永続化しない）。詳細は本ファイルの「AI advice」セクション参照。
+- **engineerエージェント2体（Worker担当／フロント担当）を並列委譲したことで生まれた不具合が本番投入直前に3件見つかった**（すべて修正済み）:
+  1. `wrangler.toml`の`MODEL_ID`が日付サフィックス無し（`"claude-haiku-4-5"`）でAPIに認識されず502。正しくは`"claude-haiku-4-5-20251001"`。
+  2. CORSが`http://localhost:5173`の完全一致のみ許可しており、Viteがポート競合で5174等にずれるたびに接続できなくなっていた。`worker/src/cors.ts`を`http://localhost:\d+`の正規表現マッチに変更し恒久対応（`DEV_ORIGIN`変数は廃止）。
+  3. **一番の根本原因**：フロント（`aiAdvice.ts`）は`{ context: {...} }`と入れ子で送るが、Worker（`index.ts`）は`subjectName`等をトップレベル直接フィールドとして読む作りで、実際のアプリからの送信は毎回400で弾かれていた。**並列委譲したフロント担当とバックエンド担当のワイヤーフォーマットのすり合わせ漏れ**が原因。次回similarな並列委譲をする際は、リクエスト/レスポンスの具体的なJSON形状を両方のプロンプトに一言一句同じ形で明記するか、片方が仕様を書いて他方に渡す形にすること。
+- **環境の癖として判明した点**: この開発環境（Windows）のcurl/PowerShellの`Invoke-WebRequest`は外部HTTPS（schannel経由）で接続できないことがあるが、Node.js（`node -e 'fetch(...)'`や`wrangler`自体）は問題なく到達できる。以後この環境でCloudflare Worker等の外部HTTPS疎通確認をする際は、curlではなくNodeのfetchか`wrangler tail`を使うこと。
+- **未着手（低優先）**: Cloudflareダッシュボード側のRate Limiting Rule（IPバックストップ、3層目）は任意設定のまま未設定。コード側の2層で最大被害額は既に天井済みのため急ぎではない。
+
 ## セッション引き継ぎメモ（2026-07-26 続き、AI活用機能の方針検討・コード変更なし）
 
 **このセッションはコード変更なし（設計方針の検討のみ、commit対象ファイルなし）。決定事項は自動メモリの `project_ai_usage_direction_2026_07_26.md` に詳細記録済み**、次セッションはそちらを読めば経緯を追える。要点のみここに残す:
