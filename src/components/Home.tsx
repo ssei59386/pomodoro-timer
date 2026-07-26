@@ -448,6 +448,7 @@ function ForecastDecisionCard({
       </button>
       <ForecastDecisionAiChat
         context={{
+          mode: "decision",
           subjectName: subject.name,
           chapterName: chapter.name,
           subtopicName: subtopic?.name ?? null,

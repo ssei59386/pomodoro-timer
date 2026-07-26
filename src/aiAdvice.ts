@@ -11,12 +11,23 @@ const ANON_ID_KEY = "study-planner-anon-id-v1";
 
 export const MAX_HISTORY_TURNS = 6;
 
-export interface AiAdviceContext {
-  subjectName: string;
-  chapterName: string;
-  subtopicName: string | null;
-  daysLeftUntilTest: number;
-}
+// 2つ目の利用シーン（ダッシュボードの「今日の作戦」相談）を追加したため判別可能なunionにした。
+// mode で必須フィールドが変わる。Worker側（worker/src/types.ts の AdviceRequest）と
+// 一言一句同じ形の契約を守ること（フロント/バックエンドのワイヤーフォーマットずれの再発防止）。
+export type AiAdviceContext =
+  | {
+      mode: "decision";
+      subjectName: string;
+      chapterName: string;
+      subtopicName: string | null;
+      daysLeftUntilTest: number;
+    }
+  | {
+      mode: "strategy";
+      shortfallCount: number;
+      onTrackCount: number;
+      topPriorityLabel: string | null;
+    };
 
 export interface AiAdviceTurn {
   role: "user" | "assistant";
@@ -63,6 +74,22 @@ export async function requestAiAdvice(input: {
 }): Promise<AiAdviceResult> {
   const trimmedHistory = input.history.slice(-MAX_HISTORY_TURNS);
 
+  const contextFields =
+    input.context.mode === "decision"
+      ? {
+          mode: "decision" as const,
+          subjectName: input.context.subjectName,
+          chapterName: input.context.chapterName,
+          subtopicName: input.context.subtopicName,
+          daysLeftUntilTest: input.context.daysLeftUntilTest,
+        }
+      : {
+          mode: "strategy" as const,
+          shortfallCount: input.context.shortfallCount,
+          onTrackCount: input.context.onTrackCount,
+          topPriorityLabel: input.context.topPriorityLabel,
+        };
+
   let response: Response;
   try {
     response = await fetch(AI_ADVICE_ENDPOINT, {
@@ -70,10 +97,7 @@ export async function requestAiAdvice(input: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         anonId: getOrCreateAnonId(),
-        subjectName: input.context.subjectName,
-        chapterName: input.context.chapterName,
-        subtopicName: input.context.subtopicName,
-        daysLeftUntilTest: input.context.daysLeftUntilTest,
+        ...contextFields,
         message: input.message,
         history: trimmedHistory,
       }),

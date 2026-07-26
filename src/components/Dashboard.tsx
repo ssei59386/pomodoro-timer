@@ -20,6 +20,7 @@ import {
   type DailyStudyHistory,
 } from "../logic";
 import type { Chapter, StudySession, Subject } from "../types";
+import { TodayStrategyAiChat } from "./TodayStrategyAiChat";
 
 // 社会・国語は暗記専用教科で章を持たない設計（docs/feature-memorization.md 確定設計v4）。
 // この2教科では「章がありません→章を登録」という空状態を出さない（押しても章を追加する
@@ -87,6 +88,37 @@ export function Dashboard({
     [forecast.subjects, data.sessions, data.chapters],
   );
 
+  // 「今日の作戦」AI相談用の集計。新しい計算ロジックは追加せず、既存の simulateForward の
+  // 結果（forecast）を件数集計するだけ（CEO/CTO確認済み：詳細な理解度数値・学習履歴は渡さない）。
+  // shortfallCount/topPriorityLabel は subjectsToSurface（＝画面の「見通し」セクション自体が
+  // 表示対象とする教科）でフィルタする。フィルタしないと、まだ着手していない教科の不足まで
+  // 集計に混ざり、画面のどこにも根拠が出ていない数字をAIパネルだけが提示してしまう
+  // （ux-reviewer指摘、断定を避ける方針に反する）。onTrackCountは常時表示のForecastRemainingNote
+  // と矛盾しないため全件のままでよい。
+  const shortfallCount = useMemo(
+    () =>
+      forecast.subtopics.filter(
+        (f) => subjectsToSurface.has(f.subjectId) && f.shortfallMinutes > 0,
+      ).length,
+    [forecast.subtopics, subjectsToSurface],
+  );
+  const onTrackCount = useMemo(
+    () => forecast.subtopics.filter((f) => f.onTrack).length,
+    [forecast.subtopics],
+  );
+  const topPriorityLabel = useMemo(() => {
+    let best: { subjectId: string; totalShortfallMinutes: number } | null = null;
+    for (const summary of forecast.subjects) {
+      if (!subjectsToSurface.has(summary.subjectId)) continue;
+      if (summary.totalShortfallMinutes <= 0) continue;
+      if (!best || summary.totalShortfallMinutes > best.totalShortfallMinutes) {
+        best = summary;
+      }
+    }
+    if (!best) return null;
+    return data.subjects.find((s) => s.id === best.subjectId)?.name ?? null;
+  }, [forecast.subjects, subjectsToSurface, data.subjects]);
+
   return (
     <div className="screen">
       <div className="screen-head">
@@ -96,6 +128,14 @@ export function Dashboard({
       <button type="button" className="secondary study-policy-entry-btn" onClick={onShowStudyPolicy}>
         📖 勉強方針を見る
       </button>
+
+      {forecast.subtopics.length > 0 && (
+        <TodayStrategyAiChat
+          shortfallCount={shortfallCount}
+          onTrackCount={onTrackCount}
+          topPriorityLabel={topPriorityLabel}
+        />
+      )}
 
       <StudyHistorySection history={studyHistory} />
 

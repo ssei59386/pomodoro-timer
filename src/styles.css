@@ -1845,3 +1845,104 @@ input[type="range"] {
   margin: 0;
   line-height: 1.5;
 }
+
+/* ---- ダッシュボードの「今日の作戦」AI相談（見た目はAiAdviceChatPanelを共有、色味だけ
+   このダッシュボード上のセクション用に別クラス名を分けている）---- */
+.today-strategy-ai-toggle {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0 4px;
+  margin-top: 4px;
+}
+
+/* 「今日の作戦」トグルは直上の「勉強方針を見る」(.secondary、塗り背景・幅100%)と並ぶ新機能で、
+   既存の link-btn（下線リンク調・13px）のままだと視覚的優先度が弱い（ux-reviewer指摘）。
+   .link-btn より詳細度の高い2クラス指定にして、塗り背景ボタンの見た目に上書きする
+   （ForecastDecisionAiChat 側は toggleClassName を渡していないためこの上書きの影響を受けない）。 */
+.today-strategy-ai-toggle.secondary {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  background: #eff6ff;
+  color: var(--primary);
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-weight: 600;
+  font-size: 14px;
+  text-align: center;
+  margin-top: 4px;
+}
+
+.today-strategy-ai-panel {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f5f3ff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.today-strategy-ai-turn {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.today-strategy-ai-turn-user {
+  background: #fff;
+  border: 1px solid var(--border);
+  align-self: flex-end;
+}
+
+.today-strategy-ai-turn-assistant {
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  align-self: flex-start;
+}
+
+/* 状況サマリ（間に合わなそうな件数・最優先教科）はパネル内で最も実質的な情報のため、
+   直下の「この相談は画面を離れると消えます」という使い捨ての免責文（muted small）とは
+   はっきり視覚的に分ける（forecast-decision-message 相当の通常サイズ・通常色。ux-reviewer指摘）。 */
+.today-strategy-ai-summary {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.today-strategy-ai-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.today-strategy-ai-input-row input {
+  flex: 1;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid #d1d5db;
+  border-radius: var(--radius);
+}
+
+.today-strategy-ai-input-row button {
+  min-height: 44px;
+  min-width: 60px;
+}
+
+.today-strategy-ai-error {
+  font-size: 13px;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid #ddd6fe;
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin: 0;
+  line-height: 1.5;
+}

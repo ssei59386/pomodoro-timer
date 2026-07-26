@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getOrCreateAnonId, requestAiAdvice } from "./aiAdvice";
+import { getOrCreateAnonId, requestAiAdvice, type AiAdviceContext } from "./aiAdvice";
 
 const STORAGE_KEY = "study-planner-data-v1";
 const ANON_ID_KEY = "study-planner-anon-id-v1";
@@ -32,7 +32,8 @@ describe("getOrCreateAnonId", () => {
   });
 });
 
-const baseContext = {
+const baseContext: AiAdviceContext = {
+  mode: "decision",
   subjectName: "数学",
   chapterName: "二次関数",
   subtopicName: null,
@@ -71,6 +72,7 @@ describe("requestAiAdvice", () => {
     const [, requestInit] = fetchMock.mock.calls[0];
     const body = JSON.parse(requestInit.body as string);
     // Worker側（worker/src/index.ts）はcontextでネストせず直接これらのフィールドを読む
+    expect(body.mode).toBe("decision");
     expect(body.subjectName).toBe(baseContext.subjectName);
     expect(body.chapterName).toBe(baseContext.chapterName);
     expect(body.subtopicName).toBe(baseContext.subtopicName);
@@ -78,6 +80,37 @@ describe("requestAiAdvice", () => {
     expect(body.context).toBeUndefined();
     expect(body.message).toBe("続きの質問");
     expect(body.history).toEqual(history);
+    expect(typeof body.anonId).toBe("string");
+  });
+
+  it("mode: 'strategy' のcontextでは、Worker側の期待通りのフラットなフィールドが載る", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ reply: "ok" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const strategyContext: AiAdviceContext = {
+      mode: "strategy",
+      shortfallCount: 2,
+      onTrackCount: 5,
+      topPriorityLabel: "英語",
+    };
+    await requestAiAdvice({ context: strategyContext, message: "今日どうすればいい？", history: [] });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, requestInit] = fetchMock.mock.calls[0];
+    const body = JSON.parse(requestInit.body as string);
+    expect(body.mode).toBe("strategy");
+    expect(body.shortfallCount).toBe(2);
+    expect(body.onTrackCount).toBe(5);
+    expect(body.topPriorityLabel).toBe("英語");
+    // decisionモード固有のフィールドは載らない
+    expect(body.subjectName).toBeUndefined();
+    expect(body.chapterName).toBeUndefined();
+    expect(body.daysLeftUntilTest).toBeUndefined();
+    expect(body.message).toBe("今日どうすればいい？");
     expect(typeof body.anonId).toBe("string");
   });
 

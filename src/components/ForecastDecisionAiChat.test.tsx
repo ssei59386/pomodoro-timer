@@ -16,6 +16,7 @@ vi.mock("../aiAdvice", async () => {
 });
 
 const context: AiAdviceContext = {
+  mode: "decision",
   subjectName: "数学",
   chapterName: "二次関数",
   subtopicName: null,

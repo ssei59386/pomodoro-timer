@@ -16,6 +16,8 @@ function jsonResponse(body: AdviceResponse, status: number, corsHeaders: Record<
 /**
  * クライアントを信用しない：必須フィールドの型・存在チェックに加え、
  * messageは上限文字数超過なら拒否、historyは直近6件までにサーバー側で切り詰める。
+ * modeで必須フィールドが変わる（"decision"=既存の後悔防止トリガー相談、
+ * "strategy"=ダッシュボードの「今日の作戦」相談）。
  */
 function validateAndSanitize(body: unknown): { ok: true; data: AdviceRequest } | { ok: false; message: string } {
   if (typeof body !== "object" || body === null) {
@@ -26,17 +28,34 @@ function validateAndSanitize(body: unknown): { ok: true; data: AdviceRequest } |
   if (typeof candidate.anonId !== "string" || candidate.anonId.length === 0) {
     return { ok: false, message: "anonId is required" };
   }
-  if (typeof candidate.subjectName !== "string" || candidate.subjectName.length === 0) {
-    return { ok: false, message: "subjectName is required" };
+  if (candidate.mode !== "decision" && candidate.mode !== "strategy") {
+    return { ok: false, message: "mode must be 'decision' or 'strategy'" };
   }
-  if (typeof candidate.chapterName !== "string" || candidate.chapterName.length === 0) {
-    return { ok: false, message: "chapterName is required" };
-  }
-  if (candidate.subtopicName !== null && typeof candidate.subtopicName !== "string") {
-    return { ok: false, message: "subtopicName must be a string or null" };
-  }
-  if (typeof candidate.daysLeftUntilTest !== "number" || !Number.isFinite(candidate.daysLeftUntilTest)) {
-    return { ok: false, message: "daysLeftUntilTest must be a finite number" };
+  const mode = candidate.mode;
+
+  if (mode === "decision") {
+    if (typeof candidate.subjectName !== "string" || candidate.subjectName.length === 0) {
+      return { ok: false, message: "subjectName is required" };
+    }
+    if (typeof candidate.chapterName !== "string" || candidate.chapterName.length === 0) {
+      return { ok: false, message: "chapterName is required" };
+    }
+    if (candidate.subtopicName !== null && typeof candidate.subtopicName !== "string") {
+      return { ok: false, message: "subtopicName must be a string or null" };
+    }
+    if (typeof candidate.daysLeftUntilTest !== "number" || !Number.isFinite(candidate.daysLeftUntilTest)) {
+      return { ok: false, message: "daysLeftUntilTest must be a finite number" };
+    }
+  } else {
+    if (typeof candidate.shortfallCount !== "number" || !Number.isFinite(candidate.shortfallCount)) {
+      return { ok: false, message: "shortfallCount must be a finite number" };
+    }
+    if (typeof candidate.onTrackCount !== "number" || !Number.isFinite(candidate.onTrackCount)) {
+      return { ok: false, message: "onTrackCount must be a finite number" };
+    }
+    if (candidate.topPriorityLabel !== null && typeof candidate.topPriorityLabel !== "string") {
+      return { ok: false, message: "topPriorityLabel must be a string or null" };
+    }
   }
   if (typeof candidate.message !== "string" || candidate.message.length === 0) {
     return { ok: false, message: "message is required" };
@@ -68,15 +87,27 @@ function validateAndSanitize(body: unknown): { ok: true; data: AdviceRequest } |
 
   return {
     ok: true,
-    data: {
-      anonId: candidate.anonId,
-      subjectName: candidate.subjectName,
-      chapterName: candidate.chapterName,
-      subtopicName: candidate.subtopicName as string | null,
-      daysLeftUntilTest: candidate.daysLeftUntilTest,
-      message: candidate.message,
-      history: trimmedHistory,
-    },
+    data:
+      mode === "decision"
+        ? {
+            anonId: candidate.anonId,
+            mode,
+            subjectName: candidate.subjectName as string,
+            chapterName: candidate.chapterName as string,
+            subtopicName: candidate.subtopicName as string | null,
+            daysLeftUntilTest: candidate.daysLeftUntilTest as number,
+            message: candidate.message,
+            history: trimmedHistory,
+          }
+        : {
+            anonId: candidate.anonId,
+            mode,
+            shortfallCount: candidate.shortfallCount as number,
+            onTrackCount: candidate.onTrackCount as number,
+            topPriorityLabel: candidate.topPriorityLabel as string | null,
+            message: candidate.message,
+            history: trimmedHistory,
+          },
   };
 }
 

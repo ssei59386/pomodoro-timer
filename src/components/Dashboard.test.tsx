@@ -1,9 +1,22 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Dashboard } from "./Dashboard";
 import { StoreProvider } from "../store";
 import { toISODate } from "../logic";
 import type { AppData } from "../types";
+import type { AiAdviceResult } from "../aiAdvice";
+
+const { requestAiAdviceMock } = vi.hoisted(() => ({
+  requestAiAdviceMock: vi.fn<(...args: unknown[]) => Promise<AiAdviceResult>>(),
+}));
+
+vi.mock("../aiAdvice", async () => {
+  const actual = await vi.importActual<typeof import("../aiAdvice")>("../aiAdvice");
+  return {
+    ...actual,
+    requestAiAdvice: requestAiAdviceMock,
+  };
+});
 
 const emptyChaptersData: AppData = {
   subjects: [{ id: "s1", name: "数学", testDate: "2026-08-01" }],
@@ -81,6 +94,7 @@ function renderDashboard(onGoSettings: () => void = () => {}, onGoHome: () => vo
 
 beforeEach(() => {
   localStorage.clear();
+  requestAiAdviceMock.mockReset();
 });
 
 afterEach(() => {
@@ -656,5 +670,137 @@ describe("「あとどれくらいで終わるか」の見通し表示（既存 
 
     fireEvent.click(screen.getByText("小項目の内訳を見る"));
     expect(screen.queryByText(/ごろ終わる見込み/)).toBeNull();
+  });
+});
+
+describe("「今日の作戦」AI相談（既存 simulateForward データの集計のみ、新しい計算ロジックは追加していない）", () => {
+  function daysFromNow(n: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return toISODate(d);
+  }
+
+  // 数学は間に合わなそうな見込み（shortfall）、理科は既に目標達成済み（onTrack）になるデータ。
+  // 数学には1件セッションを記録済みにしておく（shouldSurfaceForecastForSubject が「着手済み」と
+  // 判定するために必須。無いと shortfallCount/topPriorityLabel の集計対象から外れてしまう
+  // ——AIパネルの要約が画面のどこにも根拠が無い数字を出しうる、というux-reviewer指摘への修正）。
+  function mixedForecastData(): AppData {
+    return {
+      subjects: [
+        { id: "s1", name: "数学", testDate: daysFromNow(2) },
+        { id: "s2", name: "理科", testDate: daysFromNow(2) },
+      ],
+      chapters: [
+        {
+          id: "c1",
+          subjectId: "s1",
+          name: "二次関数",
+          understanding: 0.4,
+          targetUnderstanding: 0.8,
+          lastStudiedDate: null,
+          subtopics: [{ id: "st1", name: "因数分解", understanding: 0, basicProblems: 50 }],
+        },
+        {
+          id: "c2",
+          subjectId: "s2",
+          name: "化学変化",
+          understanding: 0.9,
+          targetUnderstanding: 0.8,
+          lastStudiedDate: null,
+          subtopics: [{ id: "st2", name: "反応式", understanding: 0.9, targetUnderstanding: 0.8 }],
+        },
+      ],
+      sessions: [{ id: "sess1", chapterId: "c1", date: daysFromNow(0), minutes: 10 }],
+      availability: {
+        weeklySchedule: {
+          0: [{ start: "00:00", end: "00:30" }],
+          1: [{ start: "00:00", end: "00:30" }],
+          2: [{ start: "00:00", end: "00:30" }],
+          3: [{ start: "00:00", end: "00:30" }],
+          4: [{ start: "00:00", end: "00:30" }],
+          5: [{ start: "00:00", end: "00:30" }],
+          6: [{ start: "00:00", end: "00:30" }],
+        },
+        dateOverrides: {},
+      },
+      vocabRanges: [],
+      vocabChunks: [],
+      todayPlan: null,
+      onboarded: true,
+    };
+  }
+
+  it("見通し対象の小項目が1件も無ければ「今日の作戦をAIに相談する」ボタンは表示されない", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(emptyChaptersData));
+    renderDashboard();
+
+    expect(screen.queryByText("🧭 今日の作戦をAIに相談する")).toBeNull();
+  });
+
+  it("見通し対象の小項目があれば「今日の作戦をAIに相談する」ボタンが表示される", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(mixedForecastData()));
+    renderDashboard();
+
+    expect(screen.getByText("🧭 今日の作戦をAIに相談する")).toBeDefined();
+  });
+
+  it("開くと、間に合わなそうな件数・順調な件数・最優先教科名を反映した状況サマリが表示される", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(mixedForecastData()));
+    renderDashboard();
+
+    fireEvent.click(screen.getByText("🧭 今日の作戦をAIに相談する"));
+
+    expect(
+      screen.getByText(
+        "今、間に合わなそうな項目が1件あります（一番気になるのは数学）。今日どう動くか、AIと一緒に整理してみましょう。",
+      ),
+    ).toBeDefined();
+  });
+
+  it("送信すると、集計値がそのままAIへのcontextとして渡る", async () => {
+    requestAiAdviceMock.mockResolvedValue({ ok: true, reply: "了解です" });
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(mixedForecastData()));
+    renderDashboard();
+
+    fireEvent.click(screen.getByText("🧭 今日の作戦をAIに相談する"));
+    const input = screen.getByLabelText("AIへの相談メッセージ") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "今日は何からやればいい？" } });
+    fireEvent.click(screen.getByText("送信"));
+
+    await waitFor(() => expect(requestAiAdviceMock).toHaveBeenCalledTimes(1));
+    const call = requestAiAdviceMock.mock.calls[0][0] as { context: unknown };
+    expect(call.context).toEqual({
+      mode: "strategy",
+      shortfallCount: 1,
+      onTrackCount: 1,
+      topPriorityLabel: "数学",
+    });
+  });
+
+  it("まだ着手していない教科（セッション記録が無い）のshortfallは、画面の見通しセクションに出ないのと同様に集計にも含めない（ux-reviewer指摘の修正）", async () => {
+    requestAiAdviceMock.mockResolvedValue({ ok: true, reply: "了解です" });
+    const data = mixedForecastData();
+    data.sessions = []; // 数学の章にも一切セッションが無い＝shouldSurfaceForecastForSubjectがfalseになる状態
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(data));
+    renderDashboard();
+
+    // 画面上の「見通し」セクション自体も出ていないことを確認（根拠が画面のどこにも無い状態でないこと）
+    expect(screen.queryByText(/今のペースでの見通し/)).toBeNull();
+
+    fireEvent.click(screen.getByText("🧭 今日の作戦をAIに相談する"));
+    expect(screen.getByText("今のところ順調です。今日の作戦を相談したいときはどうぞ。")).toBeDefined();
+
+    const input = screen.getByLabelText("AIへの相談メッセージ") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "今日は何からやればいい？" } });
+    fireEvent.click(screen.getByText("送信"));
+
+    await waitFor(() => expect(requestAiAdviceMock).toHaveBeenCalledTimes(1));
+    const call = requestAiAdviceMock.mock.calls[0][0] as { context: unknown };
+    expect(call.context).toEqual({
+      mode: "strategy",
+      shortfallCount: 0,
+      onTrackCount: 1,
+      topPriorityLabel: null,
+    });
   });
 });

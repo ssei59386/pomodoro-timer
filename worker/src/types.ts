@@ -5,10 +5,16 @@ export interface AdviceHistoryMessage {
 
 export interface AdviceRequest {
   anonId: string;
-  subjectName: string;
-  chapterName: string;
-  subtopicName: string | null;
-  daysLeftUntilTest: number;
+  mode: "decision" | "strategy";
+  // mode "decision" の時のみ必須（既存の後悔防止トリガー相談）
+  subjectName?: string;
+  chapterName?: string;
+  subtopicName?: string | null;
+  daysLeftUntilTest?: number;
+  // mode "strategy" の時のみ必須（今回追加：ダッシュボードの「今日の作戦」相談）
+  shortfallCount?: number;
+  onTrackCount?: number;
+  topPriorityLabel?: string | null;
   message: string;
   history: AdviceHistoryMessage[];
 }
