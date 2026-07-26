@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Home } from "./Home";
 import { StoreProvider } from "../store";
+import { toISODate } from "../logic";
 import type { AppData } from "../types";
 
 // 何曜日にテストが実行されても today の空き時間が確保されるよう、全曜日に時間帯を設定する
@@ -243,6 +244,43 @@ describe("Home", () => {
     renderHome();
 
     expect(screen.queryByText("今日の単語")).toBeNull();
+  });
+
+  // このペースだと間に合わない前提を作るため、テスト日を今日、理解度を大きく低く設定する。
+  // Home マウント時の evaluateForecastDecisions が shortfallStreak を1（閾値どおり）に
+  // 更新するので、forecastDecisions を手動で仕込まなくても問いかけカードが出る。
+  const forecastDecisionData: AppData = {
+    ...chapterOnlyData,
+    subjects: [{ id: "s1", name: "数学", testDate: toISODate(new Date()) }],
+    chapters: [
+      {
+        id: "c1",
+        subjectId: "s1",
+        name: "二次関数",
+        understanding: 0.05,
+        targetUnderstanding: 0.8,
+        lastStudiedDate: null,
+      },
+    ],
+  };
+
+  it("後悔防止トリガーのカードには「AIに相談する」トグルが表示される", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(forecastDecisionData));
+    renderHome();
+
+    expect(document.querySelector(".forecast-decision-card")).not.toBeNull();
+    expect(screen.getByText("🤖 AIに相談する")).toBeDefined();
+  });
+
+  it("「切り替える」を選んだ直後（justSwitched）のカードには「AIに相談する」トグルが表示されない", () => {
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(forecastDecisionData));
+    renderHome();
+
+    const switchButton = screen.getByText("覚えるモードにする");
+    fireEvent.click(switchButton);
+
+    expect(document.querySelector(".forecast-decision-card-confirmed")).not.toBeNull();
+    expect(screen.queryByText("🤖 AIに相談する")).toBeNull();
   });
 
   it("英語・社会・国語の暗記範囲がそれぞれあるとき、教科ごとに別カード（今日の単語／今日の重要語／今日の漢字・古文単語）に分かれて表示される", () => {

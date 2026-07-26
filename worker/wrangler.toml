@@ -1,0 +1,18 @@
+name = "study-planner-ai-advice"
+main = "src/index.ts"
+compatibility_date = "2026-07-01"
+
+# Stage B (ユーザーがローカルで実行): `wrangler kv namespace create RATE_LIMIT_KV` と
+# `wrangler kv namespace create RATE_LIMIT_KV --preview` を実行し、出力された id / preview_id を
+# 下記の REPLACE_WITH_... と差し替えること。id が未設定のままだと `wrangler dev --local` は
+# ローカルエミュレーションのKVを使うため動作するが、`wrangler deploy` 本番デプロイはできない。
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "33a96a12431e4ff88d34f9e50e5ab8df"
+preview_id = "0592aef314af417bafa7fb49304f4768"
+
+[vars]
+ALLOWED_ORIGIN = "https://ssei59386.github.io"
+GLOBAL_DAILY_LIMIT = "300"
+PER_ANON_DAILY_LIMIT = "20"
+MODEL_ID = "claude-haiku-4-5-20251001"

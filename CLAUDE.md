@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 定期テスト学習進捗管理アプリ（Phase 0 最小版）— a mobile-first PWA that helps students maximize exam scores by managing per-chapter understanding levels: self-report/measure understanding → allocate study time to chapters that will move the score most → re-measure and re-plan. No backend, no login — all data lives in the browser's `localStorage`.
 
-**教科は5つ実装済み**（数学・理科・英語＝章を持つ理解度追跡型、社会・国語＝暗記専用でLeitner反復管理）。README.md や以前のこのファイルには「Phase 0 は数学・理科のみ」「5教科は対象外」とあったが、それは**古い記述**で、実際は英語・社会・国語まで拡張済み（`docs/feature-memorization.md`、`onboarding/onboardingTypes.ts` の SUBJECT_ORDER 参照）。暗記モードは実装済み。Forgetting-curve decay も実装済み（`decayedUnderstanding`、下記参照）。AI機能のみが引き続き明確にスコープ外。
+**教科は5つ実装済み**（数学・理科・英語＝章を持つ理解度追跡型、社会・国語＝暗記専用でLeitner反復管理）。README.md や以前のこのファイルには「Phase 0 は数学・理科のみ」「5教科は対象外」とあったが、それは**古い記述**で、実際は英語・社会・国語まで拡張済み（`docs/feature-memorization.md`、`onboarding/onboardingTypes.ts` の SUBJECT_ORDER 参照）。暗記モードは実装済み。Forgetting-curve decay も実装済み（`decayedUnderstanding`、下記参照）。AI機能は後悔防止トリガー限定で導入済み（下記「AI advice」セクション参照）、それ以外への拡張は引き続きスコープ外。
 
 ## Commands
 
@@ -62,6 +62,17 @@ There is no lint script configured.
 **実装上の既知の注意点（繰り返し踏んだ罠）：**
 - `<details>/<summary>`のネイティブ開閉は、Playwrightの合成クリック/タップに反応しないことがある（キーボードでは動く）。アコーディオンUIは`useState` + `<button>`で実装する（詳細: `docs/mobile-polish-2026-07-06.md`）。
 - 数値inputで`onChange`のたびに`Math.max(min, ...)`をその場適用すると、ユーザーが値を消そうとしても即座に最小値へ強制されて消せなくなる。入力中は空文字列を許容し、保存時にのみ補正すること（`SessionRecord.tsx`のminutesで実機発見、他の数値inputへの横展開チェックは未実施）。
+
+## AI advice — the one exception to "no backend, no login"
+
+後悔防止トリガー（「続ける/覚えるモードにする」の二択）にのみ、AIとの短い壁打ち相談（「🤖 AIに相談する」）を追加している。これはこのアプリで**唯一**、開発者が運用するサーバーを呼び出す箇所であり、意図的に範囲を絞ってある。将来このセクションを一般的なバックエンドへ拡張したり他機能に流用したりする前に、必ず再設計の相談をすること。
+
+- **アーキテクチャ**: `src/aiAdvice.ts`がこの機能唯一のネットワークI/O担当（匿名ID生成/永続化、リクエスト/レスポンス型、エラー分類）。`store.tsx`/`storage.ts`と同じ層に置き、`logic.ts`（純粋関数のみという不変条件、`logic.test.ts`もその前提）には一切置かない。UIは`src/components/ForecastDecisionAiChat.tsx`（`Home.tsx`の`ForecastDecisionCard`から利用）。この機能のために`store.tsx`のメソッドや`AppData`/`types.ts`のフィールドは一切追加していない。
+- **サーバー側**: `worker/`配下に独立したCloudflare Workerが1つ（Viteビルドには含まれない — ルートの`tsconfig.json`の`include`が`["src"]`のみなので自動的に対象外）。共有のAnthropic APIキーを`wrangler secret`で保持し、軽量モデル（`claude-haiku-4-5`）＋固定システムプロンプトでトーン（「落ち着いた伴走者」、ストリーク機能と同じ煽らない方針）を制御して中継する。デプロイ手順は`worker/README.md`参照。
+- **サーバーに渡る情報の正確な範囲**: 教科名・章/小項目名・テストまでの残り日数、および生徒が入力した相談文のみ。**詳細な学習履歴・理解度の数値そのものは送らない** — 「生徒の学習データは一切経由しない」という言い方は過度に強く不正確なので使わない。
+- **永続化しない**: 会話は`ForecastDecisionAiChat`のコンポーネントstate（`useState`）のみで保持し、パネルを閉じる/画面を離れると消える。`AppData`・`localStorage`・Worker側のどこにも書き込まない。Worker自体もリクエスト単位でステートレス（Workers KVのレート制限カウンタ2種のみが例外、匿名IDは端末のlocalStorageに保持される乱数UUIDでアカウントとは無関係）。
+- **レート制限は「なりすまし対策」ではなく「最大被害額（コスト）の天井」**: ①グローバル日次上限（本丸、KV）②匿名UUID単位の日次上限（粗い網、消せば回避可能と割り切る、KV）③Cloudflareダッシュボードのみで設定するIPバックストップ（このリポジトリのコードには存在しない）。
+- **この機能を安易に拡張しないこと**: 2つ目のAI機能を足したくなったら、それは新しい設計相談であり、この機能の延長として当然に拡張してよいものではない。
 
 ## Product direction (CEO judgment lens)
 

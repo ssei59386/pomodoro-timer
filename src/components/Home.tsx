@@ -15,6 +15,7 @@ import {
 } from "../logic";
 import type { Chapter, ChapterSubtopic } from "../types";
 import { resolveTemplate } from "../data/subjectTemplates";
+import { ForecastDecisionAiChat } from "./ForecastDecisionAiChat";
 
 // logic.ts の buildSubtopicReasons が生成するラベルと一致させる。
 // 通常の理由チップ列からは除外し、カード上部の独立したバッジとして目立たせる表示専用の分岐。
@@ -205,6 +206,7 @@ export function Home({
               prompt={prompt}
               chapters={data.chapters}
               subjects={data.subjects}
+              today={today}
               justSwitched={switched}
               onContinue={() => continueDecision(prompt.chapterId, prompt.subtopicId, today)}
               onSwitchToMemorize={() => handleSwitchToMemorize(prompt)}
@@ -385,6 +387,7 @@ function ForecastDecisionCard({
   prompt,
   chapters,
   subjects,
+  today,
   justSwitched,
   onContinue,
   onSwitchToMemorize,
@@ -393,7 +396,8 @@ function ForecastDecisionCard({
 }: {
   prompt: ForecastDecisionPrompt;
   chapters: Chapter[];
-  subjects: { id: string; name: string }[];
+  subjects: { id: string; name: string; testDate: string }[];
+  today: Date;
   justSwitched: boolean;
   onContinue: () => void;
   onSwitchToMemorize: () => void;
@@ -442,6 +446,14 @@ function ForecastDecisionCard({
       <button type="button" className="link-btn forecast-decision-policy-link" onClick={onShowStudyPolicy}>
         📖 勉強方針を見る
       </button>
+      <ForecastDecisionAiChat
+        context={{
+          subjectName: subject.name,
+          chapterName: chapter.name,
+          subtopicName: subtopic?.name ?? null,
+          daysLeftUntilTest: daysLeft(subject.testDate, today),
+        }}
+      />
     </li>
   );
 }

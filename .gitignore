@@ -6,3 +6,8 @@ dist-ssr
 .vite
 tsconfig.tsbuildinfo
 scripts/nightly-meeting.log
+
+# Cloudflare Worker (AI advice backend) - worker/ is independent of the root app
+worker/.dev.vars
+worker/.wrangler/
+worker/node_modules

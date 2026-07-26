@@ -1,0 +1,25 @@
+{
+  "name": "study-planner-ai-advice-worker",
+  "private": true,
+  "version": "0.1.0",
+  "description": "後悔防止トリガーへのAI壁打ち相談 - Cloudflare Worker (バックエンドのみ、学習データ自体はここを経由しない)",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241127.0",
+    "typescript": "^5.6.3",
+    "wrangler": "^3.90.0"
+  },
+  "allowScripts": {
+    "esbuild@0.17.19": true,
+    "sharp@0.33.5": true,
+    "workerd@1.20250718.0": true
+  }
+}
