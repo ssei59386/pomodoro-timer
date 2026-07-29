@@ -14,11 +14,16 @@ import {
   proximity,
   priority,
   generateTodayPlan,
+  hasRemainingStudyWork,
   buildPlanFromItemKeys,
   applySessionToChapter,
   applySessionToSubtopic,
   slotMinutes,
   availableMinutesForDate,
+  plannableMinutesForDate,
+  BUFFER_RATIO,
+  FINAL_CRAM_BUFFER_RATIO,
+  FINAL_CRAM_DAYS_THRESHOLD,
   decayedUnderstanding,
   isValidTimeSlot,
   isPastDate,
@@ -232,6 +237,70 @@ describe("§6.3 計画生成（貪欲法・1章集中）", () => {
     const plan = generateTodayPlan(allDone, subjects, 120, today);
     expect(plan).toHaveLength(0);
   });
+
+  it("小項目を持たない章には SESSION_MINUTES 未満の中途半端な時間を割り当てない（残りが足りない章はスキップし、消費しない）", () => {
+    // 90分の可処分時間を7割バッファで63分に減らした想定（plannableMinutesForDate）。
+    // 章はどちらも小項目無し・SESSION_MINUTES(45分)固定でしか選べないので、1件目に45分使うと
+    // 残り18分では2件目を選べないはず（中途半端な18分を割り当てない）。
+    const plan = generateTodayPlan(chapters, subjects, 63, today);
+    expect(plan).toHaveLength(1);
+    expect(plan[0].allocatedMinutes).toBe(SESSION_MINUTES);
+    const total = plan.reduce((sum, p) => sum + p.allocatedMinutes, 0);
+    expect(total).toBeLessThanOrEqual(63);
+  });
+
+  it("buildPlanFromItemKeys で再構築しても、選定時に45分未満しか無かった章は itemKeys に含まれないため、合計がバッファ通りのまま保たれる（実機QAで発見した回帰の再現）", () => {
+    const plan = generateTodayPlan(chapters, subjects, 63, today);
+    const itemKeys = plan.map((p) => ({ chapterId: p.chapter.id, subtopicId: p.subtopic?.id ?? null }));
+    const rebuilt = buildPlanFromItemKeys(chapters, subjects, itemKeys, today);
+    const total = rebuilt.reduce((sum, p) => sum + p.allocatedMinutes, 0);
+    expect(total).toBeLessThanOrEqual(63);
+  });
+});
+
+describe("修正①：hasRemainingStudyWork（本当に全部目標到達済みかどうかの軽量判定）", () => {
+  const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-03" }];
+
+  it("目標未達（伸びしろがある）章が1件でもあれば true", () => {
+    const c = chapter({ id: "a", subjectId: "s1", understanding: 0.3, targetUnderstanding: 0.8 });
+    expect(hasRemainingStudyWork([c], subjects, today)).toBe(true);
+  });
+
+  it("全章が目標到達済み（伸びしろ0）なら false", () => {
+    const c = chapter({ id: "a", subjectId: "s1", understanding: 0.9, targetUnderstanding: 0.8 });
+    expect(hasRemainingStudyWork([c], subjects, today)).toBe(false);
+  });
+
+  it("章が0件なら false", () => {
+    expect(hasRemainingStudyWork([], subjects, today)).toBe(false);
+  });
+
+  it("暗記モード（studyMode: 'memorize'）に切り替えた章は伸びしろがあっても false 扱い", () => {
+    const c = chapter({
+      id: "a",
+      subjectId: "s1",
+      understanding: 0.1,
+      targetUnderstanding: 0.8,
+      studyMode: "memorize",
+    });
+    expect(hasRemainingStudyWork([c], subjects, today)).toBe(false);
+  });
+
+  it("小項目を持つ章でも、いずれかの小項目に伸びしろがあれば true", () => {
+    const c = chapter({
+      id: "a",
+      subjectId: "s1",
+      subtopics: [subtopic({ id: "st1", name: "小項目1", understanding: 0.1, basicProblems: 3 })],
+    });
+    expect(hasRemainingStudyWork([c], subjects, today)).toBe(true);
+  });
+
+  it("dailyMinutes が0でも（generateTodayPlan が0件を返す状況でも）判定は変わらない", () => {
+    const c = chapter({ id: "a", subjectId: "s1", understanding: 0.3, targetUnderstanding: 0.8 });
+    const plan = generateTodayPlan([c], subjects, 0, today);
+    expect(plan).toHaveLength(0);
+    expect(hasRemainingStudyWork([c], subjects, today)).toBe(true);
+  });
 });
 
 describe("§6.3 計画生成（フェーズ4.5・小項目単位）", () => {
@@ -410,15 +479,17 @@ describe("§6.3 フェーズ6：シミュレーションに基づく除外・安
     expect(plan.map((p) => p.chapter.id)).toEqual(["b"]);
   });
 
-  it("スピルオーバーは除外された項目の中でもスコアの高い順に埋める", () => {
+  it("フェーズ7：直前仕上げ期は、除外された項目の中でも残り時間が短い順にスピルオーバーで埋める", () => {
     // 伸びしろ（targetUnderstanding − understanding）が大きいほど見積もり所要時間も長くなり、
-    // どちらも間に合わない見込みで除外されるが、優先度スコアは伸びしろの大きさで異なる
+    // どちらも間に合わない見込みで除外される。テストが3日以内に迫っている（直前仕上げ期）ため、
+    // 除外前の優先度スコア（伸びしろの大きさ）ではなく、残り時間が短い＝すぐ終わりそうな
+    // hopelessLowGap の方がスピルオーバーで優先される（フェーズ7、家庭教師の勘の再現）。
     const hopelessHighGap = chapter({ id: "a", subjectId: "s1", understanding: 0, targetUnderstanding: 0.9 });
     const hopelessLowGap = chapter({ id: "b", subjectId: "s1", understanding: 0, targetUnderstanding: 0.7 });
     const easy = chapter({ id: "c", subjectId: "s1", understanding: 0.75, targetUnderstanding: 0.8 });
 
     // easy(45分) + スピルオーバー1件分(45分)しか入らない90分。2件とも間に合わない見込みだが、
-    // スコアが高い hopelessHighGap が優先してスピルオーバーに入るはず
+    // 残り時間が短い hopelessLowGap が優先してスピルオーバーに入るはず
     const plan = generateTodayPlan(
       [hopelessHighGap, hopelessLowGap, easy],
       subjects,
@@ -427,7 +498,7 @@ describe("§6.3 フェーズ6：シミュレーションに基づく除外・安
       [],
       flatAvailability(45),
     );
-    expect(plan.map((p) => p.chapter.id)).toEqual(["c", "a"]);
+    expect(plan.map((p) => p.chapter.id)).toEqual(["c", "b"]);
   });
 
   it("除外の結果、候補が0件になってしまう場合は最優先1件を必ず残す（安全策。スピルオーバー導入後も引き続き成立する）", () => {
@@ -436,6 +507,100 @@ describe("§6.3 フェーズ6：シミュレーションに基づく除外・安
     const plan = generateTodayPlan([hopeless], subjects, 200, today, [], flatAvailability(45));
     expect(plan).toHaveLength(1);
     expect(plan[0].chapter.id).toBe("a");
+  });
+});
+
+describe("フェーズ7：計画の並び順（未着手ブースト・直前仕上げ期、家庭教師の勘の再現）", () => {
+  it("generateTodayPlan：通常期は、優先度スコアが低くても未着手（sessionsに記録が無い）の章が優先される", () => {
+    // テストまで16日（直前仕上げ期の対象外）。started（スコア高）はセッション記録済み、
+    // unstarted（スコア低）は記録が無い。従来なら started が先に並ぶはずのスコア差をつけている
+    const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-15" }];
+    const unstarted = chapter({ id: "unstarted", subjectId: "s1", understanding: 0.75, targetUnderstanding: 0.8 }); // gap 0.05（低スコア）
+    const started = chapter({ id: "started", subjectId: "s1", understanding: 0.3, targetUnderstanding: 0.8 }); // gap 0.5（高スコア）
+    const sessions: StudySession[] = [
+      { id: "sess1", chapterId: "started", date: "2026-06-20", minutes: 10, correctRate: 0.5, selfReport: 3 },
+    ];
+
+    const plan = generateTodayPlan([unstarted, started], subjects, 200, today, sessions);
+    expect(plan.map((p) => p.chapter.id)).toEqual(["unstarted", "started"]);
+    // スコア自体（表示用）は変更されていないことも確認する
+    const unstartedItem = plan.find((p) => p.chapter.id === "unstarted")!;
+    const startedItem = plan.find((p) => p.chapter.id === "started")!;
+    expect(unstartedItem.priority).toBeLessThan(startedItem.priority);
+  });
+
+  it("修正③：未着手ブースト（tier1）の章の reasons には「まだ手をつけていない」が含まれ、記録済みの章には含まれない", () => {
+    const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-15" }];
+    const unstarted = chapter({ id: "unstarted", subjectId: "s1", understanding: 0.75, targetUnderstanding: 0.8 });
+    const started = chapter({ id: "started", subjectId: "s1", understanding: 0.3, targetUnderstanding: 0.8 });
+    const sessions: StudySession[] = [
+      { id: "sess1", chapterId: "started", date: "2026-06-20", minutes: 10, correctRate: 0.5, selfReport: 3 },
+    ];
+
+    const plan = generateTodayPlan([unstarted, started], subjects, 200, today, sessions);
+    const unstartedItem = plan.find((p) => p.chapter.id === "unstarted")!;
+    const startedItem = plan.find((p) => p.chapter.id === "started")!;
+    expect(unstartedItem.reasons).toContain("まだ手をつけていない");
+    expect(startedItem.reasons).not.toContain("まだ手をつけていない");
+  });
+
+  it("generateTodayPlan：直前仕上げ期（テストまで残り3日以内）は、優先度スコアに関係なく残り時間が短い小項目を優先する", () => {
+    // テストまで2日（直前仕上げ期）。quick（スコア低・残り時間短い）と slow（スコア高・残り時間長い）
+    const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-01" }];
+    const c = chapter({
+      id: "a",
+      subjectId: "s1",
+      subtopics: [
+        subtopic({ id: "quick", name: "すぐ終わる", understanding: 0.75, basicProblems: 2 }), // gap0.05・basic2 → 残り時間わずか
+        subtopic({ id: "slow", name: "時間がかかる", understanding: 0, basicProblems: 20 }), // gap0.8・basic20 → 残り時間が長い
+      ],
+    });
+
+    const plan = generateTodayPlan([c], subjects, 200, today);
+    expect(plan.map((p) => p.subtopic?.id)).toEqual(["quick", "slow"]);
+    // スコア自体（表示用）は変更されていないので、quick の方がスコアは低いままのはず
+    const quickItem = plan.find((p) => p.subtopic?.id === "quick")!;
+    const slowItem = plan.find((p) => p.subtopic?.id === "slow")!;
+    expect(quickItem.priority).toBeLessThan(slowItem.priority);
+  });
+
+  it("修正③：直前仕上げ期（tier0）で優先された小項目の reasons には「すぐ終わりそう」が含まれる", () => {
+    const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-01" }];
+    const c = chapter({
+      id: "a",
+      subjectId: "s1",
+      subtopics: [
+        subtopic({ id: "quick", name: "すぐ終わる", understanding: 0.75, basicProblems: 2 }),
+        subtopic({ id: "slow", name: "時間がかかる", understanding: 0, basicProblems: 20 }),
+      ],
+    });
+
+    const plan = generateTodayPlan([c], subjects, 200, today);
+    const quickItem = plan.find((p) => p.subtopic?.id === "quick")!;
+    expect(quickItem.reasons).toContain("すぐ終わりそう");
+  });
+
+  it("simulateForward：通常期は、未着手の章がスコアの高い着手済みの章より先に日々の割当を受ける", () => {
+    // テストまで16日（直前仕上げ期の対象外）。unstarted は必要時間が少なく、1日で終わる量にしてある。
+    // 従来（スコア降順のみ）なら高スコアの started が毎日budgetを独占し、unstarted は後回しになるはず
+    const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-15" }];
+    const unstarted = chapter({ id: "unstarted", subjectId: "s1", understanding: 0.75, targetUnderstanding: 0.8 }); // 残り22.5分
+    const started = chapter({ id: "started", subjectId: "s1", understanding: 0.3, targetUnderstanding: 0.8 }); // 残り225分・高スコア
+    const sessions: StudySession[] = [
+      { id: "sess1", chapterId: "started", date: "2026-06-20", minutes: 10, correctRate: 0.5, selfReport: 3 },
+    ];
+    const availability: AvailabilitySettings = {
+      weeklySchedule: { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] },
+      dateOverrides: {},
+    };
+    for (let day = 0; day <= 6; day++) {
+      availability.weeklySchedule[day] = [{ start: "00:00", end: "00:45" }]; // 1日45分
+    }
+
+    const result = simulateForward([unstarted, started], subjects, availability, today, sessions);
+    const unstartedForecast = result.subtopics.find((f) => f.chapterId === "unstarted")!;
+    // unstarted は残り22.5分しか無いので、優先的に割当を受ければ today（day0）中に完了するはず
+    expect(unstartedForecast.projectedCompletionDate).toBe(toISODate(today));
   });
 });
 
@@ -592,6 +757,52 @@ describe("曜日ごとの空き時間", () => {
 
   it("isValidTimeSlot は開始と終了が同じで false（0分）", () => {
     expect(isValidTimeSlot({ start: "16:00", end: "16:00" })).toBe(false);
+  });
+});
+
+describe("フェーズ7：plannableMinutesForDate（計画に積んでよい時間＝可処分時間×バッファ率）", () => {
+  // today（2026-06-29）ちょうど100分の可処分時間を dateOverrides で確実に用意する
+  function availabilityWithMinutes(minutes: number): AvailabilitySettings {
+    const h = String(Math.floor(minutes / 60)).padStart(2, "0");
+    const m = String(minutes % 60).padStart(2, "0");
+    return {
+      weeklySchedule: {},
+      dateOverrides: { "2026-06-29": [{ start: "00:00", end: `${h}:${m}` }] },
+    };
+  }
+
+  it("通常期（テストまで3日より前）は可処分時間の70%（BUFFER_RATIO）に丸める", () => {
+    const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-08-01" }]; // daysLeft > 3
+    const availability = availabilityWithMinutes(100);
+    expect(plannableMinutesForDate(availability, today, subjects)).toBe(Math.round(100 * BUFFER_RATIO));
+  });
+
+  it("直前仕上げ期（テストまで残り3日以内）は可処分時間の85%（FINAL_CRAM_BUFFER_RATIO）に丸める", () => {
+    expect(daysLeft("2026-07-01", today)).toBeLessThanOrEqual(FINAL_CRAM_DAYS_THRESHOLD);
+    const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-01" }];
+    const availability = availabilityWithMinutes(100);
+    expect(plannableMinutesForDate(availability, today, subjects)).toBe(Math.round(100 * FINAL_CRAM_BUFFER_RATIO));
+  });
+
+  it("複数教科のうち1つでも直前仕上げ期なら、その日全体が弱めのバッファになる", () => {
+    const subjects: Subject[] = [
+      { id: "s1", name: "数学", testDate: "2026-08-01" }, // 遠い
+      { id: "s2", name: "理科", testDate: "2026-07-01" }, // 直前
+    ];
+    const availability = availabilityWithMinutes(100);
+    expect(plannableMinutesForDate(availability, today, subjects)).toBe(Math.round(100 * FINAL_CRAM_BUFFER_RATIO));
+  });
+
+  it("テストが既に終わった教科は直前仕上げ期の判定に含めない（daysLeftの過去日クランプに引きずられない）", () => {
+    const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-06-01" }]; // today より過去
+    const availability = availabilityWithMinutes(100);
+    expect(plannableMinutesForDate(availability, today, subjects)).toBe(Math.round(100 * BUFFER_RATIO)); // 通常バッファのまま
+  });
+
+  it("可処分時間が0分の日はバッファを掛けても0分のまま", () => {
+    const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-08-01" }];
+    const availability: AvailabilitySettings = { weeklySchedule: {}, dateOverrides: {} };
+    expect(plannableMinutesForDate(availability, today, subjects)).toBe(0);
   });
 });
 
@@ -1387,7 +1598,9 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
     });
 
     it("テスト日までに終わらない場合、shortfallMinutesが残り、projectedCompletionDateはnull", () => {
-      // テストまで3日（today, +1, +2 の3日分）、1日45分しか使えない場合の最大割当は135分
+      // テストまで3日（today, +1, +2 の3日分）、1日45分しか使えない設定だが、
+      // 3日ともテスト直前（残り3日以内）＝フェーズ7の直前仕上げ期バッファ85%が効くため、
+      // 実際に積める時間は1日あたり round(45×0.85)=38分、3日で114分
       const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-01" }];
       const c = chapter({
         id: "a",
@@ -1399,7 +1612,7 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
       expect(forecast.totalMinutesNeeded).toBe(150);
       expect(forecast.onTrack).toBe(false);
       expect(forecast.projectedCompletionDate).toBeNull();
-      expect(forecast.shortfallMinutes).toBeCloseTo(15, 5); // 150 - 135
+      expect(forecast.shortfallMinutes).toBeCloseTo(36, 5); // 150 - 114（フェーズ7バッファ適用後）
     });
 
     it("ある教科は自分のテスト日を過ぎたら対象から脱落し、以降の日は他教科に回る", () => {
@@ -1485,6 +1698,51 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
       expect(summary.subjectId).toBe("s1");
       expect(summary.atRiskSubtopicIds).toEqual(["st1"]);
       expect(summary.totalShortfallMinutes).toBeGreaterThan(0);
+    });
+  });
+
+  describe("修正④：simulateForward の budgetMode（後悔防止トリガー専用、フェーズ7以前の挙動に戻すオプション）", () => {
+    it("budgetMode省略時（'buffered'）はplannableMinutesForDateのバッファが効き、'raw'を指定するとavailableMinutesForDateのバッファ無し基準になる（同じ入力でも結果が変わる）", () => {
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-01" }];
+      const c = chapter({
+        id: "a",
+        subjectId: "s1",
+        subtopics: [subtopic({ id: "st1", understanding: 0, basicProblems: 10 })], // 150分必要
+      });
+
+      const buffered = simulateForward([c], subjects, dailyAvailability(SESSION_MINUTES), today, []);
+      const raw = simulateForward([c], subjects, dailyAvailability(SESSION_MINUTES), today, [], "raw");
+
+      const bufferedForecast = buffered.subtopics[0];
+      const rawForecast = raw.subtopics[0];
+
+      // buffered: テスト3日以内＝直前仕上げ期のバッファ85% → round(45*0.85)=38分/日 × 3日 = 114分
+      // → shortfall 150-114=36（既存テスト「テスト日までに終わらない場合」と同条件）
+      expect(bufferedForecast.shortfallMinutes).toBeCloseTo(36, 5);
+      // raw: バッファ無しの45分/日 × 3日 = 135分（フェーズ7導入前と同じ挙動）→ shortfall 150-135=15
+      expect(rawForecast.shortfallMinutes).toBeCloseTo(15, 5);
+      expect(rawForecast.shortfallMinutes).not.toBe(bufferedForecast.shortfallMinutes);
+    });
+
+    it("budgetMode:'raw' は並び替えもフェーズ7以前のscore降順のみに戻る（未着手ブースト・直前仕上げ期の並び替えを使わない）", () => {
+      // 通常期（テストまで16日）：buffered なら未着手ブースト（tier1）で unstarted が today 中に
+      // 完了するはずだが（既存テストと同条件）、raw は並び替えを使わず素のscore降順（started優先）に戻る
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-15" }];
+      const unstarted = chapter({ id: "unstarted", subjectId: "s1", understanding: 0.75, targetUnderstanding: 0.8 });
+      const started = chapter({ id: "started", subjectId: "s1", understanding: 0.3, targetUnderstanding: 0.8 });
+      const sessions: StudySession[] = [
+        { id: "sess1", chapterId: "started", date: "2026-06-20", minutes: 10, correctRate: 0.5, selfReport: 3 },
+      ];
+      const availability = dailyAvailability(SESSION_MINUTES);
+
+      const buffered = simulateForward([unstarted, started], subjects, availability, today, sessions);
+      const raw = simulateForward([unstarted, started], subjects, availability, today, sessions, "raw");
+
+      const bufferedUnstarted = buffered.subtopics.find((f) => f.chapterId === "unstarted")!;
+      const rawUnstarted = raw.subtopics.find((f) => f.chapterId === "unstarted")!;
+
+      expect(bufferedUnstarted.projectedCompletionDate).toBe(toISODate(today));
+      expect(rawUnstarted.projectedCompletionDate).not.toBe(toISODate(today));
     });
   });
 

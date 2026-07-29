@@ -470,8 +470,12 @@ describe("フェーズ5：見通し（前向きシミュレーション）・切
         },
       ],
     });
-    // 2つ目の小項目（問題数が少ない＝shortfallが小さい）を追加する
-    data.chapters[0].subtopics!.push({ id: "st2", name: "軽めの単元", understanding: 0, basicProblems: 3 });
+    // 2つ目の小項目（問題数が少ない＝shortfallが小さい）を追加する。
+    // フェーズ7（直前仕上げ期は残り時間が短い項目を優先）で「軽めの単元」が優先的に日々の割当を
+    // 受けるようになったため、あまりに問題数が少ないと3日分の予算だけで完了してしまい
+    // shortfall=0（見通しリストの対象外）になってしまう。basicProblems=10 は3日分の予算では
+    // 終わらない量にしてあり、shortfallは残るが「因数分解」（basicProblems=50）よりは小さい。
+    data.chapters[0].subtopics!.push({ id: "st2", name: "軽めの単元", understanding: 0, basicProblems: 10 });
     localStorage.setItem("study-planner-data-v1", JSON.stringify(data));
     renderDashboard();
 

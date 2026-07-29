@@ -350,4 +350,52 @@ describe("Home", () => {
     fireEvent.click(startButtons[1]);
     expect(openedSubjectIds).toEqual(["s3"]);
   });
+
+  // 修正①：バッファ導入・45分未満の中途半端な割当をしない仕様変更の結果、本当は目標未達の章が
+  // 残っているのに、今日はたまたま時間の都合で0件選ばれなかっただけのケースがある。
+  // そのケースまで「🎉 目標達成しました」と祝ってしまわないよう出し分けを確認する。
+  it("本当に全章が目標理解度に届いているときは、お祝いメッセージが表示される", () => {
+    const allDoneData: AppData = {
+      ...chapterOnlyData,
+      chapters: [
+        {
+          id: "c1",
+          subjectId: "s1",
+          name: "二次関数",
+          understanding: 0.9,
+          targetUnderstanding: 0.8,
+          lastStudiedDate: null,
+        },
+      ],
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(allDoneData));
+    renderHome();
+
+    expect(screen.getByText("🎉 今日はすべての章が目標理解度に届いています。")).toBeDefined();
+  });
+
+  it("目標未達の章が残っているのに、今日は使える時間が短くて計画に0件しか入らないときは、お祝いではなく中立的な文言が表示される", () => {
+    // 1日40分しか使えない設定 → plannableMinutesForDate で7割バッファをかけると28分となり、
+    // 小項目を持たない章の固定45分に届かないため、今日は1件も選ばれない
+    const shortAvailability = {
+      0: [{ start: "09:00", end: "09:40" }],
+      1: [{ start: "09:00", end: "09:40" }],
+      2: [{ start: "09:00", end: "09:40" }],
+      3: [{ start: "09:00", end: "09:40" }],
+      4: [{ start: "09:00", end: "09:40" }],
+      5: [{ start: "09:00", end: "09:40" }],
+      6: [{ start: "09:00", end: "09:40" }],
+    };
+    const shortTimeData: AppData = {
+      ...chapterOnlyData,
+      availability: { weeklySchedule: shortAvailability, dateOverrides: {} },
+    };
+    localStorage.setItem("study-planner-data-v1", JSON.stringify(shortTimeData));
+    renderHome();
+
+    expect(
+      screen.getByText("今日は使える時間が短いため、計画に入りませんでした。明日また見直します。"),
+    ).toBeDefined();
+    expect(screen.queryByText("🎉 今日はすべての章が目標理解度に届いています。")).toBeNull();
+  });
 });

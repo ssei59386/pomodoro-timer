@@ -21,11 +21,11 @@ import {
   advanceVocabChunk as advanceVocabChunkPure,
   applySessionToChapter,
   applySessionToSubtopic,
-  availableMinutesForDate,
   completeVocabChunk as completeVocabChunkPure,
   forecastDecisionKey,
   generateChunksForRange,
   generateTodayPlan,
+  plannableMinutesForDate,
   restoreUnderstandMode as restoreUnderstandModePure,
   simulateForward,
   snoozeForecastDecision,
@@ -155,7 +155,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setData((prev) => {
           const todayISO = toISODate(today);
           if (prev.todayPlan && prev.todayPlan.date === todayISO) return prev;
-          const todayMinutes = availableMinutesForDate(prev.availability, today);
+          // フェーズ7：可処分時間の7割（直前仕上げ期は85%）だけを計画に積む（家庭教師の勘の再現、logic.ts参照）
+          const todayMinutes = plannableMinutesForDate(prev.availability, today, prev.subjects);
           const plan = generateTodayPlan(
             prev.chapters,
             prev.subjects,
@@ -174,7 +175,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       evaluateForecastDecisions: (today) => {
         setData((prev) => {
-          const forecast = simulateForward(prev.chapters, prev.subjects, prev.availability, today, prev.sessions);
+          // 後悔防止トリガーの発火判定だけはバッファ無しの従来基準を使う（ユーザー判断、logic.ts の
+          // simulateForward budgetMode コメント参照）。他の呼び出し元（generateTodayPlan内部・
+          // Dashboard）はデフォルトの "buffered" のまま変更しない。
+          const forecast = simulateForward(
+            prev.chapters,
+            prev.subjects,
+            prev.availability,
+            today,
+            prev.sessions,
+            "raw",
+          );
           const forecastDecisions = updateForecastDecisions(
             forecast,
             prev.chapters,

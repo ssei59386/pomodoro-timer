@@ -156,6 +156,44 @@ export function availableMinutesForDate(availability: AvailabilitySettings, date
   return slots.reduce((sum, slot) => sum + slotMinutes(slot), 0);
 }
 
+// ---- フェーズ7：計画のバッファ・直前仕上げ期の判定（家庭教師の勘を再現） ----
+// 家庭教師は「本当に使える時間の7割程度で終わる分量」しか計画に積まない（100%で組むと計画が
+// 崩れるため）。ただしテスト直前は「予備を温存する意味」が薄れるので、バッファを弱めて詰める。
+// FINAL_CRAM_DAYS_THRESHOLD は、優先度の並び替え（generateTodayPlan/simulateForward）とも
+// 共用する「直前仕上げ期」の境界日数。
+
+/** 通常期のバッファ率。可処分時間のうち計画に積んでよい割合（暫定値） */
+export const BUFFER_RATIO = 0.7;
+/** 直前仕上げ期のバッファ率。通常より多めに詰めてよい（暫定値） */
+export const FINAL_CRAM_BUFFER_RATIO = 0.85;
+/** 「直前仕上げ期」とみなす、テストまでの残り日数の境界（暫定値） */
+export const FINAL_CRAM_DAYS_THRESHOLD = 3;
+
+/**
+ * 指定した日に「計画に積んでよい」時間（分）。availableMinutesForDate が返す可処分時間そのものに、
+ * バッファ率を掛けて丸めた値を返す（見せかけ100%の計画は必ず崩れるため）。
+ * subjects のいずれか1つでもその日から見て直前仕上げ期（FINAL_CRAM_DAYS_THRESHOLD日以内）なら、
+ * その日はバッファを弱めた FINAL_CRAM_BUFFER_RATIO を使う（教科ごとに按分すると計画生成が
+ * 複雑になりすぎるため、日単位で判定する）。
+ * generateTodayPlan/simulateForward 自体はこの関数を呼ばない（呼び出し元が dailyMinutes として
+ * この関数の戻り値を渡すことでバッファを反映させる設計。§6.3のドキュメントコメント参照）。
+ */
+export function plannableMinutesForDate(
+  availability: AvailabilitySettings,
+  date: Date,
+  subjects: Subject[],
+): number {
+  const raw = availableMinutesForDate(availability, date);
+  // daysLeft は「残り日数の最低保証」として過去日も 1 にクランプする（proximity 計算用の既存仕様）
+  // ため、テストが既に終わった教科をそのまま渡すと永遠に「直前仕上げ期」扱いになってしまう。
+  // ここでは isPastDate で明示的に除外し、終わったテストがバッファ判定を歪めないようにする。
+  const isFinalCram = subjects.some(
+    (s) => !isPastDate(s.testDate, date) && daysLeft(s.testDate, date) <= FINAL_CRAM_DAYS_THRESHOLD,
+  );
+  const ratio = isFinalCram ? FINAL_CRAM_BUFFER_RATIO : BUFFER_RATIO;
+  return Math.round(raw * ratio);
+}
+
 // ---- §6.3 計画生成（貪欲法・1章集中 / 小項目がある章は1小項目集中） ------
 
 export interface PlanItem {
@@ -174,18 +212,56 @@ export interface PlanItem {
 /** 小項目1件あたりの最低割当時間（分）。見積もりが小さすぎて細切れになりすぎるのを防ぐ（暫定値） */
 export const MIN_SUBTOPIC_SESSION_MINUTES = 10;
 
+// ---- フェーズ7：計画の並び順専用の重みづけ（家庭教師の勘を再現） ----
+// priority/subtopicPriority が返す score 自体（Dashboard等でも使う表示用の値）は一切変更せず、
+// generateTodayPlan の scored.sort と simulateForward の日ループ内の sorted の、どちらも
+// 「並べ替えのキーだけ」をこの3段階に差し替える（除外＝非表示は絶対にしない。あくまで並び順の変更）。
+// tier 0（直前仕上げ期。テストまで残り FINAL_CRAM_DAYS_THRESHOLD 日以内）：
+//   残り所要時間の見積もりが小さい項目（＝すぐ終わりそうな項目）を優先する。
+// tier 1（未着手ブースト。直前仕上げ期でなく、sessions に一致する記録が1件も無い）：
+//   まだ手をつけていない章/小項目を優先度の高い側に繰り上げる。
+// tier 2（通常期）：既存の score 降順のまま、何も変えない。
+// どの項目も必ずこの3段階のいずれか1つに属し、tier をまたぐ比較は score の大小に関係なく
+// 常に tier 番号（小さいほど優先）で決まる。暗記モード（studyMode: 'memorize'）の項目は
+// generateTodayPlan/simulateForward の対象からそもそも除外済み（effectiveStudyMode参照）なので、
+// ここで改めて特別扱いする必要はない。
+
+/** 並び替え専用のtier判定（表示用の score/priority には影響しない） */
+function planningTier(
+  subject: Subject,
+  referenceDate: Date,
+  sessions: StudySession[],
+  chapterId: string,
+  subtopicId: string | null,
+): 0 | 1 | 2 {
+  if (daysLeft(subject.testDate, referenceDate) <= FINAL_CRAM_DAYS_THRESHOLD) return 0;
+  const hasSession = sessions.some((s) => s.chapterId === chapterId && (s.subtopicId ?? null) === subtopicId);
+  return hasSession ? 2 : 1;
+}
+
+/** 並び替え専用の比較関数（Array.prototype.sort に渡す）。tier 0 のみ残り時間昇順、それ以外はscore降順 */
+function comparePlanningOrder(
+  a: { tier: 0 | 1 | 2; remainingMinutes: number; score: number },
+  b: { tier: 0 | 1 | 2; remainingMinutes: number; score: number },
+): number {
+  if (a.tier !== b.tier) return a.tier - b.tier;
+  if (a.tier === 0) return a.remainingMinutes - b.remainingMinutes;
+  return b.score - a.score;
+}
+
 /**
  * 「今日やること」を生成する（§6.3、フェーズ4.5で小項目単位、フェーズ6でシミュレーションに
- * 基づく除外＋スピルオーバーに対応）。
+ * 基づく除外＋スピルオーバー、フェーズ7で直前仕上げ期・未着手ブーストの並び替えに対応）。
  * 1. 全章・小項目の優先度スコアを scoreChapterOrSubtopics で計算（デュアルパス）
- * 2. スコアの高い順に並べる
+ * 2. フェーズ7の3段階（tier 0: 直前仕上げ期は残り時間昇順／tier 1: 未着手ブーストはscore降順／
+ *    tier 2: 通常期はscore降順）で並べる（comparePlanningOrder。score自体は変更しない）。
  * 3. availability が渡されていれば、simulateForward で「まとまった不足」が出ている章/小項目を
  *    候補集合（candidates）から除外する（間に合わない見込みの項目より、間に合う項目を優先する。
  *    優先度の計算式自体は変えない）。availability を省略した場合（シミュレーション不能）は除外を
  *    一切行わず、従来通りの貪欲割当のみ行う（既存呼び出し元・既存テストとの後方互換のため）。
  * 4. dailyMinutes を candidates から上位順に消化する（1周目）。
  * 5. 1周目で dailyMinutes を使い切れなかった場合（除外後の候補が少なすぎて余り時間が出た場合）、
- *    除外された項目（spillover、こちらも元のスコア降順）で残り時間を埋める2周目を行う。
+ *    除外された項目（spillover、こちらも元の並び順のまま）で残り時間を埋める2周目を行う。
  *    「除外」を完全なフィルタではなく「優先順位を下げる」という意味に変えることで、テスト直前など
  *    間に合わない章だらけの状況でも時間が無駄にならないようにする（ある教科の章が全部除外されても
  *    他教科の消費で埋まらなかった余りがあればスピルオーバーで拾われるため、教科が丸ごと計画から
@@ -207,6 +283,22 @@ export function generateTodayPlan(
   availability?: AvailabilitySettings,
 ): PlanItem[] {
   const subjectById = new Map(subjects.map((s) => [s.id, s]));
+  const ratesCache = new Map<string, LearnedProblemRates>();
+  function ratesFor(subjectId: string): LearnedProblemRates {
+    if (!ratesCache.has(subjectId)) {
+      ratesCache.set(subjectId, learnedProblemRates(sessions, chapters, subjectId));
+    }
+    return ratesCache.get(subjectId)!;
+  }
+
+  // フェーズ7：並び替え専用の残り時間見積もり（allocate の実際の割当ロジックとは別物。
+  // 小項目は allocate と同じ estimateSubtopicRemainingMinutes+rates を使い一貫させる。
+  // 小項目を持たない章は allocate 側が SESSION_MINUTES 固定のままなので、並び順だけの目的で
+  // estimateChapterRemainingMinutes を流用する）。
+  function remainingEstimateMinutes(chapter: Chapter, subtopic: ChapterSubtopic | null, subject: Subject): number {
+    if (subtopic) return estimateSubtopicRemainingMinutes(subtopic, today, ratesFor(subject.id)).totalMinutes;
+    return estimateChapterRemainingMinutes(chapter, today);
+  }
 
   const scored = chapters
     .flatMap((chapter) => {
@@ -224,16 +316,20 @@ export function generateTodayPlan(
     // 意識的に深い理解を諦めた項目なので、理解度を無理に上げにいく貪欲割当の対象からも外す
     // （Phase 2、docs/feature-study-policy.md。完全な計画再設計はしない最小限の変更）。
     .filter((x) => x.score > 0 && effectiveStudyMode(x.chapter, x.subtopic) !== "memorize")
-    .sort((a, b) => b.score - a.score);
+    .map((x) => ({
+      ...x,
+      tier: planningTier(x.subject, today, sessions, x.chapter.id, x.subtopic?.id ?? null),
+      remainingMinutes: remainingEstimateMinutes(x.chapter, x.subtopic, x.subject),
+    }))
+    .sort(comparePlanningOrder);
 
   const candidates = excludeUnlikelyToFinish(scored, chapters, subjects, availability, today, sessions);
-  // 除外された項目（スピルオーバー用に元のスコア降順のまま保持しておく）
+  // 除外された項目（スピルオーバー用に元の並び順のまま保持しておく）
   const candidateKeys = new Set(candidates.map((c) => `${c.chapter.id}:${c.subtopic?.id ?? ""}`));
   const spillover = scored.filter((item) => !candidateKeys.has(`${item.chapter.id}:${item.subtopic?.id ?? ""}`));
 
   const plan: PlanItem[] = [];
   let remaining = dailyMinutes;
-  const ratesCache = new Map<string, LearnedProblemRates>();
 
   function allocate(item: { chapter: Chapter; subtopic: ChapterSubtopic | null; subject: Subject; score: number }): void {
     const { chapter, subtopic, subject, score } = item;
@@ -241,17 +337,20 @@ export function generateTodayPlan(
     let reasons: string[];
 
     if (subtopic) {
-      if (!ratesCache.has(subject.id)) {
-        ratesCache.set(subject.id, learnedProblemRates(sessions, chapters, subject.id));
-      }
-      const rates = ratesCache.get(subject.id)!;
+      const rates = ratesFor(subject.id);
       const estimate = estimateSubtopicRemainingMinutes(subtopic, today, rates).totalMinutes;
       const target = Math.max(MIN_SUBTOPIC_SESSION_MINUTES, Math.min(SESSION_MINUTES, Math.ceil(estimate)));
       allocatedMinutes = Math.min(target, remaining);
-      reasons = buildSubtopicReasons(chapter, subtopic, subject, today);
+      reasons = buildSubtopicReasons(chapter, subtopic, subject, today, sessions);
     } else {
-      allocatedMinutes = Math.min(SESSION_MINUTES, remaining);
-      reasons = buildReasons(chapter, subject, today);
+      // 小項目を持たない章は SESSION_MINUTES 固定の1コマ単位でしか選ばない。remaining がそれ未満なら
+      // 今日は選ばず（remaining を消費せず）次の候補に進む。中途半端な分数（例：18分）を割り当てると、
+      // buildPlanFromItemKeys が再描画のたびに章を SESSION_MINUTES 固定で再計算するため、選定時の
+      // 予算と表示時の分数が食い違ってバッファ（plannableMinutesForDate）が画面上で無効化される事故が
+      // あった（2026-07 実機QAで発見）。
+      if (remaining < SESSION_MINUTES) return;
+      allocatedMinutes = SESSION_MINUTES;
+      reasons = buildReasons(chapter, subject, today, sessions);
     }
 
     plan.push({ chapter, subtopic, subject, allocatedMinutes, priority: score, reasons });
@@ -274,11 +373,30 @@ export function generateTodayPlan(
 }
 
 /**
+ * まだ目標理解度に届いていない（＝伸びしろがある）章/小項目が1件でも残っているかどうかを判定する。
+ * generateTodayPlan が候補をscoreする際と同じ条件（score > 0 かつ暗記モードでない）だけを見る
+ * 軽量な判定であり、generateTodayPlan 自体は呼ばない（日次予算やtier並び替えは無関係）。
+ * バッファ導入後、今日の可処分時間の都合で plan が0件になっても、それは「もうやることがない」の
+ * ではなく「今日はたまたま選ばれなかった」だけのことがあるため、Home の空表示メッセージの
+ * 出し分け（お祝い文言 vs 中立文言）に使う。
+ */
+export function hasRemainingStudyWork(chapters: Chapter[], subjects: Subject[], today: Date): boolean {
+  const subjectById = new Map(subjects.map((s) => [s.id, s]));
+  return chapters.some((chapter) => {
+    const subject = subjectById.get(chapter.subjectId);
+    if (!subject) return false;
+    return scoreChapterOrSubtopics(chapter, subject, today).some(
+      (item) => item.score > 0 && effectiveStudyMode(item.chapter, item.subtopic) !== "memorize",
+    );
+  });
+}
+
+/**
  * フェーズ6：前向きシミュレーション（simulateForward）で「まとまった不足」が出ている章/小項目を
  * 候補集合から除外する。availability が渡されない場合（シミュレーション不能。既存呼び出し元との
  * 後方互換のため任意引数）は何もせず候補をそのまま返す。
- * 除外した結果、候補が1件も残らなくなる場合は、除外前の最優先1件（scored は既にスコア降順）を
- * 必ず1件戻す（テスト直前に「間に合わない章」が一斉脱落して0件プランになる事故の防止策）。
+ * 除外した結果、候補が1件も残らなくなる場合は、除外前の最優先1件（scored は既にフェーズ7の
+ * 並び替え順）を必ず1件戻す（テスト直前に「間に合わない章」が一斉脱落して0件プランになる事故の防止策）。
  */
 function excludeUnlikelyToFinish<T extends { chapter: Chapter; subtopic: ChapterSubtopic | null; score: number }>(
   scored: T[],
@@ -345,11 +463,11 @@ export function buildPlanFromItemKeys(
       const estimate = estimateSubtopicRemainingMinutes(subtopic, today, rates).totalMinutes;
       const allocatedMinutes = Math.max(MIN_SUBTOPIC_SESSION_MINUTES, Math.min(SESSION_MINUTES, Math.ceil(estimate)));
       const score = subtopicPriority(chapter, subtopic, subject, today);
-      const reasons = buildSubtopicReasons(chapter, subtopic, subject, today);
+      const reasons = buildSubtopicReasons(chapter, subtopic, subject, today, sessions);
       plan.push({ chapter, subtopic, subject, allocatedMinutes, priority: score, reasons });
     } else {
       const score = priority(chapter, subject, today);
-      const reasons = buildReasons(chapter, subject, today);
+      const reasons = buildReasons(chapter, subject, today, sessions);
       plan.push({ chapter, subtopic: null, subject, allocatedMinutes: SESSION_MINUTES, priority: score, reasons });
     }
   }
@@ -357,11 +475,17 @@ export function buildPlanFromItemKeys(
   return plan;
 }
 
-/** 「理解度が低め／テストが近い」程度の簡単な根拠（§7.2） */
+/**
+ * 「理解度が低め／テストが近い」程度の簡単な根拠（§7.2）。
+ * フェーズ7：並び替え専用のtier判定（planningTier）と同じ基準で「すぐ終わりそう」
+ * （tier0・直前仕上げ期）／「まだ手をつけていない」（tier1・未着手ブースト）のラベルも足す
+ * （並び順が変わっているのに理由チップが従来のままだと、なぜこの順番なのか説明が付かないため）。
+ */
 function buildReasons(
   chapter: Chapter,
   subject: Subject,
   today: Date,
+  sessions: StudySession[],
 ): string[] {
   const reasons: string[] = [];
 
@@ -374,18 +498,23 @@ function buildReasons(
     reasons.push("テストが近い");
   }
 
+  const tier = planningTier(subject, today, sessions, chapter.id, null);
+  if (tier === 0) reasons.push("すぐ終わりそう");
+  else if (tier === 1) reasons.push("まだ手をつけていない");
+
   if (reasons.length === 0) {
     reasons.push("バランス調整");
   }
   return reasons;
 }
 
-/** 小項目版の「理解度が低め／テストが近い／先生のヒントあり」根拠ラベル */
+/** 小項目版の「理解度が低め／テストが近い／先生のヒントあり／すぐ終わりそう／まだ手をつけていない」根拠ラベル */
 function buildSubtopicReasons(
   chapter: Chapter,
   subtopic: ChapterSubtopic,
   subject: Subject,
   today: Date,
+  sessions: StudySession[],
 ): string[] {
   const reasons: string[] = [];
 
@@ -402,6 +531,10 @@ function buildSubtopicReasons(
   if (subtopic.teacherHinted) {
     reasons.push("先生のヒントあり");
   }
+
+  const tier = planningTier(subject, today, sessions, chapter.id, subtopic.id);
+  if (tier === 0) reasons.push("すぐ終わりそう");
+  else if (tier === 1) reasons.push("まだ手をつけていない");
 
   if (reasons.length === 0) {
     reasons.push("バランス調整");
@@ -927,6 +1060,15 @@ interface ForecastTrackedItem {
  * （汎用シミュレーションエンジンの抽象化は作らない）。
  * 教科をまたいで1つの候補集合として優先度順に割り当てるが、ある教科は自分の
  * テスト日を過ぎた時点でその集合から脱落する（教科ごとの締切が共有の日々を奪い合う）。
+ * フェーズ7：日ごとの割当可能時間は availableMinutesForDate ではなく plannableMinutesForDate
+ * （7割バッファ、直前仕上げ期は85%）を使う。並び替えも generateTodayPlan と同じ
+ * comparePlanningOrder（直前仕上げ期・未着手ブーストの3段階）を使う（詳細はその定義を参照）。
+ * budgetMode（デフォルト "buffered"）が "raw" のときは、上記フェーズ7の変更を丸ごと打ち消し、
+ * availableMinutesForDate（バッファ無し）と単純な score 降順ソートというフェーズ7以前の挙動に
+ * 戻す。後悔防止トリガー（store.tsx の evaluateForecastDecisions）だけがこちらを使う
+ * （ユーザー判断：バッファ込みだと間に合わない判定が増え、1日発動の閾値と組み合わさると
+ * トリガーが過敏になりすぎるため。Dashboard 表示・generateTodayPlan 内の除外判定は
+ * 引き続き "buffered" のまま）。
  */
 export function simulateForward(
   chapters: Chapter[],
@@ -934,6 +1076,7 @@ export function simulateForward(
   availability: AvailabilitySettings,
   today: Date,
   sessions: StudySession[] = [],
+  budgetMode: "buffered" | "raw" = "buffered",
 ): ForwardSimulationResult {
   const subjectById = new Map(subjects.map((s) => [s.id, s]));
   const ratesCache = new Map<string, LearnedProblemRates>();
@@ -999,15 +1142,26 @@ export function simulateForward(
       );
 
       if (eligible.length > 0) {
-        let remainingBudget = availableMinutesForDate(availability, dayDate);
+        let remainingBudget =
+          budgetMode === "raw"
+            ? availableMinutesForDate(availability, dayDate)
+            : plannableMinutesForDate(availability, dayDate, subjects);
+        // フェーズ7：generateTodayPlan と全く同じ並び替え（comparePlanningOrder）を使う。
+        // ここでの「残り時間」は estimate 関数の再評価ではなく、まさにこの日ループが日々
+        // 減らしていく item.remainingMinutes そのもの（未来日の understanding 再計算はしない、
+        // というこの関数の既存方針と一貫させる）。
+        // budgetMode "raw" のときはフェーズ7の並び替え自体も使わず、score 降順のみのフェーズ7以前の
+        // 挙動に戻す（後悔防止トリガー専用、上記関数コメント参照）。
         const sorted = eligible
           .map((item) => ({
             item,
             score: item.subtopic
               ? subtopicPriority(item.chapter, item.subtopic, item.subject, dayDate)
               : priority(item.chapter, item.subject, dayDate),
+            tier: planningTier(item.subject, dayDate, sessions, item.chapter.id, item.subtopic?.id ?? null),
+            remainingMinutes: item.remainingMinutes,
           }))
-          .sort((a, b) => b.score - a.score);
+          .sort(budgetMode === "raw" ? (a, b) => b.score - a.score : comparePlanningOrder);
 
         for (const { item } of sorted) {
           if (remainingBudget <= 0) break;

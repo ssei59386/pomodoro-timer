@@ -9,7 +9,8 @@ import {
   getTodaysVocabChunks,
   estimateVocabMinutes,
   daysLeft,
-  availableMinutesForDate,
+  hasRemainingStudyWork,
+  plannableMinutesForDate,
   toISODate,
   type ForecastDecisionPrompt,
 } from "../logic";
@@ -106,9 +107,11 @@ export function Home({
     });
   };
 
+  // フェーズ7：バッファ込みの「計画に積んでよい時間」を分母にする（「合計X分/Y分」の見え方が
+  // 意図的な余白を「サボっているように見える」形にならないようにするため）。
   const todayMinutes = useMemo(
-    () => availableMinutesForDate(data.availability, today),
-    [data.availability, today],
+    () => plannableMinutesForDate(data.availability, today, data.subjects),
+    [data.availability, today, data.subjects],
   );
 
   // 連続記録ストリーク（CEOプロダクト判断：控えめに後押しするだけで煽らない）。
@@ -128,12 +131,23 @@ export function Home({
 
   const totalMinutes = plan.reduce((sum, p) => sum + p.allocatedMinutes, 0);
 
+  // バッファ導入・45分未満の中途半端な割当をしない仕様変更の結果、本当は目標未達の章/小項目が
+  // 残っているのに、今日はたまたま時間の都合で0件選ばれなかっただけのケースがある。
+  // そのケースまで「🎉 目標達成しました」と祝ってしまわないよう、本当に全部目標到達済みかどうかを
+  // hasRemainingStudyWork で別途判定する（ux-reviewer指摘）。
+  const remainingStudyWork = useMemo(
+    () => hasRemainingStudyWork(data.chapters, data.subjects, today),
+    [data.chapters, data.subjects, today],
+  );
+
   // todayItemKeys には対象があったのに plan が空 = 参照先の章/小項目がSettingsで
   // 削除された等の理由で消えたケース。最初から対象0件だった「目標理解度に届いている」
   // ケースと文言を分ける（ux-reviewer指摘）。
   const plannedItemsWentMissing = todayItemKeys.length > 0 && plan.length === 0;
   const emptyPlanMessage = plannedItemsWentMissing
     ? "今日予定していた章が見当たりません。設定で削除された可能性があります。"
+    : remainingStudyWork
+    ? "今日は使える時間が短いため、計画に入りませんでした。明日また見直します。"
     : "🎉 今日はすべての章が目標理解度に届いています。";
 
   /** 今日、その章(+小項目一致)のセッションが記録済みかどうか（完了判定は都度セッション記録から行う） */

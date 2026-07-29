@@ -48,9 +48,11 @@ const availability: AvailabilitySettings = {
 
 // ensureTodayPlan/todayPlanプルーンの検証には「2026-07-01に十分な空き時間がある」ことが要る
 // （weeklySchedule基準の availability は曜日が合わないと0分になり得るため、日付上書きで確実にする）。
+// 章2件（c1・c2、小項目無し＝SESSION_MINUTES固定45分ずつ）が両方 today plan に選ばれるためには、
+// 7割バッファ後（plannableMinutesForDate）でも90分以上残る必要がある（18:00-20:30=150分 × 0.7 = 105分）。
 const plannableAvailability: AvailabilitySettings = {
   weeklySchedule: {},
-  dateOverrides: { "2026-07-01": [{ start: "18:00", end: "20:00" }] },
+  dateOverrides: { "2026-07-01": [{ start: "18:00", end: "20:30" }] },
 };
 
 beforeEach(() => {
