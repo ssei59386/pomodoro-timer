@@ -2,15 +2,20 @@ import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
 import {
   buildPlanFromItemKeys,
+  buildStrategyNote,
   collectForecastDecisionPrompts,
   computeStreak,
+  computeSubjectStudyBuffers,
   effectiveStudyMode,
   forecastDecisionKey,
+  formatSubjectBufferMessage,
   getTodaysVocabChunks,
   estimateVocabMinutes,
   daysLeft,
   hasRemainingStudyWork,
+  pickTightestSubjectBuffer,
   plannableMinutesForDate,
+  simulateForward,
   toISODate,
   type ForecastDecisionPrompt,
 } from "../logic";
@@ -119,10 +124,37 @@ export function Home({
   // プレッシャーに見えるため、3日以上のときだけDOMごと出す。
   const streak = useMemo(() => computeStreak(data.sessions, today), [data.sessions, today]);
 
+  // 「勉強の貯金」（余裕日数）：見通し機能の効能をHomeでも日常的に感じてもらうための1行（外部AI提案
+  // →CEO/CTOレビュー済み）。新しい計算ロジックは持たず、Dashboardと同じ simulateForward の結果を
+  // computeSubjectStudyBuffers に渡すだけ。順調な教科が1つも無ければ null になり、下の固定説明文に
+  // フォールバックする。
+  const forecast = useMemo(
+    () => simulateForward(data.chapters, data.subjects, data.availability, today, data.sessions),
+    [data.chapters, data.subjects, data.availability, today, data.sessions],
+  );
+  const tightestBuffer = useMemo(
+    () => pickTightestSubjectBuffer(computeSubjectStudyBuffers(forecast, data.subjects, data.chapters, data.sessions)),
+    [forecast, data.subjects, data.chapters, data.sessions],
+  );
+  const bufferMessage = useMemo(() => {
+    if (!tightestBuffer) return null;
+    const subject = data.subjects.find((s) => s.id === tightestBuffer.subjectId);
+    if (!subject) return null;
+    return formatSubjectBufferMessage(subject.name, tightestBuffer.bufferDays);
+  }, [tightestBuffer, data.subjects]);
+
   // todayPlan.date が今日と一致しない場合（日をまたいだ直後、ensureTodayPlan の
   // useEffect がまだ走っていないタイミングなど）は前日分のスナップショットを描画しない
   // ようにするガード（ux-reviewer指摘）。
   const todayItemKeys = data.todayPlan?.date === todayISO ? data.todayPlan.itemKeys : [];
+
+  // 「作戦メモ」：今日の計画がなぜこの項目セット・並びになったかを、家庭教師の一人称の語り口で
+  // 1〜2行にまとめる。todayItemKeys（フリーズ済みの対象集合）はそのまま渡し、
+  // tier判定自体は現在の章・教科・セッションデータからライブに再計算する（保存はしない）。
+  const strategyNote = useMemo(
+    () => buildStrategyNote(data.chapters, data.subjects, data.sessions, today, todayItemKeys),
+    [data.chapters, data.subjects, data.sessions, today, todayItemKeys],
+  );
 
   const plan = useMemo(
     () => buildPlanFromItemKeys(data.chapters, data.subjects, todayItemKeys, today, data.sessions),
@@ -202,6 +234,8 @@ export function Home({
         <p className="muted">
           理解度・テストまでの近さから、優先度の高い章や小項目を割り当てています。
         </p>
+        {bufferMessage && <p className="subject-buffer-note">{bufferMessage}</p>}
+        {strategyNote && <p className="subject-buffer-note">{strategyNote}</p>}
         {streak >= 3 && <span className="streak-chip">{streak}日連続で記録中</span>}
         {/* 全部終わった後は「お疲れさま」メッセージの方が優先度が高いので、固定に関する説明文は
             隠してその分の画面上部を空ける（ux-reviewer P1指摘：完了後も毎回全文表示され続けていた）。 */}

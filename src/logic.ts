@@ -226,8 +226,12 @@ export const MIN_SUBTOPIC_SESSION_MINUTES = 10;
 // generateTodayPlan/simulateForward の対象からそもそも除外済み（effectiveStudyMode参照）なので、
 // ここで改めて特別扱いする必要はない。
 
-/** 並び替え専用のtier判定（表示用の score/priority には影響しない） */
-function planningTier(
+/**
+ * 並び替え専用のtier判定（表示用の score/priority には影響しない）。
+ * buildStrategyNote（作戦メモ）が同じ判定基準を「なぜこの並びか」の一人称の説明文に変換する際にも
+ * 再利用するため export する（計算式自体はここで変更しない）。
+ */
+export function planningTier(
   subject: Subject,
   referenceDate: Date,
   sessions: StudySession[],
@@ -473,6 +477,62 @@ export function buildPlanFromItemKeys(
   }
 
   return plan;
+}
+
+/**
+ * 「作戦メモ」：今日の計画がなぜこの項目セット・並びになったかを、家庭教師が一緒に計画を
+ * 立てているような一人称の語り口で1〜2行にまとめる。
+ * 「今日の計画スナップショット固定」設計（buildPlanFromItemKeys と同じ考え方）を踏襲し、
+ * 対象集合（itemKeys）はフリーズ済みの前提で受け取り、tier判定自体は章・教科・セッションの
+ * 「現在の」データから毎回ライブに再計算する（保存はしない・呼び出し側もこの戻り値を永続化しない）。
+ * tier1（未着手ブースト）・tier0（直前仕上げ期）のどちらにも該当する項目が無ければ（全項目tier2）
+ * null を返す（この場合 Home 側は既存の固定説明文だけで、追加の一行は出さない）。
+ * tier判定・バッファ計算といった内部ロジックの名前は文言に一切出さず、その結果だけを
+ * 先生の判断として語る（CEO/ux-reviewerレビュー済みのトーン方針）。
+ */
+export function buildStrategyNote(
+  chapters: Chapter[],
+  subjects: Subject[],
+  sessions: StudySession[],
+  today: Date,
+  itemKeys: PlanItemKey[],
+): string | null {
+  if (itemKeys.length === 0) return null;
+
+  const chapterById = new Map(chapters.map((c) => [c.id, c]));
+  const subjectById = new Map(subjects.map((s) => [s.id, s]));
+
+  let untouchedLabel: string | null = null;
+  let hasFinalCramItem = false;
+
+  for (const key of itemKeys) {
+    const chapter = chapterById.get(key.chapterId);
+    if (!chapter) continue;
+    const subject = subjectById.get(chapter.subjectId);
+    if (!subject) continue;
+
+    const tier = planningTier(subject, today, sessions, chapter.id, key.subtopicId);
+    if (tier === 0) {
+      hasFinalCramItem = true;
+    } else if (tier === 1 && untouchedLabel === null) {
+      const subtopic = key.subtopicId ? (chapter.subtopics ?? []).find((s) => s.id === key.subtopicId) : undefined;
+      // 小項目名だけだと親の章の文脈が消えるため、章名も併記する（ux-reviewer指摘）
+      untouchedLabel = subtopic ? `${chapter.name}の${subtopic.name}` : chapter.name;
+    }
+  }
+
+  // tier0・tier1が両方該当する場合は定型文2つの単純連結にせず、1つの文にまとめる
+  // （2文の連結だと「別々の通知が並んでいる」ように見えてしまうというux-reviewer指摘）
+  if (untouchedLabel !== null && hasFinalCramItem) {
+    return `テストが近い分、解けそうな範囲を優先しつつ、まだ手をつけていなかった${untouchedLabel}も入れておいたよ。`;
+  }
+  if (untouchedLabel !== null) {
+    return `${untouchedLabel}はまだ手をつけていなかったから、優先して入れておいたよ。`;
+  }
+  if (hasFinalCramItem) {
+    return "テストが近い分、今日は解けそうな範囲を優先しておいたよ。";
+  }
+  return null;
 }
 
 /**
@@ -1268,6 +1328,84 @@ export function shouldSurfaceForecastForSubject(
   if (summary.totalShortfallMinutes <= FORECAST_SHORTFALL_THRESHOLD_MINUTES) return false;
   const chapterIds = new Set(chapters.filter((c) => c.subjectId === summary.subjectId).map((c) => c.id));
   return sessions.some((s) => chapterIds.has(s.chapterId));
+}
+
+// ---- 「勉強の貯金」（余裕日数）：simulateForward の結果を生徒にとって直感的な1指標にする ----
+// 外部AIの提案→CEO/CTOレビュー済み。新しいシミュレーションロジックは追加しない。simulateForward が
+// 既に返す projectedCompletionDate とテスト日の日数差を取るだけ。表示はバッジ的な演出を禁止し、
+// 既存の理由チップ・ForecastRemainingNote と同じ地味なプレーンテキストにする方針（呼び出し元が担う）。
+
+export interface SubjectStudyBuffer {
+  subjectId: string;
+  /** 教科内で最も遅く完了する見込みの項目を基準にした、テスト日までの余裕日数（正の値のみ） */
+  bufferDays: number;
+}
+
+/**
+ * 教科ごとの「勉強の貯金（余裕日数）」を算出する。
+ * 以下のいずれかに該当する教科は結果に含めない：
+ * - その教科の章/小項目に1件でも「間に合わない見込み」（atRiskSubtopicIds）がある
+ *   （後悔防止トリガー等、既存の警告表示と表示が競合・矛盾するのを避けるため）
+ * - その教科に章/小項目が1つも登録されていない（forecast.subjects にそもそも現れない）
+ * - その教科でまだ一度もセッション記録が無い（見積もりがデフォルト値だけに基づく机上の空論に
+ *   なるため。shouldSurfaceForecastForSubject と同じ「セッション0件は判定材料にしない」考え方）
+ * - 算出した余裕日数が0以下（テスト当日ぎりぎり〜計算上間に合わない。既存の他の警告表示に任せる）
+ * 教科内で最も遅く完了する見込みの項目（＝一番厳しい項目）を基準にする。
+ */
+export function computeSubjectStudyBuffers(
+  forecast: ForwardSimulationResult,
+  subjects: Subject[],
+  chapters: Chapter[],
+  sessions: StudySession[],
+): SubjectStudyBuffer[] {
+  const subjectById = new Map(subjects.map((s) => [s.id, s]));
+  const buffers: SubjectStudyBuffer[] = [];
+
+  for (const summary of forecast.subjects) {
+    if (summary.atRiskSubtopicIds.length > 0) continue;
+
+    const subject = subjectById.get(summary.subjectId);
+    if (!subject) continue;
+
+    const own = forecast.subtopics.filter((f) => f.subjectId === summary.subjectId);
+    if (own.length === 0) continue;
+
+    const chapterIds = new Set(chapters.filter((c) => c.subjectId === summary.subjectId).map((c) => c.id));
+    const hasAnySession = sessions.some((s) => chapterIds.has(s.chapterId));
+    if (!hasAnySession) continue;
+
+    let worstCompletionDate: string | null = null;
+    for (const item of own) {
+      if (!item.projectedCompletionDate) continue;
+      if (!worstCompletionDate || item.projectedCompletionDate > worstCompletionDate) {
+        worstCompletionDate = item.projectedCompletionDate;
+      }
+    }
+    if (!worstCompletionDate) continue;
+
+    const bufferDays = daysSince(worstCompletionDate, parseDate(subject.testDate));
+    if (bufferDays <= 0) continue;
+
+    buffers.push({ subjectId: subject.id, bufferDays });
+  }
+
+  return buffers;
+}
+
+/** 複数教科が順調なとき、最も余裕日数が少ない教科（＝一番気を抜けない教科）を1件選ぶ */
+export function pickTightestSubjectBuffer(buffers: SubjectStudyBuffer[]): SubjectStudyBuffer | null {
+  if (buffers.length === 0) return null;
+  return buffers.reduce((tightest, b) => (b.bufferDays < tightest.bufferDays ? b : tightest));
+}
+
+/**
+ * Home/Dashboard 向けの「勉強の貯金」文言。既存の理由チップ・ForecastRemainingNote と同じ、
+ * 絵文字・強調色を使わない地味なプレーンテキストにする（CLAUDE.md「煽らないトーン」方針）。
+ * buildStrategyNote と同じ画面に隣接して並ぶため、一人称・語りかけ調（「〜だよ」）に文体を揃える
+ * （三人称の報告調のままだと隣の行とトーンが分裂して見えるというux-reviewer指摘）。
+ */
+export function formatSubjectBufferMessage(subjectName: string, bufferDays: number): string {
+  return `${subjectName}は今のペースなら、テストの${bufferDays}日前に終わりそうだよ。`;
 }
 
 // ---- 後悔防止トリガー（Phase 2、docs/feature-study-policy.md 参照） ----

@@ -16,6 +16,7 @@ import {
   generateTodayPlan,
   hasRemainingStudyWork,
   buildPlanFromItemKeys,
+  buildStrategyNote,
   applySessionToChapter,
   applySessionToSubtopic,
   slotMinutes,
@@ -45,6 +46,9 @@ import {
   simulateForward,
   triageSubtopics,
   shouldSurfaceForecastForSubject,
+  computeSubjectStudyBuffers,
+  pickTightestSubjectBuffer,
+  formatSubjectBufferMessage,
   FORECAST_SHORTFALL_THRESHOLD_MINUTES,
   SESSION_MINUTES,
   VOCAB_BOX_INTERVAL_DAYS,
@@ -80,7 +84,7 @@ import {
   FORECAST_DECISION_SNOOZE_DAYS,
   computeStreak,
 } from "./logic";
-import type { ForwardSimulationResult, SubjectForecastSummary } from "./logic";
+import type { ForwardSimulationResult, SubjectForecastSummary, SubjectStudyBuffer } from "./logic";
 import type {
   AvailabilitySettings,
   Chapter,
@@ -601,6 +605,75 @@ describe("フェーズ7：計画の並び順（未着手ブースト・直前仕
     const unstartedForecast = result.subtopics.find((f) => f.chapterId === "unstarted")!;
     // unstarted は残り22.5分しか無いので、優先的に割当を受ければ today（day0）中に完了するはず
     expect(unstartedForecast.projectedCompletionDate).toBe(toISODate(today));
+  });
+});
+
+describe("buildStrategyNote（作戦メモ：今日の計画がこの並びになった理由を一人称で語る）", () => {
+  it("未着手（tier1）の章が1件あれば、その章名を含む文言になる", () => {
+    const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-15" }]; // 16日後・通常期
+    const c = chapter({ id: "unstarted", subjectId: "s1", name: "二次関数", understanding: 0.3 });
+
+    const note = buildStrategyNote([c], subjects, [], today, [{ chapterId: "unstarted", subtopicId: null }]);
+    expect(note).toBe("二次関数はまだ手をつけていなかったから、優先して入れておいたよ。");
+  });
+
+  it("直前仕上げ期（tier0）の項目が1件あれば、テストが近い旨の文言になる", () => {
+    const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-01" }]; // today から2日後・直前仕上げ期
+    const sessions: StudySession[] = [
+      { id: "sess1", chapterId: "a", date: "2026-06-20", minutes: 10, correctRate: 0.5, selfReport: 3 },
+    ];
+    const c = chapter({ id: "a", subjectId: "s1", understanding: 0.3 });
+
+    const note = buildStrategyNote([c], subjects, sessions, today, [{ chapterId: "a", subtopicId: null }]);
+    expect(note).toBe("テストが近い分、今日は解けそうな範囲を優先しておいたよ。");
+  });
+
+  it("tier1・tier0の両方が該当する場合、2文の連結ではなく1つの文にまとまる", () => {
+    const subjects: Subject[] = [
+      { id: "s1", name: "数学", testDate: "2026-07-15" }, // 通常期
+      { id: "s2", name: "理科", testDate: "2026-07-01" }, // 直前仕上げ期
+    ];
+    const untouched = chapter({ id: "unstarted", subjectId: "s1", name: "二次関数", understanding: 0.3 });
+    const cram = chapter({ id: "cram-chapter", subjectId: "s2", name: "電流", understanding: 0.3 });
+    const sessions: StudySession[] = [
+      { id: "sess1", chapterId: "cram-chapter", date: "2026-06-20", minutes: 10, correctRate: 0.5, selfReport: 3 },
+    ];
+
+    const note = buildStrategyNote([untouched, cram], subjects, sessions, today, [
+      { chapterId: "unstarted", subtopicId: null },
+      { chapterId: "cram-chapter", subtopicId: null },
+    ]);
+    expect(note).toBe(
+      "テストが近い分、解けそうな範囲を優先しつつ、まだ手をつけていなかった二次関数も入れておいたよ。",
+    );
+  });
+
+  it("未着手（tier1）の項目に小項目がある場合、章名も含めた文脈で文言になる", () => {
+    const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-15" }]; // 通常期
+    const st = subtopic({ id: "st1", name: "因数分解" });
+    const c = chapter({ id: "unstarted", subjectId: "s1", name: "二次関数", understanding: 0.3, subtopics: [st] });
+
+    const note = buildStrategyNote([c], subjects, [], today, [{ chapterId: "unstarted", subtopicId: "st1" }]);
+    expect(note).toBe("二次関数の因数分解はまだ手をつけていなかったから、優先して入れておいたよ。");
+  });
+
+  it("全項目がtier2（通常期・記録済み）ならnullを返す", () => {
+    const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-15" }];
+    const c = chapter({ id: "a", subjectId: "s1", understanding: 0.3 });
+    const sessions: StudySession[] = [
+      { id: "sess1", chapterId: "a", date: "2026-06-20", minutes: 10, correctRate: 0.5, selfReport: 3 },
+    ];
+
+    const note = buildStrategyNote([c], subjects, sessions, today, [{ chapterId: "a", subtopicId: null }]);
+    expect(note).toBeNull();
+  });
+
+  it("itemKeysが空ならnullを返す", () => {
+    const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-15" }];
+    const c = chapter({ id: "a", subjectId: "s1", understanding: 0.3 });
+
+    const note = buildStrategyNote([c], subjects, [], today, []);
+    expect(note).toBeNull();
   });
 });
 
@@ -1857,6 +1930,109 @@ describe("フェーズ5：前向きシミュレーション（simulateForward）
         },
       ];
       expect(shouldSurfaceForecastForSubject(summary, sessions, otherChapters)).toBe(false);
+    });
+  });
+
+  describe("computeSubjectStudyBuffers（「勉強の貯金」＝余裕日数）", () => {
+    // 「まだ一度もセッションが無い教科は表示しない」判定に使うためだけの、内容と無関係な古いセッション
+    // （subtopicId無し・basicProblemsCompleted無しなので learnedProblemRates/subjectPaceMultiplier の
+    // 実測補正には影響しない）。
+    const oldUnrelatedSession: StudySession = {
+      id: "old1",
+      chapterId: "a",
+      date: "2026-05-01",
+      minutes: 30,
+      correctRate: 0.5,
+      selfReport: 3,
+    };
+
+    it("shortfallが無く、セッション記録もある教科は、最も遅く完了する項目基準の余裕日数を返す", () => {
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-10" }];
+      const c = chapter({
+        id: "a",
+        subjectId: "s1",
+        subtopics: [subtopic({ id: "st1", understanding: 0, basicProblems: 10 })], // 150分必要
+      });
+      const sessions = [oldUnrelatedSession];
+      const forecast = simulateForward([c], subjects, dailyAvailability(200), today, sessions);
+      // 前提確認：既存テスト「複数日にまたがって完了する場合」と同条件で 2026-07-02 に完了する
+      expect(forecast.subtopics[0].projectedCompletionDate).toBe("2026-07-02");
+
+      const buffers = computeSubjectStudyBuffers(forecast, subjects, [c], sessions);
+      // テスト日 2026-07-10 − 完了見込み 2026-07-02 = 8日
+      expect(buffers).toEqual([{ subjectId: "s1", bufferDays: 8 }]);
+    });
+
+    it("1件でも間に合わない見込み（shortfall）がある教科は対象外", () => {
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-01" }];
+      const c = chapter({
+        id: "a",
+        subjectId: "s1",
+        subtopics: [subtopic({ id: "st1", understanding: 0, basicProblems: 10 })], // 150分必要
+      });
+      const sessions = [oldUnrelatedSession];
+      const forecast = simulateForward([c], subjects, dailyAvailability(SESSION_MINUTES), today, sessions);
+      expect(forecast.subjects[0].atRiskSubtopicIds).toEqual(["st1"]);
+
+      const buffers = computeSubjectStudyBuffers(forecast, subjects, [c], sessions);
+      expect(buffers).toEqual([]);
+    });
+
+    it("その教科でまだ一度もセッション記録が無い場合は、順調でも対象外", () => {
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-10" }];
+      const c = chapter({
+        id: "a",
+        subjectId: "s1",
+        subtopics: [subtopic({ id: "st1", understanding: 0, basicProblems: 10 })],
+      });
+      const forecast = simulateForward([c], subjects, dailyAvailability(200), today, []);
+
+      const buffers = computeSubjectStudyBuffers(forecast, subjects, [c], []);
+      expect(buffers).toEqual([]);
+    });
+
+    it("余裕日数が0以下（完了見込み日＝テスト日）の場合は対象外", () => {
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-02" }];
+      const c = chapter({
+        id: "a",
+        subjectId: "s1",
+        subtopics: [subtopic({ id: "st1", understanding: 0, basicProblems: 10 })],
+      });
+      const sessions = [oldUnrelatedSession];
+      const forecast = simulateForward([c], subjects, dailyAvailability(200), today, sessions);
+      expect(forecast.subjects[0].atRiskSubtopicIds).toEqual([]);
+      expect(forecast.subtopics[0].projectedCompletionDate).toBe("2026-07-02");
+
+      const buffers = computeSubjectStudyBuffers(forecast, subjects, [c], sessions);
+      expect(buffers).toEqual([]);
+    });
+
+    it("章/小項目が1つも登録されていない教科（forecastに現れない）は対象外", () => {
+      const subjects: Subject[] = [{ id: "s1", name: "数学", testDate: "2026-07-10" }];
+      const forecast = simulateForward([], subjects, dailyAvailability(200), today, []);
+      const buffers = computeSubjectStudyBuffers(forecast, subjects, [], []);
+      expect(buffers).toEqual([]);
+    });
+  });
+
+  describe("pickTightestSubjectBuffer", () => {
+    it("複数教科があれば、余裕日数が最も少ない教科を1件選ぶ", () => {
+      const buffers: SubjectStudyBuffer[] = [
+        { subjectId: "s1", bufferDays: 8 },
+        { subjectId: "s2", bufferDays: 3 },
+        { subjectId: "s3", bufferDays: 5 },
+      ];
+      expect(pickTightestSubjectBuffer(buffers)).toEqual({ subjectId: "s2", bufferDays: 3 });
+    });
+
+    it("空配列なら null", () => {
+      expect(pickTightestSubjectBuffer([])).toBeNull();
+    });
+  });
+
+  describe("formatSubjectBufferMessage", () => {
+    it("教科名と余裕日数を一人称・語りかけ調で伝える文言を返す（絵文字・強調は含まない）", () => {
+      expect(formatSubjectBufferMessage("数学", 8)).toBe("数学は今のペースなら、テストの8日前に終わりそうだよ。");
     });
   });
 });

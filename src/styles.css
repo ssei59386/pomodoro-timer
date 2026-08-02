@@ -1355,6 +1355,16 @@ input[type="range"] {
   gap: 8px;
 }
 
+/* 「勉強の貯金」（余裕日数）：見通し機能の効能を伝える目玉メッセージなので、他の格上げ済み
+   テキスト（.forecast-approx-note 等）と同じ視認性にする（元は muted small で最も弱い表示
+   だった。ux-reviewer指摘）。Home・Dashboard共通で使う。 */
+.subject-buffer-note {
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 500;
+  margin: 4px 0 0;
+}
+
 /* 「今のペースだと〜」は条件つきの見込みであってエラー確定ではないので、
    tier-badge.tier-slightly-behind と同じ warning系トーンに揃える（赤は使わない） */
 .forecast-row {

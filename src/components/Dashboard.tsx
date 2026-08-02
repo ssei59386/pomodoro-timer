@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../store";
 import {
+  computeSubjectStudyBuffers,
   daysLeft,
   decayedUnderstanding,
   effectiveStudyMode,
   forecastDecisionKey,
+  formatSubjectBufferMessage,
   subtopicUnderstandingTier,
   subtopicProblemTier,
   worstProgressTier,
@@ -76,6 +78,18 @@ export function Dashboard({
     }
     return map;
   }, [forecast]);
+
+  // 「勉強の貯金」（余裕日数）：Home に出す1行と同じ計算をここでも教科ごとに引けるようにする
+  // （新しい計算ロジックは追加しない。既存の forecast をそのまま computeSubjectStudyBuffers に渡すだけ）。
+  const bufferMessageBySubject = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const buffer of computeSubjectStudyBuffers(forecast, data.subjects, data.chapters, data.sessions)) {
+      const subject = data.subjects.find((s) => s.id === buffer.subjectId);
+      if (!subject) continue;
+      map.set(buffer.subjectId, formatSubjectBufferMessage(subject.name, buffer.bufferDays));
+    }
+    return map;
+  }, [forecast, data.subjects, data.chapters, data.sessions]);
 
   // 「まとまった不足がある」かつ「その教科に取り組み始めている」の両方を満たす教科だけ見通しを出す
   const subjectsToSurface = useMemo(
@@ -153,6 +167,9 @@ export function Dashboard({
               テストまで {daysLeft(subject.testDate, today)} 日
             </span>
           </div>
+          {bufferMessageBySubject.has(subject.id) && (
+            <p className="subject-buffer-note">{bufferMessageBySubject.get(subject.id)}</p>
+          )}
           {chapters.length === 0 ? (
             CHAPTERLESS_SUBJECTS.has(subject.name) ? (
               <p className="muted small">
