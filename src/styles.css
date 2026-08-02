@@ -413,6 +413,78 @@ input[type="range"] {
   width: 100%;
 }
 
+.chapter-collapse-btn {
+  flex: 0 0 auto;
+  align-self: center;
+  white-space: nowrap;
+}
+
+/* ---- 章アコーディオンの折りたたみヘッダー（段階5・密度対策） ---- */
+.chapter-draft-row-collapsed {
+  margin-bottom: 0;
+}
+
+.chapter-draft-summary {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 4px;
+  border: none;
+  background: none;
+  text-align: left;
+}
+
+.chapter-draft-summary-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.chapter-draft-summary-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---- 達成段階ピッカーの折りたたみ1行表示（実装1、AchievementLevelField） ---- */
+.achievement-level-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+/* 未確認（まだ生徒が一度も選択操作をしていない、デフォルト値のまま）の折りたたみ表示は
+   確認済みと見分けがつくよう点線枠にする（ux-reviewer重大指摘への対応）。 */
+.achievement-level-summary.unconfirmed {
+  border-style: dashed;
+  border-color: var(--warning);
+}
+
+.achievement-level-summary-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.achievement-level-summary-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--warning);
+  background: #fef3c7;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
 .add-chapter-buttons {
   display: flex;
   gap: 8px;
@@ -501,6 +573,11 @@ input[type="range"] {
   font-size: 13px;
   font-weight: 600;
   padding: 4px 0;
+  /* タップ領域を44px以上に（.icon-btn と同じ理由、ux-reviewer中程度指摘）。
+     見た目のテキスト行の高さは変えず、実際にタップできる範囲だけ広げる。 */
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
 }
 
 .link-btn:hover {
@@ -852,6 +929,18 @@ input[type="range"] {
 .curriculum-suggest-meta {
   font-size: 12px;
   color: var(--muted);
+}
+
+/* 候補1件あたりのメタ情報を短いバッジ表示に圧縮（章名・教科名は入力中の文脈と重複するため省略、
+   難易度だけ残す。実装3・密度対策）。 */
+.curriculum-suggest-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
 }
 
 /* ---- 達成段階ピッカー（段階4：sr-textの10px問題を避け、縦積み・折り返し可能に） ---- */

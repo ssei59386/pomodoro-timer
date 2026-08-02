@@ -18,7 +18,7 @@ import {
 // （onMouseDown 側の対策と合わせた二重の安全策）。
 
 const MIN_QUERY_LENGTH = 2;
-const SUGGEST_LIMIT = 5;
+const SUGGEST_LIMIT = 3;
 
 interface CurriculumSuggestProps {
   query: string;
@@ -58,9 +58,7 @@ export function CurriculumSuggest({ query, subject, onSelect }: CurriculumSugges
           }}
         >
           <span className="curriculum-suggest-name">{result.subtopicName}</span>
-          <span className="curriculum-suggest-meta">
-            {result.chapterName} ({result.subject})・難易度{result.difficultyLevel}
-          </span>
+          <span className="curriculum-suggest-badge">難易度{result.difficultyLevel}</span>
         </button>
       ))}
     </div>

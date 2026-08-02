@@ -309,9 +309,15 @@ describe("Onboarding（小項目の反映）", () => {
     fireEvent.change(subtopicNameInputs[0], { target: { value: "頂点" } });
     fireEvent.change(subtopicNameInputs[1], { target: { value: "軸" } });
 
-    // 小項目ごとの自己申告（radiogroup）が2つ表示されているはず。2つ目の小項目の自己申告を変更する。
+    // 達成段階ピッカーは初期状態で折りたたまれ、かつ未確認（実装1・修正1）。
+    // 2つ目の小項目の分だけ「選ぶ」で展開する。
+    const changeButtons = screen.getAllByText("選ぶ");
+    fireEvent.click(changeButtons[1]);
+
+    // 小項目ごとの自己申告（radiogroup）が展開されているはず。2つ目の小項目の自己申告を変更する。
     const radiogroups = screen.getAllByRole("radiogroup");
-    const secondSubtopicRadios = within(radiogroups[1]).getAllByRole("radio");
+    expect(radiogroups).toHaveLength(1);
+    const secondSubtopicRadios = within(radiogroups[0]).getAllByRole("radio");
     fireEvent.click(secondSubtopicRadios[4]); // 5: 人に教えられる
 
     finishFromContentStep();
@@ -332,6 +338,10 @@ describe("Onboarding（小項目の反映）", () => {
     goToSubjectContent("数学");
     fireEvent.change(screen.getByPlaceholderText("章名（例：二次関数）"), { target: { value: "二次関数" } });
     fireEvent.click(screen.getByText("＋ 章を追加"));
+
+    // 新しく追加した章だけが自動展開され、既存の章（二次関数）は折りたたまれる。
+    // ヘッダーをタップして手動で再展開してから2章とも入力できることを確認する。
+    fireEvent.click(screen.getByText("二次関数"));
 
     const chapterNameInputs = screen.getAllByPlaceholderText("章名（例：二次関数）");
     expect(chapterNameInputs).toHaveLength(2);

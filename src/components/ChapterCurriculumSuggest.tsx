@@ -12,7 +12,7 @@ import { searchCurriculumChapters } from "../data/curriculumSearch";
 // 別の要素にフォーカスが移るなど、候補を選ばずに操作が進んだ場合も確実に閉じるようにしている。
 
 const MIN_QUERY_LENGTH = 2;
-const SUGGEST_LIMIT = 5;
+const SUGGEST_LIMIT = 3;
 
 interface ChapterCurriculumSuggestProps {
   query: string;
@@ -68,7 +68,7 @@ export function ChapterCurriculumSuggest({ query, subject }: ChapterCurriculumSu
           }}
         >
           <span className="curriculum-suggest-name">{result.chapterName}</span>
-          <span className="curriculum-suggest-meta">{result.subject}・参考</span>
+          <span className="curriculum-suggest-badge">参考</span>
         </button>
       ))}
     </div>

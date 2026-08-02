@@ -397,6 +397,9 @@ export function Onboarding() {
 
       {currentStep.kind === "subjectContent" && (
         <OnboardingStepSubjectContent
+          // 教科が切り替わるたびに章アコーディオン／達成段階ピッカーの開閉状態を初期化するため、
+          // subject.instanceId を key にして教科ごとに再マウントする（段階5・密度対策）。
+          key={currentStep.subject.instanceId}
           subject={currentStep.subject}
           chapters={chapters}
           setChapters={setChapters}
