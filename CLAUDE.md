@@ -55,6 +55,10 @@ There is no lint script configured.
   - `comparePlanningOrder`/`planningTier`：`priority`/`subtopicPriority`（表示にも使う既存のスコア自体）は変更せず、`generateTodayPlan`と`simulateForward`の**並び替えキーだけ**を3段階（tier0:直前仕上げ期は残り時間昇順／tier1:一度もセッション記録が無い章・小項目を優先／tier2:通常期は既存のスコア降順のまま）に差し替える。除外（非表示）は一切追加しない——このアプリの「間に合わなそうでも完全除外はせず優先度を下げるだけ、余った時間は必ずスピルオーバーで拾う」という一貫した設計方針を踏襲している。
   - **後悔防止トリガーの発火判定だけはバッファを反映しない**（ユーザー判断）：`simulateForward`に`budgetMode: "buffered" | "raw"`（既定は`"buffered"`）を追加し、`store.tsx`の`evaluateForecastDecisions`だけ明示的に`"raw"`を渡す（バッファ導入前と完全に同じ挙動に固定）。理由：実測で「典型的な生徒データ」だとバッファ込みだと間に合わない判定の章が約1.5倍に増え、直近3日→1日に下げた発火閾値（`SHORTFALL_STREAK_THRESHOLD_DAYS`）と組み合わさるとトリガーが過敏になりすぎる懸念があったため（ux-reviewer指摘、実測で検証済み）。次にこの閾値・バッファ率を調整する際は、この相互作用を踏まえること。
   - 小項目を持たない章は、残り時間が`SESSION_MINUTES`(45分)未満のとき中途半端な分数を割り当てず、その日は選ばれない（既存の「今日の計画スナップショット固定」設計——`buildPlanFromItemKeys`が章については常に45分固定で再描画する——との整合性を保つため）。`hasRemainingStudyWork`（軽量チェック、`generateTodayPlan`は呼ばない）で、バッファにより0件になっただけの日と本当に目標達成済みの日を区別し、前者を「🎉達成」と誤表示しないようにしている。
+- **フェーズ8：「勉強の貯金」表示＋「作戦メモ」（見通し機能の効能を日常的に伝える、2026-08-03追加）**：外部AIの提案（①「〇日巻きで進行中」バッジ ③「作戦メモ」④「テスト当日予報」の3案）をCEO/ux-reviewerでレビューし、④は「煽らないトーン」方針に反するため不採用、①③のみ実装。新しい優先順位ロジックは追加せず、既存の`simulateForward`/フェーズ7のtier判定の結果を文言に変換するだけ。
+  - `computeSubjectStudyBuffers`/`pickTightestSubjectBuffer`/`formatSubjectBufferMessage`：教科ごとに「テストの◯日前に終わりそう」という一人称の一言（「〇〇は今のペースなら、テストの◯日前に終わりそうだよ。」）を生成する。対象は`atRiskSubtopicIds`が無い（shortfall無し）教科のみ、セッション記録が1件も無い教科は除外（机上の空論になるため）。Home/Dashboardの両方に表示。
+  - `buildStrategyNote`：今日の計画のitemKeysから、フェーズ7のtier判定（0:直前仕上げ期/1:未着手ブースト）を再利用し、「未着手の項目を優先した」「テストが近いので解けそうな範囲を優先した」を一人称の語り口（「〜しておいたよ」）で1文にまとめる。両方該当する場合も2文の連結ではなく1文にまとめる。tier2のみ（特筆すべき理由なし）の日はnullを返しHome側は何も表示しない。
+  - 文言トーン基準（ux-reviewer策定、今回このためだけに確立）：一人称「〜しておいたよ」調、評価・断定口調（「間に合いません」等）は避ける、tier/バッファ等の内部ロジック名は出さない。**CEO判断によりこの基準を使って既存の他の文言（理由チップ、後悔防止トリガー文言等）を一括で書き直すことはしない**——次にその文言を触る機会が来るたびに揃えていく方針。
 
 **Screens** (`src/App.tsx` tab router, gated by `data.onboarded`): Onboarding → Home (today's plan) → SessionRecord → Dashboard (understanding vs. target, days left, pace badges) → Settings (edit/reset). `Onboarding.tsx` is also where subjects, chapters, initial self-reports, sub-topics, and optional metadata are entered; it's the most complex form in the app.
 
@@ -111,12 +115,26 @@ Apply this as a standing judgment lens, not literal role-play: when a request is
 **Phase 0: functionally complete.** All 5 screens exist and work; all originally-known gaps are resolved. Full history (input validation, onboarding escape hatch, save-error banner, subtopic editing, test coverage buildout — 89 tests reached at the end of that work) is in **`docs/phase0-history.md`**.
 
 Still-open backlog items from that history (not yet scoped/resolved, low priority):
-- Onboarding's chapter-registration card is dense (up to 9 fields per chapter); moving the purely-informational `metadata-block` (exercise count/learning scope/difficulty) to Settings-only has been suggested twice by ux-reviewer but deliberately deferred both times. Revisit next time Onboarding's form load is reconsidered.
+- ~~Onboarding's chapter-registration card is dense~~ — **RESOLVED 2026-08-03**（旧提案の「metadata-blockをSettings専用に」は既に実在しない古い記述だった。実際には達成段階ピッカーの折りたたみ・章のアコーディオン化・カリキュラム候補の圧縮で対応済み。詳細は下記セッション引き継ぎメモ参照）。
 - Product idea (not scoped): AI-generated comprehension tests calibrated to the school's exam level. Copyright risk flagged for anything beyond the student's own handwritten notes — needs real legal review before scoping. Phase 1+ only, do not build UI for this in Phase 0.
 
 **"見通し" (pace/progress forecast) feature: Phase 1〜6 COMPLETE — functionally complete.** This is the current major feature — subtopic-level understanding/pace tracking, curriculum-data-backed suggestions, subtopic-level daily plan generation (Phase 4.5), day-by-day forward simulation + knapsack triage of cut-candidates on the Dashboard (Phase 5), and (as of Phase 6) that same simulation now also drives `generateTodayPlan` itself for chapters with or without subtopics — items unlikely to finish in time are deprioritized (spillover: they still get any leftover time budget, never a hard exclusion) rather than just shown as Dashboard-only information, and a learned per-subject pace multiplier adjusts the time-remaining estimates. Full design history, confirmed decisions (do not re-ask), and phase-by-phase implementation logs are in **`docs/feature-mitoshi.md`** — **read this file before resuming work on this feature**, it contains decisions that should not be re-litigated (e.g. the user's explicit override of a CEO/CTO recommendation to build a minimal version instead). Test suite: **344 tests** as of the pointWeight-removal session (2026-07-07) — run `npm test` to confirm nothing regressed before continuing. On-device visual QA via Playwright + Chromium **was done** in the 2026-07-06 mobile-polish session (see `docs/mobile-polish-2026-07-06.md`) — browser automation availability is environment-dependent per session, try early rather than assuming it's unavailable. The write-back "今回は捨てる/exclude-from-plan" manual toggle remains deliberately not built (fully automatic only).
 
 **Curriculum reference data (math + science): RESOLVED, both fully built and integrated** into the "見通し" feature's suggestion layer (`src/data/curriculumSearch.ts`). Full research-task history is in **`docs/curriculum-data.md`**.
+
+## セッション引き継ぎメモ（2026-08-03、「勉強の貯金」＋「作戦メモ」＋オンボーディング密度改善 完了・commit済み、未pushの相談事項あり）
+
+**このセッションで2つの機能をcommit済み**（pushは未実施、下記参照）。最新commitは`df69d34`（1つ前が`bac5308`）。テスト492件全通過・tscクリーン。詳細な経緯は自動メモリ（後述）に記録予定、要点のみここに残す。
+
+- **① 「勉強の貯金」表示＋「作戦メモ」（commit `bac5308`）**：外部AIから受けた4案（貯金バッジ／防いだ忘却の演出／作戦メモ／テスト当日予報）のうちユーザーが気に入った①③④をCEO/ux-reviewerでレビュー。④（天気予報比喩）は「煽らないトーン」方針に反するとしてNO-GOに、①③のみ実装。詳細はCLAUDE.md本体の「Core algorithms」節「フェーズ8」参照（既に追記済み）。
+  - 実装後、ux-reviewerが2回にわたり具体的な不整合を発見・修正した：(a) Home画面で固定説明文が貯金メッセージに完全に置き換わり混乱を招く→併記に変更、(b) 目玉メッセージなのに過去に何度も指摘された`muted small`の弱いスタイルのまま→通常サイズ・通常色に格上げ、(c) 隣接する2つの自動生成文（貯金メッセージ＝三人称、作戦メモ＝一人称）で声のトーンが分裂→貯金メッセージも一人称「〜だよ」調に統一、(d) 小項目名だけで章の文脈が消える→章名を併記、(e) tier0/tier1両方該当時に定型文2つを連結しただけで不自然→1文にまとめ直し。
+- **② オンボーディングの章登録カード密度改善（commit `df69d34`）**：ユーザー自身が「見づらいと感じていた」と発言し着手。CLAUDE.mdの旧バックログ「metadata-blockをSettings専用に」は実際にはもう存在しないコードだった（2026-07-09の教科テンプレート化で既に消えていた、記述が古いだけ）。実機Playwright確認で「章1つ・小項目1つの入力で高さ約2093px（約5.5画面分）」と判明→ux-reviewerに相談し、達成段階ピッカーの折りたたみ・章のアコーディオン化（新規章追加で既存章が自動折りたたみ）・カリキュラム候補の表示圧縮の3点を実装。詳細はCLAUDE.md本体「Core algorithms」直前の削除済みバックログ注記、および`docs/`ではなくこの引き継ぎメモが唯一の記録。
+  - ux-reviewerが重大指摘：折りたたみ時のデフォルト理解度「3」が生徒の確定回答に見えてしまい、優先度計算にそのまま使われる実害がある→「未確認」バッジ＋点線枠＋ボタン文言「選ぶ」で、確認済み（一度でも選択操作をした）と未確認を視覚的に区別するよう修正。タップ領域44px未満だった`.link-btn`も修正。
+- **教訓（次回同種の作業で踏襲すること）**：①CLAUDE.mdのバックログ記述は書かれた時点のスナップショットであり、実装が既に変わっている可能性がある——着手前に必ず実際のコードを読んで現状を確認すること（今回2回とも記述が古かった）。②UIの自動生成文言を複数機能で積み重ねると、機能ごとに別々に決めた声のトーン（三人称/一人称など）が隣接時に衝突しやすい——ux-reviewerに毎回「隣接する既存表示との整合性」も見てもらうこと。③フォームの「デフォルト値」を圧縮表示すると、生徒が選んだ確定値であるかのように見えてしまうリスクがある——未確認/確認済みの区別は密度対策とセットで必ず検討すること。
+- **完全に決着した論点**：小項目の「基礎問題数」入力の作業負担についても相談したが、これは実装せず外部AIへの相談材料としてまとめて渡すところで終わっている（下記「未着手のまま持ち越し」参照）。
+- **未着手のまま持ち越し**：
+  - 小項目の「基礎問題数」手入力の負担軽減。検討の結果、有力案は「問題数入力自体を廃止し、章（小項目なし）で既に使っている『理解度の伸びしろ10%につきセッション1回(45分)』というフォールバック計算を小項目にも適用する」案（追加入力ゼロ、既存の学習ペース倍率による自動補正とも自然に組み合わさる）。ただし**まだ実装していない**——ユーザーが外部AIにも意見を聞きたいとのことで、相談用のまとめ文だけ渡した状態。次セッションで外部AIの意見を踏まえて再検討すること。CTOへの技術検証（`estimateSubtopicRemainingMinutes`/優先度計算/後悔防止トリガーへの影響範囲）もまだ通していない。
+  - 前々回セッションから続く「見通し機能の効能をHome画面でもっと日常的に感じてもらう」という方向性は、①の「勉強の貯金」「作戦メモ」でかなり前進したと言える。次に有力なのは③「防いだ忘却の可視化」（外部AI提案のうち今回は着手しなかった案）。
 
 ## セッション引き継ぎメモ（2026-07-27、「今日の作戦」AIチャット＋計画バッファ/フェーズ並び替え 完了・commit/push済み）
 
