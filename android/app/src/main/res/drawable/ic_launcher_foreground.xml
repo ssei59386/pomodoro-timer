@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simple speech-bubble mark; swap for real launcher art before shipping. -->
+    <path
+        android:fillColor="#FFFDF7"
+        android:pathData="M30,34 h48 a10,10 0 0 1 10,10 v22 a10,10 0 0 1 -10,10 h-26 l-14,14 v-14 h-8 a10,10 0 0 1 -10,-10 v-22 a10,10 0 0 1 10,-10 z" />
+</vector>

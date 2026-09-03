@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose owns the real theming (see ui/theme/Theme.kt); this base theme only
+         controls the pre-Compose window (splash background, status bar) so there is
+         no flash of an unthemed window before the first Compose frame. -->
+    <style name="Theme.TalkPractice" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:statusBarColor">@color/window_background</item>
+    </style>
+</resources>

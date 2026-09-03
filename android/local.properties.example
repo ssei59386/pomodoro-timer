@@ -1,0 +1,8 @@
+# Copy this file to local.properties (which is gitignored) and fill in your values.
+# local.properties is also where Android Studio writes sdk.dir automatically.
+
+sdk.dir=/path/to/Android/sdk
+
+# Gemini API key, from https://aistudio.google.com/apikey
+# Loaded into BuildConfig.GEMINI_API_KEY at build time. Never commit a real key.
+GEMINI_API_KEY=your-gemini-api-key-here
