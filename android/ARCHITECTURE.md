@@ -55,13 +55,17 @@ di/              Hilt モジュール（NetworkModule 等）
 
 会話ログ・メトリクスは画面遷移時にnav-graph-scoped ViewModel（`SavedStateHandle`ではなくメモリ保持）で受け渡す。PRD通りディスクへの永続化は行わない。
 
-## 3. Gemini Multimodal Live API 接続の設計（Step 3で実装）
+## 3. Gemini Multimodal Live API 接続の設計（Step 3で実装済み）
 
-- OkHttp WebSocketで `wss://generativelanguage.googleapis.com/.../BidiGenerateContent` に接続。
-- 接続時に `setup` メッセージでシステムプロンプト（シチュエーション設定・キャラクター人格・「相槌をリアルタイム検知して」という指示）と音声設定を送信。
-- マイク: `AudioRecord`（16kHz, 16bit PCM, mono）→ Base64 → `realtimeInput` として逐次送信。
-- モデル音声: 24kHz PCMチャンクが返る → `AudioTrack` のストリーミング再生キューに投入。
-- Live APIの組み込みVADからの割り込み/発話区間イベントを使い、「ユーザーが相槌を打ったか」「ユーザーが割り込んだか」を検知して `ConversationMetrics` に集計。
+- OkHttp WebSocketで `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=API_KEY` に接続（`GeminiLiveClientImpl`）。
+- 接続直後に `setup` メッセージを送信: `model`（`gemini-2.5-flash-native-audio-preview-12-2025`）、`generationConfig.responseModalities=["AUDIO"]` + `speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName`、`systemInstruction`（シチュエーション・キャラクター設定・会話ルール）、`inputAudioTranscription`/`outputAudioTranscription`（どちらも空オブジェクトでデフォルト設定を有効化）。サーバーから `setupComplete` が返るまで待ってからマイク送信を開始する。
+- マイク: `MicrophoneStreamer`（`AudioRecord`, 16kHz/16bit PCM mono, `VOICE_COMMUNICATION`ソースでエコーキャンセル）→ Base64 → `realtimeInput.audio`（`mimeType: "audio/pcm;rate=16000"`）として100msチャンクで逐次送信。
+- モデル音声: `serverContent.modelTurn.parts[].inlineData.data`（24kHz PCM, base64）が返る → `AudioPlaybackStreamer`（`AudioTrack`, MODE_STREAM）で再生。`serverContent.interrupted=true`（ユーザーの割り込みをVADが検知）を受けたら再生中の音声を即座にflush()してバージイン挙動を再現。
+- `serverContent.turnComplete=true` / `interrupted=true` で話者状態をリセットし、`LiveEvent.SpeakerChanged(null)` を発行。
+
+**話者タグの実装**（§5の採用案の実装詳細）: システムプロンプトで各キャラクターに「発言の冒頭で必ず自分の名前を名乗ってから話す」よう指示し、`outputTranscription.text` の各チャンクが登場人物名で始まっていないかをbest-effortでパースして `SpeakerChanged` を発行する（`updateSpeakerFromTranscript`）。完全ではないヒューリスティックである点に注意。
+
+**相槌検知の実装**: Live APIに「相槌とそれ以外の発言を区別する」専用シグナルは無いため、`inputTranscription.text` が届いた時点でAIがまだ話し中（`isAiSpeaking`）かつ短い（8文字以下）かつ相槌語彙（「うん」「はい」「なるほど」等）を含む場合に `UserAizuchiDetected` とみなすヒューリスティックを採用（`handleUserTranscript`）。`serverContent.interrupted=true` は別途「本当にユーザーが割り込んだ」シグナルとして `UserInterrupted` にマッピングする。
 
 ## 4. レポート生成の設計（Step 4で実装）
 
@@ -76,9 +80,19 @@ Gemini Multimodal Live APIは**1セッション＝1つの音声（ボイス）**
 - **採用案**: 1つのLive APIセッションに対し、システムプロンプトで「複数キャラクターを演じ分け、各発言の先頭に話者タグ（例: `[山田さん]`）を付けて話す」よう指示する。アプリ側はストリーミングされるテキストトランスクリプトから話者タグをパースして `SpeakerChanged` イベントを発行し、UIのアイコン発光を切り替える。音声そのものは単一ボイスのまま。
 - **代替案（将来拡張）**: キャラクターごとに個別のLive APIセッションを張り、アプリ側で発言権を管理して交互に音声を流す。声質を本当に変えられる一方、セッション管理・順番制御・レイテンシの複雑さが大きく増す。Step 3では採用しない。
 
-この制約とUI要件（発話者が光る）の両立方法は、Step 2のUIモックアップおよびStep 3の実装で具体化する。
+この制約とUI要件（発話者が光る）の両立方法は、Step 2のUIモックアップとStep 3の話者タグ・パース実装（§3参照）で具体化した。
 
-## 6. プロジェクト基盤（Step 1で実装済み）
+## 6. Step 3で実装済み
+
+- `core/audio/MicrophoneStreamer.kt` / `AudioPlaybackStreamer.kt`: マイク録音・音声再生。
+- `core/gemini/live/LiveApiModels.kt`: Live APIのWebSocketメッセージのkotlinx.serializationモデル。
+- `core/gemini/live/GeminiLiveClientImpl.kt`: 接続・setup・音声送受信・話者タグ/相槌ヒューリスティック。
+- `di/GeminiModule.kt`: `GeminiLiveClient` を `ViewModelScoped` でDI（会話ごとに新しいセッション）。
+- `ConversationViewModel`: モックの発話者ローテーションを実イベント購読に置き換え、マイク許可後に接続を開始。`ConversationMetrics`（相槌数・割り込み数）をリアルタイムに集計（トランスクリプト自体はStep 4で取得）。
+
+未検証事項: このサンドボックスではGemini Live APIへの実接続テストができない（Google Mavenと同様、外部ネットワークが制限されている）。モデル名・音声名は執筆時点の公開情報に基づくが、Google側の変更で無効化される可能性があるため、実機/Android Studioでの初回接続時に確認すること。
+
+## 7. プロジェクト基盤（Step 1で実装済み）
 
 - Kotlin 2.0 / AGP 8.5 / Gradle 8.9（Version Catalog: `gradle/libs.versions.toml`）
 - Jetpack Compose（BOM 2024.09） + Material3 + Navigation Compose

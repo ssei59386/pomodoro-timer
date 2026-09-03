@@ -39,8 +39,9 @@ import com.talkpractice.app.ui.theme.TalkPracticeTheme
 
 /**
  * PRD §3②: the AI cast + the user, with the currently-speaking participant highlighted.
- * [viewModel]'s speaker rotation is a step-2 mock (see [ConversationViewModel]) — the
- * layout and glow mechanic here are what step 3 will drive with real Live API events.
+ * The Live API connection only opens once RECORD_AUDIO is granted (see the
+ * `LaunchedEffect(microphoneGranted)` below); [ConversationViewModel] owns the actual
+ * `GeminiLiveClient` session and drives [currentSpeakerId] from real server events.
  */
 @Composable
 fun ConversationScreen(
@@ -51,7 +52,13 @@ fun ConversationScreen(
     ConversationScreenContent(
         situation = uiState.situation,
         currentSpeakerId = uiState.currentSpeakerId,
-        onFinishConversation = onFinishConversation,
+        isConnecting = uiState.isConnecting,
+        errorMessage = uiState.errorMessage,
+        onMicrophoneGranted = viewModel::startConversationIfNeeded,
+        onFinishConversation = {
+            viewModel.endConversation()
+            onFinishConversation()
+        },
     )
 }
 
@@ -59,6 +66,9 @@ fun ConversationScreen(
 private fun ConversationScreenContent(
     situation: Situation,
     currentSpeakerId: String?,
+    isConnecting: Boolean = false,
+    errorMessage: String? = null,
+    onMicrophoneGranted: () -> Unit = {},
     onFinishConversation: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -74,6 +84,9 @@ private fun ConversationScreenContent(
 
     LaunchedEffect(Unit) {
         if (!microphoneGranted) permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
+    LaunchedEffect(microphoneGranted) {
+        if (microphoneGranted) onMicrophoneGranted()
     }
 
     Scaffold(
@@ -95,6 +108,10 @@ private fun ConversationScreenContent(
         ) {
             if (!microphoneGranted) {
                 MicPermissionNotice(onRequestAgain = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) })
+            } else if (isConnecting) {
+                StatusNotice(text = "AIキャラクターに接続しています…")
+            } else if (errorMessage != null) {
+                StatusNotice(text = "エラー: $errorMessage", isError = true)
             }
 
             Text(text = "会話相手", style = MaterialTheme.typography.labelLarge)
@@ -136,6 +153,22 @@ private fun MicPermissionNotice(onRequestAgain: () -> Unit) {
                 Text("マイクを許可する")
             }
         }
+    }
+}
+
+@Composable
+private fun StatusNotice(text: String, isError: Boolean = false) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isError) {
+                MaterialTheme.colorScheme.errorContainer
+            } else {
+                MaterialTheme.colorScheme.secondaryContainer
+            },
+        ),
+    ) {
+        Text(text = text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(12.dp))
     }
 }
 
