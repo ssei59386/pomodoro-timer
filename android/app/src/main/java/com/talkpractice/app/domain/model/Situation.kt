@@ -39,4 +39,9 @@ enum class Situation(
             Character(id = "taku", name = "タクさん", role = "初対面", voiceProfile = VoiceProfile.CALM_MALE),
         ),
     ),
+    ;
+
+    companion object {
+        fun fromId(id: String): Situation = entries.first { it.id == id }
+    }
 }

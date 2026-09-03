@@ -11,23 +11,37 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.talkpractice.app.ui.conversation.ConversationScreen
+import com.talkpractice.app.ui.situationselect.SituationSelectScreen
 
-/**
- * Skeleton nav graph for step 1: proves the three-screen architecture wires together.
- * Each destination is a placeholder — real UI lands in step 2 (situation select +
- * conversation), and step 4 (report).
- */
 @Composable
 fun TalkPracticeNavHost(navController: NavHostController = rememberNavController()) {
     NavHost(navController = navController, startDestination = Screen.SituationSelect.route) {
         composable(Screen.SituationSelect.route) {
-            PlaceholderScreen(title = "① シチュエーション選択画面")
+            SituationSelectScreen(
+                onSituationSelected = { situation ->
+                    navController.navigate(Screen.Conversation.createRoute(situation.id))
+                },
+            )
         }
-        composable(Screen.Conversation.route) {
-            PlaceholderScreen(title = "② 会話画面")
+        composable(
+            route = Screen.Conversation.route,
+            arguments = listOf(navArgument(Screen.Conversation.ARG_SITUATION_ID) { type = NavType.StringType }),
+        ) {
+            ConversationScreen(
+                onFinishConversation = {
+                    // TODO(step4): pass the collected transcript/metrics through to the
+                    // report screen instead of just navigating to a placeholder.
+                    navController.navigate(Screen.Report.route) {
+                        popUpTo(Screen.SituationSelect.route)
+                    }
+                },
+            )
         }
         composable(Screen.Report.route) {
             PlaceholderScreen(title = "③ 採点レポート画面")
@@ -45,6 +59,6 @@ private fun PlaceholderScreen(title: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(text = title, style = MaterialTheme.typography.headlineSmall)
-        Text(text = "Step 1: プロジェクト基盤のみ（UIは次のステップで実装）")
+        Text(text = "Step 4で実装予定")
     }
 }
