@@ -9,8 +9,8 @@ sealed class Screen(val route: String) {
         fun createRoute(situationId: String) = "conversation/$situationId"
     }
 
-    // Report is navigated to with the in-memory result rather than a route argument
-    // (no persistence layer per PRD §1), so it is owned by a shared nav-graph-scoped
-    // ViewModel instead of taking IDs through the route — wired up in step 4.
+    // Report takes no route argument: the transcript/metrics it needs are handed over
+    // in-memory via ConversationResultHolder (no persistence layer per PRD §1) rather
+    // than serialized through the route.
     data object Report : Screen("report")
 }

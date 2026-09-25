@@ -67,11 +67,14 @@ di/              Hilt モジュール（NetworkModule 等）
 
 **相槌検知の実装**: Live APIに「相槌とそれ以外の発言を区別する」専用シグナルは無いため、`inputTranscription.text` が届いた時点でAIがまだ話し中（`isAiSpeaking`）かつ短い（8文字以下）かつ相槌語彙（「うん」「はい」「なるほど」等）を含む場合に `UserAizuchiDetected` とみなすヒューリスティックを採用（`handleUserTranscript`）。`serverContent.interrupted=true` は別途「本当にユーザーが割り込んだ」シグナルとして `UserInterrupted` にマッピングする。
 
-## 4. レポート生成の設計（Step 4で実装）
+## 4. レポート生成の設計（Step 4で実装済み）
 
-- 会話終了後、蓄積した `List<TranscriptEntry>` と `ConversationMetrics` を1回のREST `generateContent` 呼び出し（gemini-1.5-pro等）に渡す。
-- レスポンスは `responseSchema` でJSON形式を強制し、`EvaluationReport`（3軸スコア・良い点/悪い点・言い換え提案）にそのままデコードする。
-- 単発リクエストなのでLive API接続とは別クライアント（`GeminiReportClient`、通常のOkHttp + kotlinx.serialization）。
+- `ConversationViewModel` はLive APIの `UserTranscript`/`ModelTranscript` イベント（細切れのチャンクとして届く）を話者ごとにバッファリングし、話者交代・ターン終了のタイミングで `TranscriptEntry` にフラッシュする（`flushUserEntry`/`flushModelEntry`）。ユーザー・AIそれぞれの発話時間はこのエントリのタイムスタンプ差分から近似計算する。
+- 「会話を終了」時、蓄積した `List<TranscriptEntry>` と `ConversationMetrics` を `ConversationResultHolder`（`@Singleton`、consume-once の in-memoryホルダー）に publish してから画面遷移する。ナビゲーション経由でオブジェクトを渡す代わりにこの方式を採ったのは、NavHostがフラットな構成（ネストしたグラフではない）だったため。
+- `ReportViewModel` は起動時に `ConversationResultHolder.consume()` で結果を取り出し、`GeminiReportClient.generateReport(transcript, metrics)` を1回だけ呼び出す（`GeminiReportClientImpl`）。
+- REST `POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent` に、`generationConfig.responseMimeType="application/json"` + `responseSchema`（`EvaluationReport`と同じ形のJSON Schema）を指定して呼び出し、返ってきたJSON文字列を `EvaluationReportDto` にデコードしてドメインモデルへマッピングする。
+- 単発リクエストなのでLive API接続とは別クライアント（`GeminiReportClient`、通常のOkHttp + kotlinx.serialization、`@Singleton`でDI — Live APIの`GeminiLiveClient`とは違い会話ごとの状態を持たないため）。
+- `ReportScreen` は Canvas直描画のシンプルな3軸レーダーチャート（`RadarChart.kt`、外部チャートライブラリ不使用）＋数値の凡例＋良かった点/改善点のカード＋言い換え提案カードを表示する。
 
 ## 5. 重要な設計トレードオフ：複数キャラクターの音声表現
 
@@ -92,7 +95,17 @@ Gemini Multimodal Live APIは**1セッション＝1つの音声（ボイス）**
 
 未検証事項: このサンドボックスではGemini Live APIへの実接続テストができない（Google Mavenと同様、外部ネットワークが制限されている）。モデル名・音声名は執筆時点の公開情報に基づくが、Google側の変更で無効化される可能性があるため、実機/Android Studioでの初回接続時に確認すること。
 
-## 7. プロジェクト基盤（Step 1で実装済み）
+## 7. Step 4で実装済み
+
+- `domain/model/ConversationResult.kt` / `core/ConversationResultHolder.kt`: 会話結果のin-memoryな受け渡し。
+- `core/gemini/report/ReportApiModels.kt` / `GeminiReportClientImpl.kt`: `generateContent` REST呼び出し + `responseSchema`によるJSON強制。
+- `di/GeminiReportModule.kt`: `GeminiReportClient` を `@Singleton` でDI。
+- `ui/report/ReportViewModel.kt` / `ReportScreen.kt` / `RadarChart.kt`: レポート画面本体とレーダーチャート。
+- `ConversationViewModel`: トランスクリプトの蓄積・フラッシュと `ConversationResultHolder` への publish を追加。
+
+未検証事項: Step 3同様、このサンドボックスから実際に `generateContent` を呼び出して確認することはできない。`responseSchema` のtype名（`OBJECT`/`STRING`/`INTEGER`/`ARRAY`）は現行の公開ドキュメントに基づくが、実機での初回実行時にレスポンスがパースできることを確認すること。
+
+## 8. プロジェクト基盤（Step 1で実装済み）
 
 - Kotlin 2.0 / AGP 8.5 / Gradle 8.9（Version Catalog: `gradle/libs.versions.toml`）
 - Jetpack Compose（BOM 2024.09） + Material3 + Navigation Compose

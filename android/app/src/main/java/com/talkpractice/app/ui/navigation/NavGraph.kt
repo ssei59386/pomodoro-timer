@@ -1,15 +1,6 @@
 package com.talkpractice.app.ui.navigation
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -17,6 +8,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.talkpractice.app.ui.conversation.ConversationScreen
+import com.talkpractice.app.ui.report.ReportScreen
 import com.talkpractice.app.ui.situationselect.SituationSelectScreen
 
 @Composable
@@ -35,8 +27,9 @@ fun TalkPracticeNavHost(navController: NavHostController = rememberNavController
         ) {
             ConversationScreen(
                 onFinishConversation = {
-                    // TODO(step4): pass the collected transcript/metrics through to the
-                    // report screen instead of just navigating to a placeholder.
+                    // ConversationViewModel.endConversation() (called by ConversationScreen
+                    // before this navigates) already published the transcript/metrics to
+                    // ConversationResultHolder for ReportViewModel to pick up.
                     navController.navigate(Screen.Report.route) {
                         popUpTo(Screen.SituationSelect.route)
                     }
@@ -44,21 +37,7 @@ fun TalkPracticeNavHost(navController: NavHostController = rememberNavController
             )
         }
         composable(Screen.Report.route) {
-            PlaceholderScreen(title = "③ 採点レポート画面")
+            ReportScreen()
         }
-    }
-}
-
-@Composable
-private fun PlaceholderScreen(title: String) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(text = title, style = MaterialTheme.typography.headlineSmall)
-        Text(text = "Step 4で実装予定")
     }
 }
