@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: #f8faf9;
+  color: #153d2f;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.4) sepia(1) saturate(3) hue-rotate(100deg);
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+::-webkit-scrollbar {
+  display: none;
+}
