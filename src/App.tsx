@@ -1,67 +1,33 @@
 import { useState } from "react";
-import { useStore } from "./store";
-import { Onboarding } from "./components/Onboarding";
-import { Home } from "./components/Home";
-import { SessionRecord } from "./components/SessionRecord";
-import { Dashboard } from "./components/Dashboard";
-import { Settings } from "./components/Settings";
+import BottomNav from "./components/BottomNav";
+import RecordScreen from "./screens/RecordScreen";
+import CalendarScreen from "./screens/CalendarScreen";
+import GraphScreen from "./screens/GraphScreen";
+import SettingsScreen from "./screens/SettingsScreen";
+import { todayKey } from "./utils/date";
 
-// 仕様書 §7: 最小版で必要な画面は5つ。
-export type Tab = "home" | "record" | "dashboard" | "settings";
+export type TabKey = "record" | "calendar" | "graph" | "settings";
 
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: "home", label: "今日", icon: "📋" },
-  { id: "record", label: "記録", icon: "✏️" },
-  { id: "dashboard", label: "理解度", icon: "📊" },
-  { id: "settings", label: "設定", icon: "⚙️" },
-];
+export default function App() {
+  const [activeTab, setActiveTab] = useState<TabKey>("record");
+  const [recordDate, setRecordDate] = useState<string>(todayKey());
 
-export function App() {
-  const { data } = useStore();
-  const [tab, setTab] = useState<Tab>("home");
-  // 「記録する」ボタンから記録画面へ来たときに章を事前選択するための受け渡し
-  const [preselectChapterId, setPreselectChapterId] = useState<string | null>(null);
-
-  // 仕様書 §7.1: 未オンボーディングなら初期設定画面を全画面で表示
-  if (!data.onboarded) {
-    return <Onboarding />;
+  function openRecordFor(date: string) {
+    setRecordDate(date);
+    setActiveTab("record");
   }
 
-  const goRecord = (chapterId?: string) => {
-    setPreselectChapterId(chapterId ?? null);
-    setTab("record");
-  };
-
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <h1>定期テスト学習進捗管理</h1>
-      </header>
-
-      <main className="app-main">
-        {tab === "home" && <Home onRecord={goRecord} />}
-        {tab === "record" && (
-          <SessionRecord
-            preselectChapterId={preselectChapterId}
-            onDone={() => setTab("dashboard")}
-          />
+    <div className="min-h-screen bg-[#f8faf9]">
+      <div className="safe-top mx-auto max-w-lg pb-24">
+        {activeTab === "record" && (
+          <RecordScreen date={recordDate} onDateChange={setRecordDate} />
         )}
-        {tab === "dashboard" && <Dashboard />}
-        {tab === "settings" && <Settings />}
-      </main>
-
-      <nav className="tab-bar">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            className={t.id === tab ? "tab active" : "tab"}
-            onClick={() => setTab(t.id)}
-          >
-            <span className="tab-icon">{t.icon}</span>
-            <span className="tab-label">{t.label}</span>
-          </button>
-        ))}
-      </nav>
+        {activeTab === "calendar" && <CalendarScreen onEditDate={openRecordFor} />}
+        {activeTab === "graph" && <GraphScreen />}
+        {activeTab === "settings" && <SettingsScreen />}
+      </div>
+      <BottomNav active={activeTab} onChange={setActiveTab} />
     </div>
   );
 }
